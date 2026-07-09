@@ -10,22 +10,25 @@
 
 **Windows 用户** → 双击 **`启动桌宠.bat`**
 
-它会自动帮你搞定一切：
+它会自动帮你搞定大部分事情：
 
 | 阶段 | 自动做什么 | 需要你做什么 |
 |------|-----------|------------|
-| ① 装 Python | 检测到没有就自动下载安装 | 等几分钟 |
-| ② 装依赖 | 自动 pip install PyQt5 等 | 等几分钟 |
-| ③ 配置向导 | 弹出图形化设置窗口 | 选 AI 大脑、设语音 |
-| ④ 启动桌宠 | 自动运行 pet.py | 🐱 开玩 |
+| ① 装依赖 | 自动 pip install PyQt5 等 | 等几分钟 |
+| ② 配置向导 | 弹出图形化设置窗口 | 选 AI 大脑、设语音 |
+| ③ 启动桌宠 | 自动运行 pet.py | 🐱 开玩 |
+
+> ⚠️ Python 需要自行安装（启动脚本检测不到时会提示下载）。  
+> 推荐 [python.org](https://www.python.org/downloads/) 下载 Python 3.10~3.12，安装时勾选"Add Python to PATH"。
 
 配置向导里只用选两样东西：
 
 1. **AI 大脑** — 推荐选「Ollama」（免费，不需要任何 Key）
    - 向导可以帮你下载安装 Ollama + 拉取模型
    - 对话用 `qwen2.5:7b`，识图用 `minicpm-v`
-2. **语音** — 开/关，选中文还是日语
-   - 语音引擎已切换为 **GPT-SoVITS-CPUFast**（推理加速版，快 32~45%）
+2. **语音** — 开/关
+   - 语音引擎使用 **GPT-SoVITS** 本地推理
+   - 梅尔说日语（中文回复会自动翻译成日语后合成）
    - 如果没装语音环境，向导会教你装
 
 > 不想用图形界面？复制 `config.example.json` 为 `config.json` 后手动编辑也一样。
@@ -36,8 +39,8 @@
 
 | 功能 | 说明 |
 |------|------|
-| 💬 **聊天** | 双击桌宠打开输入框，AI 会回复你。支持 Ollama / DeepSeek / Hermes 三种后端 |
-| 🎤 **说话** | 文字回复会合成语音读出来，中/日双语可选（模型已打包） |
+| 💬 **聊天** | 双击桌宠打开输入框，AI 会回复你。支持 Ollama / DeepSeek 两种后端 |
+| 🎤 **说话** | 文字回复会合成日语语音读出来（模型已打包，中文会自动翻译后合成） |
 | 👀 **偷看屏幕** | 它会定时看看你在干嘛，偶尔吐槽一句 |
 | 🖱️ **摸头** | 鼠标在头部左右拖拽，会有反应 |
 | 🎭 **换表情** | 右键菜单切换心情，立绘会变 |
@@ -48,18 +51,29 @@
 
 ### 配置
 
-编辑 `config.json`：
+编辑 `config.json`（完整字段请参考 `config.example.json`）：
 
 ```json
 {
   "llm": {
     "backend": "ollama",
     "host": "http://127.0.0.1:11434",
-    "model": "qwen2.5:7b"
+    "model": "qwen2.5:7b",
+    "api_key": "",
+    "api_base": "https://api.deepseek.com"
+  },
+  "vision": {
+    "model": "minicpm-v"
   },
   "tts": {
-    "enabled": false,
+    "engine": "gpt_sovits",
+    "enabled": true,
     "translate_api_key": "your-api-key-here"
+  },
+  "character": {
+    "name": "梅尔",
+    "default_outfit": "01",
+    "default_direction": "A"
   }
 }
 ```
@@ -68,10 +82,7 @@
 
 | 变量 | 用途 |
 |------|------|
-| `HERMES_HOME` | Hermes Bridge 配置目录（含 SOUL.md） |
-| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
-| `GSV_PYTHON` | GPT-SoVITS-CPUFast conda 环境的 python.exe 路径 |
-| `GSV_ROOT` | GPT-SoVITS-CPUFast 克隆根目录 |
+| `GSV_PYTHON` | GPT-SoVITS conda 环境的 python.exe 路径 |
 
 ### 运行
 
@@ -99,17 +110,14 @@ python pet.py
 
 | # | 配置项 / 环境变量 | 所属功能 | 是否需要 | 用途说明 |
 |---|------------------|---------|---------|---------|
-| 1 | `config.json` → `llm.api_key` | **AI 对话**（DeepSeek 后端） | 可选 | LLM 对话密钥。如果 `backend` 设为 `"deepseek"` 或 `"hermes"` 则需要；设为 `"ollama"` 则不需要 |
-| 2 | `DEEPSEEK_API_KEY` 环境变量 | **Hermes Bridge** / **AI 对话** | 可选 | `hermes_bridge.py`、`chat.py`、`api_chat.py` 共用。如果已在 `config.json` 中填入 key 则不需要设置 |
-| 3 | `config.json` → `tts.translate_api_key` | **TTS 日语翻译** | 可选 | 将中文回复翻译成日语再合成语音时使用（DeepSeek API）。注意：如果 AI 后端选的是 Ollama 但语音想要日语，仍然需要填这个 Key；如果 AI 后端本身就是 DeepSeek，则自动共用同一个 Key，无需额外填写 |
-| 4 | `config.json` → `llm.api_base` | **AI 对话** | 可选 | API 地址。默认 `https://api.deepseek.com/v1`，可改为其他 OpenAI 兼容 API |
-| 5 | `DEEPSEEK_BASE_URL` 环境变量 | **Hermes Bridge** | 可选 | 同上，覆盖 `api_base` |
+| 1 | `config.json` → `llm.api_key` | **AI 对话**（DeepSeek 后端） | 可选 | LLM 对话密钥。如果 `backend` 设为 `"deepseek"` 则需要；设为 `"ollama"` 则不需要 |
+| 2 | `config.json` → `tts.translate_api_key` | **TTS 日语翻译** | 可选 | 将 AI 回复翻译成日语再合成语音时使用。如果 AI 后端本身就是 DeepSeek，则自动共用同一个 Key，无需额外填写 |
+| 3 | `config.json` → `llm.api_base` | **AI 对话** | 可选 | API 地址。默认 `https://api.deepseek.com/v1`，可改为其他 OpenAI 兼容 API |
 
 | 后端模式 | `config.json` 设置 | 需要什么 | 说明 |
 |---------|-------------------|---------|------|
 | **Ollama**（默认） | `"backend": "ollama"` | 不需要 API Key | 本地运行，免费，推荐 |
-| **DeepSeek API** | `"backend": "deepseek"` | DeepSeek API Key | 需要 `api_key`，填入 `config.json` 或设置 `DEEPSEEK_API_KEY` 环境变量 |
-| **Hermes Bridge** | `"backend": "hermes"` | DeepSeek API Key | 通过本地桥接服务（端口 18888）调 DeepSeek API。需启动 `hermes_bridge.py` |
+| **DeepSeek API** | `"backend": "deepseek"` | DeepSeek API Key | 需要 `api_key`，填入 `config.json` 或设置环境变量 |
 
 > 👀 **关于屏幕识图**：偷看屏幕功能**始终使用 Ollama**（需要视觉模型如 minicpm-v），与 LLM 后端无关。
 > 即使 AI 对话选了 DeepSeek，想要识图功能也需要安装 Ollama + 视觉模型。
@@ -117,11 +125,10 @@ python pet.py
 ### 快速判断
 
 ```
-只用 Ollama（本地）+ 中文语音     → 不需要任何 API Key ✅
+只用 Ollama（本地）+ 不开语音     → 不需要任何 API Key ✅
 只用 Ollama（本地）+ 日语语音     → 只需要 translate_api_key（翻译用）
-用 DeepSeek 对话 + 中文语音       → 只需要 DEEPSEEK_API_KEY
+用 DeepSeek 对话 + 不开语音       → 只需要 DEEPSEEK_API_KEY
 用 DeepSeek 对话 + 日语语音       → 只需要 DEEPSEEK_API_KEY（翻译自动共用）
-只用 Ollama，不开语音             → 不需要任何 API Key ✅
 
 👀 屏幕识图功能：无论选什么后端，都需要 Ollama + 视觉模型（minicpm-v）
 ```
@@ -141,32 +148,32 @@ python pet.py
 ```
 mea-pet/
 ├── setup_wizard.py          # 🎯 一键配置向导（推荐先运行）
-├── pet.py                  # 主程序入口
-├── config.json             # 用户配置（已加入 .gitignore）
-├── config.example.json     # 配置模板
-├── chat.py                 # LLM 对话引擎
-├── hermes_bridge.py        # Hermes API 桥接服务
-├── api_chat.py             # 独立 API 调用子进程
-├── tts.py                  # GPT-SoVITS-CPUFast 语音合成
-├── gsv_infer.py            # GPT-SoVITS-CPUFast 推理子进程
-├── live2d_widget.py        # Live2D OpenGL 渲染
-├── pet_live2d.py           # Live2D WebEngine 版
-├── renderer.py             # PNG 差分立绘渲染
-├── memory.py               # SQLite 记忆与养成系统
-├── watcher.py              # 屏幕观察模块
-├── status_panel.py         # 养成状态面板
-├── chat_input.py           # Galgame 风格输入框
-├── utils.py                # 工具函数
-├── precache_interactions.py# 预生成互动语音缓存
-├── pre_render_voices.py    # 预合成语音
-├── live2d/                 # Live2D 模型与 JS 资源
+├── pet.py                   # 主程序入口
+├── config.json              # 用户配置（不会提交到 Git）
+├── config.example.json      # 配置模板
+├── chat.py                  # LLM 对话引擎（Ollama / DeepSeek）
+├── tts.py                   # GPT-SoVITS 语音合成
+├── gsv_infer.py             # GPT-SoVITS 推理子进程
+├── live2d_widget.py         # Live2D OpenGL 渲染
+├── pet_live2d.py            # Live2D WebEngine 版
+├── renderer.py              # PNG 差分立绘渲染
+├── memory.py                # SQLite 记忆与养成系统
+├── watcher.py               # 屏幕观察模块
+├── status_panel.py          # 养成状态面板
+├── chat_input.py            # Galgame 风格输入框
+├── utils.py                 # 工具函数
+├── precache_interactions.py # 预生成互动语音缓存
+├── pre_render_voices.py     # 预合成语音
+├── weight.json              # TTS 模型权重注册表
+├── live2d/                  # Live2D 模型与 JS 资源
 │   ├── index.html
-│   ├── model/mea_live2d/   # 默认 Live2D 模型
-│   └── js/                 # Cubism SDK 与渲染库
-├── GPT-Sovits/             # TTS 参考音频
-├── sprites/                # PNG 差分立绘（需自行准备）
-├── voice_cache/            # 语音缓存（生成文件）
-├── audio_cache/            # TTS 输出缓存（生成文件）
+│   ├── model/mea_live2d/    # 默认 Live2D 模型
+│   └── js/                  # Cubism SDK 与渲染库
+├── models/                  # TTS 模型权重
+│   ├── GPT_weights/         # GPT 模型（mea_pro-e50.ckpt）
+│   └── SoVITS_weights/      # SoVITS 模型（mea_pro_e24_s13704.pth）
+├── GPT-Sovits/              # TTS 参考音频（日语，normal/clam/soft 三种情绪）
+├── sprites/                 # PNG 差分立绘（已包含梅尔全套）
 └── .gitignore
 ```
 
@@ -198,7 +205,6 @@ mea-pet/
 ## 🙏 致谢
 
 - [Live2D Cubism](https://www.live2d.com/) - Live2D 渲染引擎
-- [GPT-SoVITS-CPUFast](https://github.com/baicai-1145/GPT-SoVITS-CPUFast) - 推理加速引擎
 - [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) - 语音合成
 - [Ollama](https://ollama.ai/) - 本地 LLM 运行
 - [DeepSeek](https://deepseek.com/) - 对话 API
