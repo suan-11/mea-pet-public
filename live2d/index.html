@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; }
+html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: transparent !important;
+}
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+#status {
+    position: fixed; bottom: 4px; left: 4px;
+    color: rgba(255,255,255,0.5); font-size: 10px;
+    font-family: sans-serif; pointer-events: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="status">loading...</div>
+
+<script src="js/live2dcubismcore.min.js"></script>
+<script>
+"use strict";
+
+const canvas = document.getElementById('c');
+const statusEl = document.getElementById('status');
+
+// ============ WebGL 初始化 ============
+function initGL() {
+    const opts = { alpha: true, premultipliedAlpha: true, antialias: true };
+    let gl = canvas.getContext('webgl2', opts);
+    if (!gl) { gl = canvas.getContext('webgl', opts); }
+    if (!gl) {
+        statusEl.textContent = 'WebGL not available';
+        return null;
+    }
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    return gl;
+}
+
+const gl = initGL();
+if (!gl) throw new Error('No WebGL');
+
+// ============ 简写着色器 ============
+const VS = `
+attribute vec2 a_position, a_texCoord;
+varying vec2 v_texCoord;
+uniform mat4 u_matrix;
+void main() {
+    gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);
+    v_texCoord = a_texCoord;
+}`;
+
+const FS = `
+precision mediump float;
+varying vec2 v_texCoord;
+uniform sampler2D u_texture;
+uniform vec4 u_colorBlend;
+void main() {
+    vec4 c = texture2D(u_texture, v_texCoord);
+    gl_FragColor = vec4(c.rgb * u_colorBlend.rgb, c.a * u_colorBlend.a);
+}`;
+
+function compile(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s));
+        return null;
+    }
+    return s;
+}
+
+const program = (() => {
+    const vs = compile(gl, gl.VERTEX_SHADER, VS);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    return p;
+})();
+
+const a_pos = gl.getAttribLocation(program, 'a_position');
+const a_uv = gl.getAttribLocation(program, 'a_texCoord');
+const u_mat = gl.getUniformLocation(program, 'u_matrix');
+const u_tex = gl.getUniformLocation(program, 'u_texture');
+const u_blend = gl.getUniformLocation(program, 'u_colorBlend');
+
+// ============ 文件加载（兼容 file:// 协议）============
+function fetchLocal(path) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', path, true);
+        xhr.responseType = '';  // text
+        xhr.onload = () => {
+            if (xhr.status === 0 || xhr.status === 200) resolve(xhr.responseText);
+            else reject(new Error('XHR error: ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('XHR failed'));
+        xhr.send();
+    });
+}
+
+function fetchLocalBinary(path) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', path, true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = () => {
+            if (xhr.status === 0 || xhr.status === 200) resolve(xhr.response);
+            else reject(new Error('XHR error: ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('XHR failed'));
+        xhr.send();
+    });
+}
+const textures = [];
+const modelDir = 'model/mea_live2d/';
+let model = null;
+let modelLoaded = false;
+let modelCanvasW = 1, modelCanvasH = 1;
+let displayScale = 1;
+let offsetX = 0, offsetY = 0;
+
+async function loadTexture(path) {
+    const img = new Image();
+    img.src = path;
+    await new Promise((resolve, reject) => {
+        img.onload = resolve; img.onerror = reject;
+    });
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    textures.push(tex);
+    return textures.length - 1;
+}
+
+// ============ 坐标变换 ============
+function ortho(left, right, bottom, top, near, far) {
+    const m = new Float32Array(16);
+    m[0] = 2 / (right - left); m[1] = 0; m[2] = 0; m[3] = 0;
+    m[4] = 0; m[5] = 2 / (top - bottom); m[6] = 0; m[7] = 0;
+    m[8] = 0; m[9] = 0; m[10] = -2 / (far - near); m[11] = 0;
+    m[12] = -(right + left) / (right - left);
+    m[13] = -(top + bottom) / (top - bottom);
+    m[14] = -(far + near) / (far - near);
+    m[15] = 1;
+    return m;
+}
+
+function translate(m, x, y) {
+    m[12] += x; m[13] += y;
+}
+
+function scale(m, sx, sy) {
+    m[0] *= sx; m[5] *= sy;
+    m[12] *= sx; m[13] *= sy;
+}
+
+// ============ 加载模型 ============
+async function loadModel() {
+    try {
+        const resp = await fetchLocal(modelDir + 'mea.model3.json');
+        const model3 = JSON.parse(resp);
+
+        // 加载纹理
+        const texRefs = model3.FileReferences.Textures;
+        for (const t of texRefs) {
+            await loadTexture(modelDir + t);
+        }
+
+        // 加载 moc3
+        const mocResp = await fetchLocalBinary(modelDir + model3.FileReferences.Moc);
+        const mocBuf = mocResp;
+
+        model = Live2DCubismCore.Moc.fromArrayBuffer(mocBuf);
+        if (!model) { throw new Error('Moc.fromArrayBuffer returned null'); }
+        model = Live2DCubismCore.Model.fromMoc(model);
+        if (!model) { throw new Error('Model.fromMoc returned null'); }
+
+        modelCanvasW = model.getCanvasInfo().CanvasWidth;
+        modelCanvasH = model.getCanvasInfo().CanvasHeight;
+
+        // 计算初始缩放
+        updateLayout();
+
+        modelLoaded = true;
+        statusEl.textContent = '';
+        console.log('Live2D model loaded:', modelCanvasW, 'x', modelCanvasH);
+    } catch(e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        console.error(e);
+    }
+}
+
+function updateLayout() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    displayScale = Math.min(w / modelCanvasW * 0.9, h / modelCanvasH * 0.9);
+    offsetX = (w - modelCanvasW * displayScale) / 2 - w/2;
+    offsetY = h * 0.05 - h/2;
+}
+
+// ============ 渲染 ============
+let lastTime = 0;
+
+function render(now) {
+    requestAnimationFrame(render);
+    if (!model) return;
+
+    const dt = Math.min((now - lastTime) / 1000, 0.1);
+    lastTime = now;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    model.update(dt);
+
+    gl.useProgram(program);
+    gl.uniform1i(u_tex, 0);
+
+    // 构建变换矩阵
+    const m = ortho(-w/2, w/2, h/2, -h/2, -1, 1);
+    scale(m, displayScale, displayScale);
+    translate(m, offsetX / displayScale, offsetY / displayScale);
+
+    const drawables = model.getDrawables();
+    const count = model.getDrawableCount();
+
+    for (let i = 0; i < count; i++) {
+        if (!drawables.getDynamicFlagIsVisible(i)) continue;
+
+        const texIdx = drawables.getTextureIndex(i);
+        if (texIdx >= textures.length) continue;
+
+        const verts = drawables.getVertices(i);
+        const uvs = drawables.getVertexUvs(i);
+        const indices = drawables.getVertexIndices(i);
+        const opacity = drawables.getDrawableOpacity(i);
+        const mulColor = drawables.getMultiplyColor(i);
+        const scrColor = drawables.getScreenColor(i);
+
+        // 顶点缓冲
+        const vbuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
+        gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(a_pos);
+        gl.vertexAttribPointer(a_pos, 2, gl.FLOAT, false, 0, 0);
+
+        const ubuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, ubuf);
+        gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(a_uv);
+        gl.vertexAttribPointer(a_uv, 2, gl.FLOAT, false, 0, 0);
+
+        const ibuf = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibuf);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW);
+
+        gl.uniformMatrix4fv(u_mat, false, m);
+        gl.uniform4f(u_blend,
+            mulColor.R + scrColor.R,
+            mulColor.G + scrColor.G,
+            mulColor.B + scrColor.B,
+            opacity);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textures[texIdx]);
+
+        gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+
+        gl.deleteBuffer(vbuf);
+        gl.deleteBuffer(ubuf);
+        gl.deleteBuffer(ibuf);
+    }
+}
+
+// ============ 交互 ============
+let mouseDownTime = 0;
+let mouseDownPos = { x: 0, y: 0 };
+
+canvas.addEventListener('mousedown', (e) => {
+    mouseDownTime = Date.now();
+    mouseDownPos = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener('mouseup', (e) => {
+    const dt = Date.now() - mouseDownTime;
+    const dx = Math.abs(e.clientX - mouseDownPos.x);
+    const dy = Math.abs(e.clientY - mouseDownPos.y);
+    if (dt < 300 && dx < 10 && dy < 10) {
+        // 点击
+        if (window.pythonCallback) {
+            window.pythonCallback('click');
+        }
+    }
+});
+
+window.addEventListener('resize', () => { updateLayout(); });
+
+// ============ Python 接口 ============
+window.setScale = function(s) { displayScale = s; };
+window.getModelSize = function() { return { w: modelCanvasW, h: modelCanvasH }; };
+
+// ============ 启动 ============
+loadModel();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

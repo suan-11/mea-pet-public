@@ -1,0 +1,738 @@
+
+[01:56:07] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e8_s4568.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[01:56:22]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[01:56:36]   ✓ 所有 GSV 依赖已安装
+[01:56:36] 🔊 TTS: 我是梅尔，霞流宝石心的猫娘天才喵。...  mood=neutral
+[01:56:36]   → 翻译中…
+[01:56:38]   translate (alibaba): 私はメル、霞流宝石心の猫娘の天才ニャンです。
+[01:56:38]   → 合成: [日文] 私はメル、霞流宝石心の猫娘の天才ニャンです。
+[01:56:38]   ref=jp_normal.wav lang=日文
+[01:56:38]   → 合成: [日文] 私はメル、霞流宝石心の猫娘の天才ニャンです。
+[01:56:38]   text_len=22 chars payload_size=623 bytes
+[01:56:38]   ▶ 启动推理子进程…
+[01:57:08]   ◀ 子进程返回 (rc=0, 30.2s)
+[01:57:08]   ⚠ stderr: i.py", line 382, in change_sovits_weights
+    prompt_text_update,
+    ^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'prompt_text_update' where it is not associated with a value
+[01:57:08] TTS subprocess error: cannot access local variable 'prompt_text_update' where it is not associated with a value
+[01:57:08]   captured: 已将进程优先级设为 High
+SoVITS_weights/mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+D:\GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\SoVITS_weights_v2Pro\mea_pro_e8_s4568.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+
+[02:09:23]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:09:23] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:09:23] Health: python=True script=True GPT=True SoVITS=True Refs=True
+[02:09:23]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:09:38]   ✓ 所有 GSV 依赖已安装
+[02:09:56]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:09:56] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:09:56]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:10:10]   ✓ 所有 GSV 依赖已安装
+[02:10:10] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:10:10]   → 翻译中…
+[02:10:12]   translate (alibaba): こんにちは、世界、テスト音声合成。
+[02:10:12]   → 合成: [日文] こんにちは、世界、テスト音声合成。
+[02:10:12]   ref=jp_normal.wav lang=日文
+[02:10:12]   → 合成: [日文] こんにちは、世界、テスト音声合成。
+[02:10:12]   text_len=17 chars payload_size=598 bytes
+[02:10:12]   ▶ 启动推理子进程…
+[02:10:28]   ◀ 子进程返回 (rc=0, 15.6s)
+[02:10:28]   ⚠ stderr: odule.py", line 2004, in __setattr__
+    raise AttributeError(
+        "cannot assign module before Module.__init__() call"
+    )
+AttributeError: cannot assign module before Module.__init__() call
+[02:10:28] TTS subprocess error: cannot assign module before Module.__init__() call
+[02:10:28]   captured: 已将进程优先级设为 High
+
+[02:13:07]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:13:07] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:13:07]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:13:21]   ✓ 所有 GSV 依赖已安装
+[02:13:21] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:13:21]   → 翻译中…
+[02:13:23]   translate (alibaba): こんにちは世界、音声合成のテストです。
+[02:13:23]   → 合成: [日文] こんにちは世界、音声合成のテストです。
+[02:13:23]   ref=jp_normal.wav lang=日文
+[02:13:23]   → 合成: [日文] こんにちは世界、音声合成のテストです。
+[02:13:23]   text_len=19 chars payload_size=600 bytes
+[02:13:23]   ▶ 启动推理子进程…
+[02:13:39]   ◀ 子进程返回 (rc=0, 15.4s)
+[02:13:39]   ⚠ stderr: ule.py", line 1967, in __getattr__
+    raise AttributeError(
+        f"'{type(self).__name__}' object has no attribute '{name}'"
+    )
+AttributeError: 'CNHubert' object has no attribute '_modules'
+[02:13:39] TTS subprocess error: 'CNHubert' object has no attribute '_modules'
+[02:13:39]   captured: 已将进程优先级设为 High
+
+[02:14:32]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:14:32] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:14:32]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:14:45]   ✓ 所有 GSV 依赖已安装
+[02:14:45] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:14:45]   → 翻译中…
+[02:14:48]   translate (alibaba): こんにちは世界、音声合成のテストです。
+[02:14:48]   → 合成: [日文] こんにちは世界、音声合成のテストです。
+[02:14:48]   ref=jp_normal.wav lang=日文
+[02:14:48]   → 合成: [日文] こんにちは世界、音声合成のテストです。
+[02:14:48]   text_len=19 chars payload_size=600 bytes
+[02:14:48]   ▶ 启动推理子进程…
+[02:15:07]   ◀ 子进程返回 (rc=0, 19.9s)
+[02:15:07]   ⚠ stderr: i.py", line 382, in change_sovits_weights
+    prompt_text_update,
+    ^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'prompt_text_update' where it is not associated with a value
+[02:15:07] TTS subprocess error: cannot access local variable 'prompt_text_update' where it is not associated with a value
+[02:15:07]   captured: 已将进程优先级设为 High
+SoVITS_weights/mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+
+[02:15:55]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:15:55] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:15:55]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:16:10]   ✓ 所有 GSV 依赖已安装
+[02:16:10] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:16:10]   → 合成: [中文] 你好世界，测试语音合成。
+[02:16:10]   ref=zh_normal.wav lang=中文
+[02:16:10]   → 合成: [中文] 你好世界，测试语音合成。
+[02:16:10]   text_len=12 chars payload_size=574 bytes
+[02:16:10]   ▶ 启动推理子进程…
+[02:16:33]   ◀ 子进程返回 (rc=0, 23.5s)
+[02:16:33]   ⚠ stderr: y", line 9, in <module>
+    from jieba_fast._compat import PY2, default_encoding, resolve_filename, strdecode
+ModuleNotFoundError: No module named 'jieba_fast._compat'; 'jieba_fast' is not a package
+[02:16:33] TTS subprocess error: No module named 'jieba_fast._compat'; 'jieba_fast' is not a package
+[02:16:33]   captured: 已将进程优先级设为 High
+SoVITS_weights/mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+实际输入的参考文本: 尾巴是很敏感的不知道吗。
+实际
+[02:17:42]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:17:42] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:17:42]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:17:56]   ✓ 所有 GSV 依赖已安装
+[02:17:56] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:17:56]   → 合成: [中文] 你好世界，测试语音合成。
+[02:17:56]   ref=zh_normal.wav lang=中文
+[02:17:56]   → 合成: [中文] 你好世界，测试语音合成。
+[02:17:56]   text_len=12 chars payload_size=574 bytes
+[02:17:56]   ▶ 启动推理子进程…
+[02:18:19]   ◀ 子进程返回 (rc=0, 23.0s)
+[02:18:19]   ⚠ stderr: ild_assets
+    dict_mtime = os.path.getmtime(dict_path)
+  File "<frozen genericpath>", line 91, in getmtime
+TypeError: stat: path should be string, bytes, os.PathLike or integer, not BufferedReader
+[02:18:19] TTS subprocess error: stat: path should be string, bytes, os.PathLike or integer, not BufferedReader
+[02:18:19]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:19:25]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:19:25] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:19:25]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:19:39]   ✓ 所有 GSV 依赖已安装
+[02:19:39] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:19:39]   → 合成: [中文] 你好世界，测试语音合成。
+[02:19:39]   ref=zh_normal.wav lang=中文
+[02:19:39]   → 合成: [中文] 你好世界，测试语音合成。
+[02:19:39]   text_len=12 chars payload_size=574 bytes
+[02:19:39]   ▶ 启动推理子进程…
+[02:20:02]   ◀ 子进程返回 (rc=0, 22.3s)
+[02:20:02]   ⚠ stderr:   File "<frozen importlib._bootstrap_external>", line 1214, in get_data
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\JOYCEPC\\miniconda3\\jieba_fast\\posseg\\char_state_tab.py'
+[02:20:02] TTS subprocess error: [Errno 2] No such file or directory: 'C:\\Users\\JOYCEPC\\miniconda3\\jieba_fast\\posseg\\char_state_tab.py'
+[02:20:02]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:20:29]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:20:29] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:20:29]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:20:43]   ✓ 所有 GSV 依赖已安装
+[02:20:43] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:20:43]   → 合成: [中文] 你好世界，测试语音合成。
+[02:20:43]   ref=zh_normal.wav lang=中文
+[02:20:43]   → 合成: [中文] 你好世界，测试语音合成。
+[02:20:43]   text_len=12 chars payload_size=574 bytes
+[02:20:43]   ▶ 启动推理子进程…
+[02:21:06]   ◀ 子进程返回 (rc=0, 23.2s)
+[02:21:06]   ⚠ stderr: ild_assets
+    dict_mtime = os.path.getmtime(dict_path)
+  File "<frozen genericpath>", line 91, in getmtime
+TypeError: stat: path should be string, bytes, os.PathLike or integer, not BufferedReader
+[02:21:06] TTS subprocess error: stat: path should be string, bytes, os.PathLike or integer, not BufferedReader
+[02:21:06]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:22:05]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:22:05] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:22:05]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:22:20]   ✓ 所有 GSV 依赖已安装
+[02:22:20] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:22:20]   → 合成: [中文] 你好世界，测试语音合成。
+[02:22:20]   ref=zh_normal.wav lang=中文
+[02:22:20]   → 合成: [中文] 你好世界，测试语音合成。
+[02:22:20]   text_len=12 chars payload_size=574 bytes
+[02:22:20]   ▶ 启动推理子进程…
+[02:22:46]   ◀ 子进程返回 (rc=0, 25.8s)
+[02:22:46]   ⚠ stderr: r load_with_torchcodec. " "Please install torchcodec to use this function."
+    ) from e
+ImportError: TorchCodec is required for load_with_torchcodec. Please install torchcodec to use this function.
+[02:22:46] TTS subprocess error: TorchCodec is required for load_with_torchcodec. Please install torchcodec to use this function.
+[02:22:46]   captured: 将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys ma
+[02:23:54]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:23:54] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:23:54]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:24:08]   ✓ 所有 GSV 依赖已安装
+[02:24:08] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:24:08]   → 合成: [中文] 你好世界，测试语音合成。
+[02:24:08]   ref=zh_normal.wav lang=中文
+[02:24:08]   → 合成: [中文] 你好世界，测试语音合成。
+[02:24:08]   text_len=12 chars payload_size=573 bytes
+[02:24:08]   ▶ 启动推理子进程…
+[02:24:33]   ◀ 子进程返回 (rc=0, 24.9s)
+[02:24:33]   ⚠ stderr: r load_with_torchcodec. " "Please install torchcodec to use this function."
+    ) from e
+ImportError: TorchCodec is required for load_with_torchcodec. Please install torchcodec to use this function.
+[02:24:33] TTS subprocess error: TorchCodec is required for load_with_torchcodec. Please install torchcodec to use this function.
+[02:24:33]   captured: 将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys ma
+[02:28:37]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:28:37] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:28:37]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:28:52]   ✓ 所有 GSV 依赖已安装
+[02:28:52] 🔊 TTS: 你好世界，测试语音合成。...  mood=neutral
+[02:28:52]   → 合成: [中文] 你好世界，测试语音合成。
+[02:28:52]   ref=zh_normal.wav lang=中文
+[02:28:52]   → 合成: [中文] 你好世界，测试语音合成。
+[02:28:52]   text_len=12 chars payload_size=574 bytes
+[02:28:52]   ▶ 启动推理子进程…
+[02:29:17]   ◀ 子进程返回 (rc=0, 24.8s)
+[02:29:17]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:29:17] TTS subprocess error: expected scalar type Double but found Float
+[02:29:17]   captured: 将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys ma
+[02:31:08]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:31:08] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:31:08]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:31:22]   ✓ 所有 GSV 依赖已安装
+[02:31:22] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:31:22]   → 合成: [中文] 你好，测试。
+[02:31:22]   ref=zh_normal.wav lang=中文
+[02:31:22]   → 合成: [中文] 你好，测试。
+[02:31:22]   text_len=6 chars payload_size=568 bytes
+[02:31:22]   ▶ 启动推理子进程…
+[02:31:45]   ◀ 子进程返回 (rc=0, 23.0s)
+[02:31:45]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:31:45] TTS subprocess error: expected scalar type Double but found Float
+[02:31:45]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:33:24]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:33:24] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:33:24]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:33:37]   ✓ 所有 GSV 依赖已安装
+[02:33:37] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:33:37]   → 合成: [中文] 你好，测试。
+[02:33:37]   ref=zh_normal.wav lang=中文
+[02:33:37]   → 合成: [中文] 你好，测试。
+[02:33:37]   text_len=6 chars payload_size=568 bytes
+[02:33:37]   ▶ 启动推理子进程…
+[02:33:40]   ◀ 子进程返回 (rc=1, 2.2s)
+[02:33:40]   ⚠ stderr: ot load this library: {path}") from e
+OSError: Could not load this library: C:\Users\JOYCEPC\miniconda3\Lib\site-packages\torchcodec\libtorchcodec_core4.dll
+[end of libtorchcodec loading traceback].
+[02:33:40] TTS subprocess failed: rc=1
+[02:33:40]   stderr: Traceback (most recent call last):
+  File "C:\Users\JOYCEPC\Desktop\mea-pet-public\gsv_infer.py", line 42, in <module>
+    import torchcodec
+  File "C:\Users\JOYCEPC\miniconda3\Lib\site-packages\torchcodec\__init__.py", line 12, in <module>
+    from . import decoders, encoders, samplers, transfo
+[02:34:48]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:34:48] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:34:48]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:35:02]   ✓ 所有 GSV 依赖已安装
+[02:35:02] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:35:02]   → 合成: [中文] 你好，测试。
+[02:35:02]   ref=zh_normal.wav lang=中文
+[02:35:02]   → 合成: [中文] 你好，测试。
+[02:35:02]   text_len=6 chars payload_size=568 bytes
+[02:35:02]   ▶ 启动推理子进程…
+[02:35:25]   ◀ 子进程返回 (rc=0, 23.0s)
+[02:35:25]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:35:25] TTS subprocess error: expected scalar type Double but found Float
+[02:35:25]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:37:02]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:37:02] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:37:02]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:37:16]   ✓ 所有 GSV 依赖已安装
+[02:37:16] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:37:16]   → 合成: [中文] 你好，测试。
+[02:37:16]   ref=zh_normal.wav lang=中文
+[02:37:16]   → 合成: [中文] 你好，测试。
+[02:37:16]   text_len=6 chars payload_size=568 bytes
+[02:37:16]   ▶ 启动推理子进程…
+[02:37:39]   ◀ 子进程返回 (rc=0, 23.1s)
+[02:37:39]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:37:39] TTS subprocess error: expected scalar type Double but found Float
+[02:37:39]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:38:13]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:38:13] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:38:13]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:38:27]   ✓ 所有 GSV 依赖已安装
+[02:38:27] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:38:27]   → 合成: [中文] 你好，测试。
+[02:38:27]   ref=zh_normal.wav lang=中文
+[02:38:27]   → 合成: [中文] 你好，测试。
+[02:38:27]   text_len=6 chars payload_size=568 bytes
+[02:38:27]   ▶ 启动推理子进程…
+[02:38:50]   ◀ 子进程返回 (rc=0, 23.2s)
+[02:38:50]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:38:50] TTS subprocess error: expected scalar type Double but found Float
+[02:38:50]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:41:15]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:41:15] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:43:56]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:43:56] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:43:56]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:44:10]   ✓ 所有 GSV 依赖已安装
+[02:44:10] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:44:10]   → 合成: [中文] 你好，测试。
+[02:44:10]   ref=zh_normal.wav lang=中文
+[02:44:10]   → 合成: [中文] 你好，测试。
+[02:44:10]   text_len=6 chars payload_size=568 bytes
+[02:44:10]   ▶ 启动推理子进程…
+[02:44:33]   ◀ 子进程返回 (rc=0, 23.0s)
+[02:44:33]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:44:33] TTS subprocess error: expected scalar type Double but found Float
+[02:44:33]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:45:03]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:45:03] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:45:03]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:45:17]   ✓ 所有 GSV 依赖已安装
+[02:45:17] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:45:17]   → 合成: [中文] 你好，测试。
+[02:45:17]   ref=zh_normal.wav lang=中文
+[02:45:17]   → 合成: [中文] 你好，测试。
+[02:45:17]   text_len=6 chars payload_size=568 bytes
+[02:45:17]   ▶ 启动推理子进程…
+[02:45:41]   ◀ 子进程返回 (rc=0, 23.9s)
+[02:45:41]   ⚠ stderr: ional.py", line 1425, in _apply_sinc_resample_kernel
+    resampled = torch.nn.functional.conv1d(waveform[:, None], kernel, stride=orig_freq)
+RuntimeError: expected scalar type Double but found Float
+[02:45:41] TTS subprocess error: expected scalar type Double but found Float
+[02:45:41]   captured: 已将进程优先级设为 High
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys matched successfully>
+C:\Users\JOYCEPC\Desktop\mea-pet-public\models\SoVITS_weights\mea_pro_e24_s13704.pth v2 v2Pro False
+loading sovits_v2Pro <All keys m
+[02:49:23]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:49:23] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:49:23]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:49:37]   ✓ 所有 GSV 依赖已安装
+[02:49:37] 🔊 TTS: 你好，测试。...  mood=neutral
+[02:49:37]   → 合成: [中文] 你好，测试。
+[02:49:37]   ref=zh_normal.wav lang=中文
+[02:49:37]   → 合成: [中文] 你好，测试。
+[02:49:37]   text_len=6 chars payload_size=568 bytes
+[02:49:37]   ▶ 启动推理子进程…
+[02:50:01]   ◀ 子进程返回 (rc=0, 24.0s)
+[02:50:01]   ⚠ stderr:   | 
+cls.seq_relationship.bias   | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.8s)
+[02:50:01] ✓ SoVITS output: mea_577339.wav (1.18s) lang=zh
+[02:50:33]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:50:33] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:50:33]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:50:47]   ✓ 所有 GSV 依赖已安装
+[02:50:47] 🔊 TTS: 你好，测试语音合成。...  mood=neutral
+[02:50:47]   → 合成: [中文] 你好，测试语音合成。
+[02:50:47]   ref=zh_normal.wav lang=中文
+[02:50:47]   → 合成: [中文] 你好，测试语音合成。
+[02:50:47]   text_len=10 chars payload_size=572 bytes
+[02:50:47]   ▶ 启动推理子进程…
+[02:51:11]   ◀ 子进程返回 (rc=0, 24.0s)
+[02:51:11]   ⚠ stderr:   | 
+bert.pooler.dense.bias      | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.8s)
+[02:51:11] ✓ SoVITS output: mea_647306.wav (1.06s) lang=zh
+[02:51:11]   TTS: 跳过纯标点文本
+[02:51:35]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:51:35] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:51:35]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:51:49]   ✓ 所有 GSV 依赖已安装
+[02:51:49] 🔊 TTS: 你好，测试语音合成。...  mood=neutral
+[02:51:49]   → 合成: [中文] 你好，测试语音合成。
+[02:51:49]   ref=zh_normal.wav lang=中文
+[02:51:49]   → 合成: [中文] 你好，测试语音合成。
+[02:51:49]   text_len=10 chars payload_size=572 bytes
+[02:51:49]   ▶ 启动推理子进程…
+[02:52:15]   ◀ 子进程返回 (rc=0, 26.0s)
+[02:52:15]   ⚠ stderr:   | 
+cls.seq_relationship.bias   | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.5s)
+[02:52:15] ✓ SoVITS output: mea_709671.wav (3.22s) lang=zh
+[02:52:15]   TTS: 跳过纯标点文本
+[02:52:15] 🔊 TTS: 喵。...  mood=neutral
+[02:52:15]   → 合成: [中文] 喵。
+[02:52:15]   ref=zh_normal.wav lang=中文
+[02:52:15]   → 合成: [中文] 喵。
+[02:52:15]   text_len=2 chars payload_size=564 bytes
+[02:52:15]   ▶ 启动推理子进程…
+[02:52:40]   ◀ 子进程返回 (rc=0, 24.5s)
+[02:52:40]   ⚠ stderr:   | 
+cls.seq_relationship.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (2.0s)
+[02:52:40] ✓ SoVITS output: mea_735671.wav (0.98s) lang=zh
+[02:53:01]   → 使用 Python: C:\Users\JOYCEPC\miniconda3\python.exe
+[02:53:01] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:53:01]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:53:15]   ✓ 所有 GSV 依赖已安装
+[02:53:15] 🔊 TTS: 别摸了……...  mood=annoyed
+[02:53:15]   → 翻译中…
+[02:53:17]   translate (alibaba): 触らないで……
+[02:53:17]   → 合成: [日文] 触らないで……
+[02:53:17]   ref=jp_clam.wav lang=日文
+[02:53:17]   → 合成: [日文] 触らないで……
+[02:53:17]   text_len=7 chars payload_size=591 bytes
+[02:53:17]   ▶ 启动推理子进程…
+[02:53:42]   ◀ 子进程返回 (rc=0, 25.3s)
+[02:53:42]   ⚠ stderr:   | 
+cls.seq_relationship.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.8s)
+[02:53:42] ✓ SoVITS output: mea_795480.wav (1.46s) lang=jp
+[02:55:09] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:55:09]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:55:23] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:55:26]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:55:26] TTS: 依赖未就绪，跳过合成
+[02:55:36] TTS: 依赖未就绪，跳过合成
+[02:55:41]   ✓ 所有 GSV 依赖已安装
+[02:55:41] 🔊 TTS: 别摸了……...  mood=annoyed
+[02:55:41]   → 翻译中…
+[02:55:43]   translate (alibaba): 触らないで……
+[02:55:43]   → 合成: [日文] 触らないで……
+[02:55:43]   ref=jp_clam.wav lang=日文
+[02:55:43]   → 合成: [日文] 触らないで……
+[02:55:43]   text_len=7 chars payload_size=591 bytes
+[02:55:43]   ▶ 启动推理子进程…
+[02:56:11]   ◀ 子进程返回 (rc=0, 27.5s)
+[02:56:11]   ⚠ stderr:   | 
+bert.pooler.dense.weight    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.5s)
+[02:56:11] ✓ SoVITS output: mea_941764.wav (1.38s) lang=jp
+[02:56:49] 🔊 TTS: 我是梅尔，猫娘天才，研究宝石的心。喵。...  mood=neutral
+[02:56:49]   → 翻译中…
+[02:56:49]   translate (alibaba): 私はメル、猫娘の天才で、宝石を研究する心です。ニャー。
+[02:56:49]   → 合成: [日文] 私はメル、猫娘の天才で、宝石を研究する心です。ニャー。
+[02:56:49]   ref=jp_normal.wav lang=日文
+[02:56:49]   → 合成: [日文] 私はメル、猫娘の天才で、宝石を研究する心です。ニャー。
+[02:56:49]   text_len=27 chars payload_size=606 bytes
+[02:56:49]   ▶ 启动推理子进程…
+[02:57:17]   ◀ 子进程返回 (rc=0, 28.0s)
+[02:57:17]   ⚠ stderr:   | 
+bert.pooler.dense.weight    | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[gsv] ģ�ͼ������ (1.5s)
+[02:57:17] ✓ SoVITS output: mea_9042.wav (0.94s) lang=jp
+[02:58:27] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[02:58:40]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[02:58:54]   ✓ 所有 GSV 依赖已安装
+[02:58:54] 🔊 TTS: 喵，我是梅尔，霞流宝石心中的天才猫娘。...  mood=neutral
+[02:58:54]   → 翻译中…
+[02:58:56]   translate (alibaba): ニャン、私はメル、霞流宝石の心の天才猫娘です。
+[02:58:56]   → 合成: [日文] ニャン、私はメル、霞流宝石の心の天才猫娘です。
+[02:58:56]   ref=jp_normal.wav lang=日文
+[02:58:56]   → 合成: [日文] ニャン、私はメル、霞流宝石の心の天才猫娘です。
+[02:58:56]   text_len=23 chars payload_size=604 bytes
+[02:58:56]   ▶ 启动推理子进程…
+[02:58:58]   ◀ 子进程返回 (rc=1, 2.1s)
+[02:58:58]   ⚠ stderr: sv_infer.py", line 58, in <module>
+    os.chdir(_CPUFAST)
+    ~~~~~~~~^^^^^^^^^^
+FileNotFoundError: [WinError 2] ϵͳ�Ҳ���ָ�����ļ���: 'C:\\Users\\JOYCEPC\\Desktop\\mea-pet-public\\GPT-SoVITS-CPUFast'
+[02:58:58] TTS subprocess failed: rc=1
+[02:58:58]   stderr: [gsv] Resample.forward patched
+Traceback (most recent call last):
+  File "C:\Users\JOYCEPC\Desktop\mea-pet-public\gsv_infer.py", line 58, in <module>
+    os.chdir(_CPUFAST)
+    ~~~~~~~~^^^^^^^^^^
+FileNotFoundError: [WinError 2] ϵͳ�Ҳ���ָ�����ļ���: 'C:\\Users\\JOYCEPC\\Desktop\\mea-pet-public\\GP
+[11:02:13]   → 检测到 GPT-SoVITS: D:\GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe
+[11:02:13] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6 | voice=jp
+[11:13:41] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:13:49]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[11:14:07]   ✓ 所有 GSV 依赖已安装
+[11:14:07] 🔊 TTS: ……什么味喵。...  mood=shy
+[11:14:09] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:14:20]   → 检查 GSV 依赖 (Python: C:\Users\JOYCEPC\miniconda3\python.exe)
+[11:14:36]   ✓ 所有 GSV 依赖已安装
+[11:14:36] 🔊 TTS: 我是梅尔喵，霞流宝石心游戏中的猫娘天才。...  mood=neutral
+[11:33:09]   → 检测到 GPT-SoVITS: D:\GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe
+[11:33:09] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:33:09]   → 检查 GSV 依赖 (Python: D:\GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[11:37:26] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:37:26]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[11:37:42]   ✓ 所有 GSV 依赖已安装
+[11:37:42] 🔊 TTS: ……髪を触らないで。...  mood=neutral
+[11:37:43] 🔊 TTS: ……何か用？...  mood=neutral
+[11:37:43] 🔊 TTS: ふん。...  mood=neutral
+[11:37:44] 🔊 TTS: もう触らないで……...  mood=neutral
+[11:37:44] 🔊 TTS: しっぽ……触るなニャ！！...  mood=neutral
+[11:37:45] 🔊 TTS: ……一回死んでみる？...  mood=neutral
+[11:37:45] 🔊 TTS: 変態。...  mood=neutral
+[11:37:46] 🔊 TTS: ……しっぽは敏感なんだ、知らないのか。...  mood=neutral
+[11:41:24] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:41:39]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[11:42:00]   ✓ 所有 GSV 依赖已安装
+[11:42:00] 🔊 TTS: 我是梅尔喵，霞流宝石心的天才猫娘。喵~...  mood=neutral
+[11:42:00]   → 翻译中…
+[11:42:03]   translate (alibaba): 私はメルニャン、霞流宝石心の天才猫娘です。にゃん〜
+[11:42:03]   → 合成: [日文] 私はメルニャン、霞流宝石心の天才猫娘です。にゃん〜
+[11:51:45] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:51:56]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[11:52:16]   ✓ 所有 GSV 依赖已安装
+[11:52:16] 🔊 TTS: 我是梅尔，霞流宝石心的天才猫娘。喵~...  mood=neutral
+[11:52:16]   → 翻译中…
+[11:52:18]   translate (alibaba): 私はメル、霞流宝石心の天才猫娘です。にゃん〜
+[11:52:18]   → 合成: [日文] 私はメル、霞流宝石心の天才猫娘です。にゃん〜
+[11:58:07] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[11:58:18]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[11:58:40]   ✓ 所有 GSV 依赖已安装
+[11:58:40] 🔊 TTS: 我是梅尔，猫娘天才喵。...  mood=neutral
+[11:58:40]   → 翻译中…
+[11:58:42]   translate (alibaba): 私はメル、猫娘の天才ニャンです。
+[11:58:42]   → 合成: [日文] 私はメル、猫娘の天才ニャンです。
+[11:58:42]   ref=jp_normal.wav lang=日文
+[12:03:50] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:04:04]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:04:25]   ✓ 所有 GSV 依赖已安装
+[12:04:25] 🔊 TTS: 我是梅尔喵，霞流宝石心游戏中的猫娘天才。...  mood=neutral
+[12:04:25]   → 翻译中…
+[12:04:27]   translate (alibaba): 私はメルニャン、霞流宝石心ゲームの猫娘の天才です。
+[12:04:27]   → 合成: [日文] 私はメルニャン、霞流宝石心ゲームの猫娘の天才です。
+[12:04:27]   ref=jp_normal.wav lang=日文
+[12:16:54] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:17:09]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:17:30]   ✓ 所有 GSV 依赖已安装
+[12:17:30] 🔊 TTS: 我是梅尔喵，霞流宝石心里的天才猫娘。...  mood=neutral
+[12:17:30]   → 翻译中…
+[12:17:32]   translate (alibaba): 私はメルニャン、霞流宝石の心の天才猫娘です。
+[12:17:33]   → 合成: [日文] 私はメルニャン、霞流宝石の心の天才猫娘です。
+[12:17:33]   ref=jp_normal.wav lang=日文
+[12:29:05] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:29:18]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:29:38]   ✓ 所有 GSV 依赖已安装
+[12:29:38] 🔊 TTS: 我是梅尔喵，猫娘天才，负责解开一切谜题。喵~...  mood=annoyed
+[12:29:38]   → 翻译中…
+[12:29:41]   translate (alibaba): 私はメルニャンで、猫娘の天才で、すべての謎を解く責任がある。にゃん〜
+[12:29:41]   → 合成: [日文] 私はメルニャンで、猫娘の天才で、すべての謎を解く責任がある。にゃん〜
+[12:29:41]   ref=jp_clam.wav lang=日文
+[12:34:08] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:34:21]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:34:41]   ✓ 所有 GSV 依赖已安装
+[12:34:41] 🔊 TTS: 我是梅尔喵，霞流宝石心游戏中的猫娘天才。...  mood=neutral
+[12:34:41]   → 翻译中…
+[12:34:43]   translate (alibaba): 私はメルニャン、霞流宝石心ゲームに登場する猫娘の天才です。
+[12:34:43]   → 合成: [日文] 私はメルニャン、霞流宝石心ゲームに登場する猫娘の天才です。
+[12:34:43]   ref=jp_normal.wav lang=日文
+[12:39:49] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:40:03]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:40:23]   ✓ 所有 GSV 依赖已安装
+[12:40:23] 🔊 TTS: 我是梅尔喵，霞流宝石心的天才猫娘。喵~...  mood=neutral
+[12:40:23]   → 翻译中…
+[12:40:26]   translate (alibaba): 私はメルニャン、霞流宝石心の天才猫娘です。にゃん〜
+[12:40:26]   → 合成: [日文] 私はメルニャン、霞流宝石心の天才猫娘です。にゃん〜
+[12:40:26]   ref=jp_normal.wav lang=日文
+[12:44:27] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:44:49]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:45:00]   ✓ 所有 GSV 依赖已安装
+[12:45:00] 🔊 TTS: 我是梅尔喵，霞流宝石心的天才猫娘。您想了解些什么？喵~...  mood=neutral
+[12:45:00]   → 翻译中…
+[12:45:02]   translate (alibaba): 私はメルニャン、霞流宝石心の天才猫娘です。何を知りたいですか?ニャン ~
+[12:45:02]   → 合成: [日文] 私はメルニャン、霞流宝石心の天才猫娘です。何を知りたいですか?ニャン ~
+[12:45:02]   ref=jp_normal.wav lang=日文
+[12:57:08] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[12:57:23]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[12:57:42]   ✓ 所有 GSV 依赖已安装
+[12:57:42] 🔊 TTS: 我是梅尔喵，猫娘天才。主人找我有事吗？...  mood=neutral
+[12:57:42]   → 翻译中…
+[12:57:44]   translate (alibaba): 私はメルニャン、猫娘の天才です。ご主人様、私にお用がありますか？
+[12:57:44]   → 合成: [日文] 私はメルニャン、猫娘の天才です。ご主人様、私にお用がありますか？
+[12:57:44]   ref=jp_normal.wav lang=日文
+[12:57:44]   text_len=32 chars payload_size=612 bytes
+[12:57:44]   ▶ 启动推理子进程…
+[12:58:16]   ◀ 子进程返回 (rc=0, 31.9s)
+[12:58:16]   ⚠ stderr: |����        | 181/1500 [00:07<00:53, 24.75it/s]
+[gsv] �յ���ƵƬ��: 241280 samples
+[gsv] �ϳ���� (14.7s, 7.5s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_62873.wav
+[12:58:16] ✓ SoVITS output: mea_62873.wav (7.54s) lang=jp
+[13:05:37] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[13:05:37]   → 检查 GSV 依赖 (Python: D:/GPT-SoVITS-v2pro-20250604\GPT-SoVITS-v2pro-20250604\runtime\python.exe)
+[13:05:49]   ✓ 所有 GSV 依赖已安装
+[13:05:49] 🔊 TTS: ……髪を触らないで。...  mood=neutral
+[13:05:49]   → 合成: [日文] ……髪を触らないで。
+[13:05:49]   ref=jp_normal.wav lang=日文
+[13:05:49]   text_len=10 chars payload_size=591 bytes
+[13:05:49]   ▶ 启动推理子进程…
+[13:06:08]   ◀ 子进程返回 (rc=0, 18.4s)
+[13:06:08]   ⚠ stderr:  5%|��         | 68/1500 [00:02<00:55, 25.76it/s]
+[gsv] �յ���ƵƬ��: 96640 samples
+[gsv] �ϳ���� (7.4s, 3.0s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_549675.wav
+[13:06:08] ✓ SoVITS output: mea_549675.wav (3.02s) lang=jp
+[13:06:08] 🔊 TTS: ……何か用？...  mood=neutral
+[13:06:08]   → 合成: [日文] ……何か用？
+[13:06:08]   ref=jp_normal.wav lang=日文
+[13:06:08]   text_len=6 chars payload_size=587 bytes
+[13:06:08]   ▶ 启动推理子进程…
+[13:06:25]   ◀ 子进程返回 (rc=0, 16.4s)
+[13:06:25]   ⚠ stderr:  2%|��         | 24/1500 [00:01<01:11, 20.55it/s]
+[gsv] �յ���ƵƬ��: 40320 samples
+[gsv] �ϳ���� (5.3s, 1.3s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_568623.wav
+[13:06:25] ✓ SoVITS output: mea_568623.wav (1.26s) lang=jp
+[13:06:25] 🔊 TTS: ふん。...  mood=neutral
+[13:06:25]   → 合成: [日文] ふん。
+[13:06:25]   ref=jp_normal.wav lang=日文
+[13:06:25]   text_len=3 chars payload_size=584 bytes
+[13:06:25]   ▶ 启动推理子进程…
+[13:06:41]   ◀ 子进程返回 (rc=0, 15.7s)
+[13:06:41]   ⚠ stderr:   1%|          | 11/1500 [00:00<01:41, 14.61it/s]
+[gsv] �յ���ƵƬ��: 23680 samples
+[gsv] �ϳ���� (4.7s, 0.7s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_585532.wav
+[13:06:41] ✓ SoVITS output: mea_585532.wav (0.74s) lang=jp
+[13:06:41] 🔊 TTS: もう触らないで……...  mood=neutral
+[13:06:41]   → 合成: [日文] もう触らないで……
+[13:06:41]   ref=jp_normal.wav lang=日文
+[13:06:41]   text_len=9 chars payload_size=590 bytes
+[13:06:41]   ▶ 启动推理子进程…
+[13:06:58]   ◀ 子进程返回 (rc=0, 16.7s)
+[13:06:58]   ⚠ stderr:  2%|��         | 33/1500 [00:01<01:04, 22.91it/s]
+[gsv] �յ���ƵƬ��: 51840 samples
+[gsv] �ϳ���� (5.7s, 1.6s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_601753.wav
+[13:06:58] ✓ SoVITS output: mea_601753.wav (1.62s) lang=jp
+[13:06:58] 🔊 TTS: しっぽ……触るなニャ！！...  mood=neutral
+[13:06:58]   → 合成: [日文] しっぽ……触るなニャ！！
+[13:06:58]   ref=jp_normal.wav lang=日文
+[13:06:58]   text_len=12 chars payload_size=593 bytes
+[13:06:58]   ▶ 启动推理子进程…
+[13:07:16]   ◀ 子进程返回 (rc=0, 17.9s)
+[13:07:16]   ⚠ stderr:  4%|��         | 55/1500 [00:02<00:55, 25.98it/s]
+[gsv] �յ���ƵƬ��: 80000 samples
+[gsv] �ϳ���� (6.7s, 2.5s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_618977.wav
+[13:07:16] ✓ SoVITS output: mea_618977.wav (2.5s) lang=jp
+[13:07:17] 🔊 TTS: ……一回死んでみる？...  mood=neutral
+[13:07:17]   → 合成: [日文] ……一回死んでみる？
+[13:07:17]   ref=jp_normal.wav lang=日文
+[13:07:17]   text_len=10 chars payload_size=591 bytes
+[13:07:17]   ▶ 启动推理子进程…
+[13:07:34]   ◀ 子进程返回 (rc=0, 16.8s)
+[13:07:34]   ⚠ stderr:  2%|��         | 30/1500 [00:01<01:10, 20.82it/s]
+[gsv] �յ���ƵƬ��: 48000 samples
+[gsv] �ϳ���� (5.8s, 1.5s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_637356.wav
+[13:07:34] ✓ SoVITS output: mea_637356.wav (1.5s) lang=jp
+[13:07:34] 🔊 TTS: 変態。...  mood=neutral
+[13:07:34]   → 翻译中…
+[13:07:36]   translate (alibaba): 変态
+[13:07:36]   → 合成: [日文] 変态
+[13:07:36]   ref=jp_normal.wav lang=日文
+[13:07:36]   text_len=2 chars payload_size=583 bytes
+[13:07:36]   ▶ 启动推理子进程…
+[13:07:52]   ◀ 子进程返回 (rc=0, 15.8s)
+[13:07:52]   ⚠ stderr:   1%|          | 11/1500 [00:00<01:45, 14.12it/s]
+[gsv] �յ���ƵƬ��: 23680 samples
+[gsv] �ϳ���� (4.7s, 0.7s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_654686.wav
+[13:07:52] ✓ SoVITS output: mea_654686.wav (0.74s) lang=jp
+[13:07:53] 🔊 TTS: ……しっぽは敏感なんだ、知らないのか。...  mood=neutral
+[13:07:53]   → 合成: [日文] ……しっぽは敏感なんだ、知らないのか。
+[13:07:53]   ref=jp_normal.wav lang=日文
+[13:07:53]   text_len=19 chars payload_size=600 bytes
+[13:07:53]   ▶ 启动推理子进程…
+[13:08:12]   ◀ 子进程返回 (rc=0, 18.8s)
+[13:08:12]   ⚠ stderr: 5%|��         | 72/1500 [00:02<00:54, 26.26it/s]
+[gsv] �յ���ƵƬ��: 101760 samples
+[gsv] �ϳ���� (7.7s, 3.2s ��Ƶ)
+[gsv] \u2713 �ѱ���: C:\Users\JOYCEPC\Desktop\mea-pet-public\audio_cache\mea_673261.wav
+[13:08:12] ✓ SoVITS output: mea_673261.wav (3.18s) lang=jp
+[13:22:33] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[13:22:45] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[13:23:36] 🎤 MeaTTS v2 (subprocess) | python=python.exe | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
