@@ -120,6 +120,13 @@ class ChatEngine:
             else:
                 _safe_print(f"⚠ DeepSeek API: no key", flush=True)
 
+        if self.backend == "mimo":
+            if self.api_key:
+                self.available = True
+                _safe_print(f"✓ MiMo API configured: {self.model}", flush=True)
+            else:
+                _safe_print(f"⚠ MiMo API: no key", flush=True)
+
         if self.backend == "openclaw":
             self.available = True
             _safe_print(f"✓ OpenClaw backend", flush=True)
@@ -155,6 +162,8 @@ class ChatEngine:
                 reply = self._chat_ollama()
             elif self.backend == "deepseek":
                 reply = self._chat_deepseek()
+            elif self.backend == "mimo":
+                reply = self._chat_mimo()
             else:
                 reply = self._fallback_reply()
 
@@ -234,6 +243,8 @@ class ChatEngine:
                 reply = self._chat_ollama()
             elif self.backend == "deepseek":
                 reply = self._chat_deepseek()
+            elif self.backend == "mimo":
+                reply = self._chat_mimo()
             else:
                 reply = self._fallback_reply()
             reply = reply.strip()
@@ -331,10 +342,58 @@ class ChatEngine:
             return self._fallback_reply()
         return content
 
+    def _chat_mimo(self) -> str:
+        """MiMo V2.5 API (OpenAI-compatible, 支持多模态)"""
+        import time as _time
+        t0 = _time.time()
+
+        total_chars = sum(len(m.get("content", "")) for m in self.history)
+        _safe_print(f"[chat] MiMo 请求: model={self.model} messages={len(self.history)} 总字符≈{total_chars}", flush=True)
+
+        resp = requests.post(
+            f"{self.api_base.rstrip('/')}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model,
+                "messages": self.history,
+                "temperature": self.temperature,
+                "max_tokens": 200,
+            },
+            timeout=30,
+        )
+        t1 = _time.time()
+        _safe_print(f"[chat] MiMo 响应耗时: {t1-t0:.1f}s  status={resp.status_code}", flush=True)
+
+        if resp.status_code != 200:
+            _safe_print(f"[chat] MiMo 错误: {resp.status_code} {resp.text[:200]}", flush=True)
+            return self._fallback_reply()
+
+        data = resp.json()
+        message = data.get("choices", [{}])[0].get("message", {})
+
+        # 处理 reasoning_content：MiMo 返回思考链字段，只取 content
+        content = message.get("content", "")
+        reasoning = message.get("reasoning_content")
+        if reasoning:
+            _safe_print(f"[chat] MiMo reasoning_content ({len(reasoning)} chars) stripped", flush=True)
+
+        t2 = _time.time()
+        _safe_print(f"[chat] MiMo 解析完成: {t2-t1:.1f}s  回复长度={len(content)}字", flush=True)
+        if not content or not content.strip():
+            _safe_print(f"[chat] MiMo 返回空内容! resp keys: {list(data.keys())}", flush=True)
+            return self._fallback_reply()
+        return content
+
     def _extract_memories(self, user_msg: str, mea_reply: str):
         """从对话中提取值得长期记住的信息（类似 OpenClaw memory promotion）
         每 3 条用户消息触发一次，用本地 Ollama 做提取（不额外费 token）"""
         if not self.memory:
+            return
+        # MiMo 云端 API 不使用本地 Ollama，跳过记忆提取
+        if self.backend == "mimo":
             return
         # 用内存计数器
         if not hasattr(self, '_mem_extract_count'):

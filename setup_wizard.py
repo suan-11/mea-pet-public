@@ -649,6 +649,17 @@ class LLMPage(QFrame):
             styleSheet="font-size: 12px; color: #888; padding-left: 35px;"
         ))
 
+        # MiMo V2.5
+        self.radio_mimo = QRadioButton("MiMo V2.5（小米多模态 API，在线、可识图）")
+        self.radio_mimo.setStyleSheet(self.radio_ollama.styleSheet())
+        layout.addWidget(self.radio_mimo)
+        layout.addWidget(QLabel(
+            "    • 需要注册 xiaomimimo 平台获取 API Key\n"
+            "    • 按量付费，不需要本地显卡\n"
+            "    • 支持识图（不需要额外装 Ollama）",
+            styleSheet="font-size: 12px; color: #888; padding-left: 35px;"
+        ))
+
         # Ollama 状态
         self.ollama_status = QLabel("")
         self.ollama_status.setStyleSheet("font-size: 12px; margin-top: 5px;")
@@ -674,6 +685,8 @@ class LLMPage(QFrame):
     def get_backend(self):
         if self.radio_ollama.isChecked():
             return "ollama"
+        elif self.radio_mimo.isChecked():
+            return "mimo"
         return "deepseek"
 
 
@@ -682,8 +695,9 @@ class LLMPage(QFrame):
 # ═══════════════════════════════════════
 
 class ApiKeyPage(QFrame):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backend="deepseek"):
         super().__init__(parent)
+        self.backend = backend
         self.setObjectName("card")
         self.setStyleSheet(f"""
             QFrame#card {{
@@ -696,17 +710,27 @@ class ApiKeyPage(QFrame):
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
 
-        title = QLabel("🔑 第 2 步：API Key")
+        if backend == "deepseek":
+            title_text = "🔑 第 2 步：DeepSeek API Key"
+            desc_text = "在 platform.deepseek.com 注册获取API Key，要先充点额度，不过能用很久。"
+            key_label = "DeepSeek API Key："
+            key_placeholder = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            api_base_default = "https://api.deepseek.com/v1"
+        else:
+            title_text = "🔑 第 2 步：MiMo V2.5 API Key"
+            desc_text = "在 xiaomimimo 平台注册获取 MiMo V2.5 的 API Key。"
+            key_label = "MiMo API Key："
+            key_placeholder = "输入你的 API Key"
+            api_base_default = "https://api.xiaomimimo.com/v1"
+
+        title = QLabel(title_text)
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #FFB6C1;")
         layout.addWidget(title)
-        layout.addWidget(QLabel(
-            "在 platform.deepseek.com 注册获取API Key，要先充点额度，不过能用很久。",
-            styleSheet="font-size: 13px; color: #bbb;"
-        ))
+        layout.addWidget(QLabel(desc_text, styleSheet="font-size: 13px; color: #bbb;"))
 
-        layout.addWidget(QLabel("DeepSeek API Key：", styleSheet="font-size: 14px; margin-top: 5px;"))
+        layout.addWidget(QLabel(key_label, styleSheet="font-size: 14px; margin-top: 5px;"))
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+        self.key_input.setPlaceholderText(key_placeholder)
         self.key_input.setStyleSheet(STYLE_INPUT)
         self.key_input.setEchoMode(QLineEdit.Password)
         layout.addWidget(self.key_input)
@@ -720,11 +744,15 @@ class ApiKeyPage(QFrame):
         layout.addWidget(show_btn)
 
         layout.addWidget(QLabel("API 地址（可选）：", styleSheet="font-size: 14px; margin-top: 5px;"))
-        self.api_base = QLineEdit("https://api.deepseek.com/v1")
+        self.api_base = QLineEdit(api_base_default)
         self.api_base.setStyleSheet(STYLE_INPUT)
         layout.addWidget(self.api_base)
 
         layout.addStretch()
+
+    def set_backend(self, backend: str):
+        """切换后端类型，更新界面标签"""
+        self.backend = backend
 
 
 # ═══════════════════════════════════════
@@ -1432,6 +1460,10 @@ class SummaryPage(QFrame):
             k = cfg["llm"].get("api_key", "")
             lines.append(f"🧠 AI 大脑：DeepSeek API")
             lines.append(f"🔑 Key：{k[:8]}…{k[-4:]}" if len(k) > 12 else "⚠️ Key 未设置")
+        elif b == "mimo":
+            k = cfg["llm"].get("api_key", "")
+            lines.append(f"🧠 AI 大脑：MiMo V2.5 API（在线多模态）")
+            lines.append(f"🔑 Key：{k[:8]}…{k[-4:]}" if len(k) > 12 else "⚠️ Key 未设置")
 
         t = cfg["tts"]
         if t["enabled"]:
@@ -1444,7 +1476,7 @@ class SummaryPage(QFrame):
         lines.append("🖼️  立绘：./sprites/")
         lines.append("🐱 Live2D：./live2d/model/mea_live2d/")
         # 识图提醒
-        if b != "ollama":
+        if b not in ("ollama", "mimo"):
             lines.append("")
             lines.append("👀 屏幕识图需要 Ollama + minicpm-v 模型")
             lines.append("   如果没装，桌宠的偷看功能不会工作")
@@ -1505,7 +1537,7 @@ class SetupWizard(QWidget):
 
         # 进度条
         self.progress = QProgressBar()
-        self.progress.setRange(0, 4)
+        self.progress.setRange(0, 5)
         self.progress.setValue(0)
         self.progress.setFixedHeight(4)
         self.progress.setTextVisible(False)
@@ -1535,15 +1567,20 @@ class SetupWizard(QWidget):
 
         self.env_page = EnvCheckPage()
         self.llm_page = LLMPage()
-        self.key_page = ApiKeyPage()
+        self.key_page_ds = ApiKeyPage(self, backend="deepseek")
+        self.key_page_mimo = ApiKeyPage(self, backend="mimo")
         self.tts_page = TTSPage()
         self.summary_page = SummaryPage(self)
 
         self.stack.addWidget(self.env_page)      # 0
         self.stack.addWidget(self.llm_page)       # 1
-        self.stack.addWidget(self.key_page)       # 2
-        self.stack.addWidget(self.tts_page)       # 3
-        self.stack.addWidget(self.summary_page)   # 4
+        self.stack.addWidget(self.key_page_ds)    # 2
+        self.stack.addWidget(self.key_page_mimo)  # 3
+        self.stack.addWidget(self.tts_page)       # 4
+        self.stack.addWidget(self.summary_page)   # 5
+
+        # 当前显示的 key_page 引用（指向 key_page_ds 或 key_page_mimo）
+        self.key_page = self.key_page_ds
 
         # 底部按钮
         btns = QHBoxLayout()
@@ -1583,11 +1620,11 @@ class SetupWizard(QWidget):
         p = self._page
         self.progress.setValue(p)
         self.back_btn.setEnabled(p > 0)
-        names = ["环境检测", "AI 大脑", "API Key", "语音设置", "确认"]
-        self.step_label.setText(f"第 {p+1}/5 步  —  {names[p]}" if p < 5 else "完成")
+        names = ["环境检测", "AI 大脑", "API Key", "API Key", "语音设置", "确认"]
+        self.step_label.setText(f"第 {p+1}/6 步  —  {names[p]}" if p < 6 else "完成")
         if p == 0:
             self.next_btn.setText("跳过 →")
-        elif p == 4:
+        elif p == 5:
             self.next_btn.setText("✅ 保存配置")
         else:
             self.next_btn.setText("下一步 →")
@@ -1601,14 +1638,13 @@ class SetupWizard(QWidget):
         elif p == 2:
             self._page = 1
         elif p == 3:
-            b = self.llm_page.get_backend()
-            self._page = 2 if b == "deepseek" else 1
+            self._page = 1
         elif p == 4:
             b = self.llm_page.get_backend()
-            if b == "deepseek":
-                self._page = 3
-            else:
-                self._page = 3  # TTS page
+            self._page = 2 if b == "deepseek" else (3 if b == "mimo" else 1)
+        elif p == 5:
+            b = self.llm_page.get_backend()
+            self._page = 2 if b == "deepseek" else (3 if b == "mimo" else 4)
         self.stack.setCurrentIndex(self._page)
         self._update()
 
@@ -1626,30 +1662,41 @@ class SetupWizard(QWidget):
         if p == 1:
             b = self.llm_page.get_backend()
             if b == "deepseek":
+                self.key_page = self.key_page_ds
                 self._page = 2
-            else:
+            elif b == "mimo":
+                self.key_page = self.key_page_mimo
                 self._page = 3
+            else:
+                self._page = 4  # Ollama 跳过 API Key 页
             self.stack.setCurrentIndex(self._page)
             self._update()
             return
 
-        # API Key 页
+        # API Key 页（DeepSeek）
         if p == 2:
-            self._page = 3
-            self.stack.setCurrentIndex(3)
-            self._update()
-            return
-
-        # TTS 页 → 确认
-        if p == 3:
-            self.summary_page.refresh()
             self._page = 4
             self.stack.setCurrentIndex(4)
             self._update()
             return
 
-        # 确认 → 保存
+        # API Key 页（MiMo）
+        if p == 3:
+            self._page = 4
+            self.stack.setCurrentIndex(4)
+            self._update()
+            return
+
+        # TTS 页 → 确认
         if p == 4:
+            self.summary_page.refresh()
+            self._page = 5
+            self.stack.setCurrentIndex(5)
+            self._update()
+            return
+
+        # 确认 → 保存
+        if p == 5:
             self._save()
 
     def collect_config(self):
@@ -1691,6 +1738,14 @@ class SetupWizard(QWidget):
             config["llm"]["api_key"] = self.key_page.key_input.text().strip()
             config["llm"]["api_base"] = self.key_page.api_base.text().strip()
             config["llm"]["model"] = "deepseek-chat"
+        elif b == "mimo":
+            config["llm"]["api_key"] = self.key_page.key_input.text().strip()
+            config["llm"]["api_base"] = self.key_page.api_base.text().strip()
+            config["llm"]["model"] = "XiaomiMiMo/MiMo-V2.5"
+            config["llm"]["host"] = ""
+            config["llm"]["bridge_url"] = ""
+            # MiMo 自带识图，不需要额外视觉模型
+            config["vision"]["model"] = "mimo"
 
         # 翻译备用 Key（免费翻译 API 全失效时走 DeepSeek）
         if self.tts_page.enable_cb.isChecked():

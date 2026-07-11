@@ -3,7 +3,7 @@
 三层决策：截图 → 场景摘要 → 策略评估（含搜索/冷落感知） → 回复
 
 支持切换视觉模型（config.json → vision.model）
-可用模型：minicpm-v (5.5G, 快) / qwen2.5vl:7b (6GB, 稍慢)
+可用模型：minicpm-v (5.5G, 快) / qwen2.5vl:7b (6GB, 稍慢) MiMo V2.5（云端，超快）
 
 设计参考：Sakura（Rvosy/sakura）的主动搭话 prompt 架构
 """
@@ -85,12 +85,21 @@ class ScreenWatcher(QThread):
     def __init__(self, ollama_host: str = "http://127.0.0.1:11434",
                  vision_model: str = "minicpm-v",
                  chat_model: str = "qwen2.5:7b",
-                 idle_minutes: float = 0):
+                 idle_minutes: float = 0,
+                 # MiMo 后端参数
+                 backend: str = "ollama",
+                 api_base: str = "",
+                 api_key: str = "",
+                 mimo_model: str = "mimo-v2.5"):
         super().__init__()
         self.host = ollama_host
         self.vision_model = vision_model
         self.chat_model = chat_model
         self.idle_minutes = idle_minutes
+        self.backend = backend
+        self.api_base = api_base.rstrip('/')
+        self.api_key = api_key
+        self.mimo_model = mimo_model
         self._stop = False
 
     def set_idle_minutes(self, minutes: float):
@@ -122,25 +131,60 @@ class ScreenWatcher(QThread):
             if self._stop:
                 return
             self.progress.emit(STAGE_SUMMARY)
-            resp = requests.post(
-                f"{self.host}/api/generate",
-                json={
-                    "model": self.vision_model,
-                    "prompt": SUMMARY_PROMPT,
-                    "images": [b64],
-                    "stream": False,
-                    "options": {"num_predict": 50, "temperature": 0.3},
-                },
-                timeout=90,
-            )
-            if self._stop:
-                return
-            print(f"[watcher] Step2 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
-            if resp.status_code != 200:
-                self.progress.emit(STAGE_ERROR)
-                self.error.emit(f"摘要失败: {resp.status_code}")
-                return
-            summary = resp.json().get("response", "").strip()
+            summary = ""
+            if self.backend == "mimo":
+                # MiMo 多模态 API（OpenAI 兼容格式）
+                resp = requests.post(
+                    f"{self.api_base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.mimo_model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": SUMMARY_PROMPT},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                                ],
+                            }
+                        ],
+                        "max_tokens": 100,
+                        "temperature": 0.3,
+                    },
+                    timeout=90,
+                )
+                if self._stop:
+                    return
+                print(f"[watcher] Step2 MiMo status: {resp.status_code}, response[:200]: {resp.text[:200]}")
+                if resp.status_code == 200:
+                    msg = resp.json().get("choices", [{}])[0].get("message", {})
+                    summary = msg.get("content", "").strip()
+                    if msg.get("reasoning_content"):
+                        print("[watcher] MiMo reasoning_content stripped from summary")
+            else:
+                # Ollama 视觉 API
+                resp = requests.post(
+                    f"{self.host}/api/generate",
+                    json={
+                        "model": self.vision_model,
+                        "prompt": SUMMARY_PROMPT,
+                        "images": [b64],
+                        "stream": False,
+                        "options": {"num_predict": 50, "temperature": 0.3},
+                    },
+                    timeout=90,
+                )
+                if self._stop:
+                    return
+                print(f"[watcher] Step2 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
+                if resp.status_code != 200:
+                    self.progress.emit(STAGE_ERROR)
+                    self.error.emit(f"摘要失败: {resp.status_code}")
+                    return
+                summary = resp.json().get("response", "").strip()
             if not summary:
                 summary = "（画面内容无法识别）"
 
@@ -152,29 +196,40 @@ class ScreenWatcher(QThread):
                 idle_minutes=int(self.idle_minutes),
                 summary=summary,
             )
-            resp = requests.post(
-                f"{self.host}/api/chat",
-                json={
-                    "model": self.chat_model,
-                    "messages": [
+            decision = ""
+            if self.backend == "mimo":
+                decision = self._mimo_chat(
+                    messages=[
                         {"role": "system", "content": "你是决策助手。严格按格式回复。"},
                         {"role": "user", "content": decision_prompt},
                     ],
-                    "stream": False,
-                    "keep_alive": "2m",
-                    "options": {"num_predict": 100, "temperature": 0.3},
-                },
-                timeout=180,
-            )
-            if self._stop:
-                return
-            print(f"[watcher] Step3 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
-            decision = ""
+                    max_tokens=100,
+                    temperature=0.3,
+                )
+                print(f"[watcher] Step3 MiMo decision: {decision[:100]}")
+            else:
+                resp = requests.post(
+                    f"{self.host}/api/chat",
+                    json={
+                        "model": self.chat_model,
+                        "messages": [
+                            {"role": "system", "content": "你是决策助手。严格按格式回复。"},
+                            {"role": "user", "content": decision_prompt},
+                        ],
+                        "stream": False,
+                        "keep_alive": "2m",
+                        "options": {"num_predict": 100, "temperature": 0.3},
+                    },
+                    timeout=180,
+                )
+                if self._stop:
+                    return
+                print(f"[watcher] Step3 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
+                if resp.status_code == 200:
+                    decision = resp.json().get("message", {}).get("content", "").strip()
             strategy = "毒舌吐槽"
             search_query = ""
             should_speak = False
-            if resp.status_code == 200:
-                decision = resp.json().get("message", {}).get("content", "").strip()
 
             # 解析决策
             lines = [l.strip() for l in decision.split('\n') if l.strip()]
@@ -244,29 +299,40 @@ class ScreenWatcher(QThread):
 
 请一句话（不超过40字）直接对主人说话。基于画面真实内容，结尾加「喵」。末尾加一个括号可爱小动作。不要前缀引号Markdown。"""
 
-            resp = requests.post(
-                f"{self.host}/api/chat",
-                json={
-                    "model": self.chat_model,
-                    "messages": [
+            text = ""
+            if self.backend == "mimo":
+                text = self._mimo_chat(
+                    messages=[
                         {"role": "system", "content": "你是梅尔，猫娘。回复简短自然。"},
                         {"role": "user", "content": final_prompt},
                     ],
-                    "stream": False,
-                    "keep_alive": "2m",
-                    "options": {"num_predict": 100, "temperature": 0.85},
-                },
-                timeout=180,
-            )
-            if self._stop:
-                return
-            print(f"[watcher] Step4 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
-            if resp.status_code != 200:
-                self.progress.emit(STAGE_ERROR)
-                self.error.emit(f"回复失败: {resp.status_code}")
-                return
-
-            text = resp.json().get("message", {}).get("content", "").strip()
+                    max_tokens=100,
+                    temperature=0.85,
+                )
+                print(f"[watcher] Step4 MiMo response: {text[:100]}")
+            else:
+                resp = requests.post(
+                    f"{self.host}/api/chat",
+                    json={
+                        "model": self.chat_model,
+                        "messages": [
+                            {"role": "system", "content": "你是梅尔，猫娘。回复简短自然。"},
+                            {"role": "user", "content": final_prompt},
+                        ],
+                        "stream": False,
+                        "keep_alive": "2m",
+                        "options": {"num_predict": 100, "temperature": 0.85},
+                    },
+                    timeout=180,
+                )
+                if self._stop:
+                    return
+                print(f"[watcher] Step4 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
+                if resp.status_code != 200:
+                    self.progress.emit(STAGE_ERROR)
+                    self.error.emit(f"回复失败: {resp.status_code}")
+                    return
+                text = resp.json().get("message", {}).get("content", "").strip()
             if not text:
                 text = "……没什么好说的喵。（尾巴轻轻晃了晃）"
 
@@ -295,6 +361,34 @@ class ScreenWatcher(QThread):
         """外部（pet.py）回传 Web 搜索结果"""
         self._search_pending = False
         self._search_result = result
+
+    def _mimo_chat(self, messages: list, max_tokens: int = 100, temperature: float = 0.3, timeout: int = 180) -> str:
+        """调用 MiMo 聊天补全 API，返回 content 文本"""
+        try:
+            import requests
+            resp = requests.post(
+                f"{self.api_base}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.mimo_model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+                timeout=timeout,
+            )
+            if resp.status_code == 200:
+                msg = resp.json().get("choices", [{}])[0].get("message", {})
+                if msg.get("reasoning_content"):
+                    print(f"[watcher] MiMo reasoning_content stripped")
+                return msg.get("content", "")
+            return ""
+        except Exception as e:
+            print(f"[watcher] MiMo chat error: {e}")
+            return ""
 
     def _guess_mood(self, text: str, strategy: str = "", idle_minutes: float = 0) -> str:
         if idle_minutes > 30:
