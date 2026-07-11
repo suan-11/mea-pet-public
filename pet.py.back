@@ -475,14 +475,6 @@ class MeaPet(QWidget):
     def __init__(self, config_path: str = "config.json"):
         super().__init__()
         self.config = self._load_config(config_path)
-        self._settings = self._load_settings()
-        safe_print(f"[settings] 加载配置: "
-           f"bubble_default={self._settings['bubble_duration_ms']['default']}, "
-           f"reply={self._settings['bubble_duration_ms']['reply']}, "
-           f"watch={self._settings['bubble_duration_ms']['watch']}, "
-           f"interaction={self._settings['bubble_duration_ms']['interaction']}, "
-           f"sync_with_audio={self._settings['tts']['sync_with_audio']}")
-
         self._awaiting_reply = False
         self._pending_input = None
         self._chat_worker = None
@@ -516,38 +508,6 @@ class MeaPet(QWidget):
         safe_print("[__init__] shown")
         self._apply_hit_region()
         safe_print("[__init__] hit region done")
-
-    def _load_settings(self) -> dict:
-        """加载 config_settings.json，不存在则返回默认值"""
-        default = {
-            "bubble_duration_ms": {
-                "default": 5000,
-                "reply": 8000,
-                "watch": 7000,
-                "interaction": 3000,
-                "thinking": 0
-            },
-            "tts": {
-                "sync_with_audio": False
-            }
-        }
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_settings.json")
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-            # 合并默认值（缺失的键用默认值填充）
-            for key in default:
-                if key not in settings:
-                    settings[key] = default[key]
-                elif isinstance(default[key], dict):
-                    for subkey in default[key]:
-                        if subkey not in settings[key]:
-                            settings[key][subkey] = default[key][subkey]
-            return settings
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            safe_print(f"[settings] 加载失败，使用默认值: {e}")
-            return default
-
 
     def _init_window(self):
         self.setWindowFlags(
@@ -1199,7 +1159,7 @@ class MeaPet(QWidget):
         ]
         text, mood = random.choice(reactions)
         self._safe_set_mood(mood)
-        self._interaction_speak(text, self._settings["bubble_duration_ms"]["interaction"], mood)
+        self._interaction_speak(text, 3000, mood)
         QTimer.singleShot(3000, lambda: self._safe_set_mood("neutral"))
 
     def _on_tail_patted(self):
@@ -1213,8 +1173,7 @@ class MeaPet(QWidget):
         ]
         text, mood = random.choice(reactions)
         self._safe_set_mood(mood)
-        self._interaction_speak(text, self._settings["bubble_duration_ms"]["interaction"], mood)
-
+        self._interaction_speak(text, 3500, mood)
         QTimer.singleShot(4000, lambda: self._safe_set_mood("neutral"))
 
     def _interaction_speak(self, text: str, duration_ms: int, mood: str):
@@ -1299,11 +1258,8 @@ class MeaPet(QWidget):
     # ========================
     # 对话气泡
     # ========================
-    def _show_bubble(self, text: str, duration_ms: int = None):
-        if duration_ms is None:
-            duration_ms = self._settings["bubble_duration_ms"]["default"]
+    def _show_bubble(self, text: str, duration_ms: int = 5000):
         self.bubble.show_text(text, duration_ms)
-
 
     def _show_random_bubble(self, text: str):
         self._show_bubble(text, 3000)
@@ -1351,13 +1307,11 @@ class MeaPet(QWidget):
                         pass
             self._play_audio(wav_path)
 
-    def show_reply(self, text: str, mood: str = "neutral", duration_ms: int = None):
-        if duration_ms is None:
-            duration_ms = self._settings["bubble_duration_ms"]["reply"]
+    def show_reply(self, text: str, mood: str = "neutral", duration_ms: int = 6000):
+        """显示 AI 回复，duration_ms 应与音频时长匹配"""
         self._safe_set_mood(mood)
         self._show_bubble(text, max(duration_ms, 3000))
         self._position_bubble()
-
 
     # ========================
     # LLM 对话
@@ -1393,7 +1347,7 @@ class MeaPet(QWidget):
         safe_print(f"[pet] 发送给 LLM: {message}")
 
         # 显示思考中提示
-        self._show_bubble("💭 梅尔正在思考……", self._settings["bubble_duration_ms"]["thinking"])  # 0 = 持久显示
+        self._show_bubble("💭 梅尔正在思考……", 0)  # 0 = 持久显示
         self._position_bubble()
 
         # 停止旧 worker（防止泄漏）
@@ -1556,9 +1510,9 @@ class MeaPet(QWidget):
         if wav_path and os.path.exists(wav_path):
             # 更新气泡时长以匹配音频
             audio_ms = self._get_wav_duration_ms(wav_path)
-            if self._settings["tts"]["sync_with_audio"] and audio_ms > 0:
-                self.bubble.show_text(self.bubble.text_label.text(), duration_ms=max(audio_ms + 500, self._settings["bubble_duration_ms"]["reply"]))
-                self._play_audio(wav_path)
+            if audio_ms > 0 and hasattr(self, 'bubble') and self.bubble:
+                self.bubble.show_text(self.bubble.text_label.text(), duration_ms=audio_ms + 500)
+            self._play_audio(wav_path)
 
     def _on_chat_error(self, err: str):
         safe_print(f"[pet] Chat错误: {err}")
@@ -1668,7 +1622,7 @@ class MeaPet(QWidget):
         except Exception as e:
             import traceback
             log_error("watch_result", f"{e}")
-            self.show_reply(text, mood, duration_ms=self._settings["bubble_duration_ms"]["watch"])
+            self.show_reply(text, mood, duration_ms=5000)
             self._awaiting_reply = False
             self._start_watcher_timer()
 
@@ -1677,8 +1631,7 @@ class MeaPet(QWidget):
         if raw is None or reply is None:
             safe_print("[TTS] watch tts returned None, skip audio")
             if reply and mood:
-                self.show_reply(reply, mood, duration_ms=self._settings["bubble_duration_ms"]["watch"])
-
+                self.show_reply(reply, mood, duration_ms=6000)
             else:
                 safe_print("[watch] _pending_reply 已丢失!")
             self._awaiting_reply = False
@@ -1696,11 +1649,8 @@ class MeaPet(QWidget):
             self._start_watcher_timer()
             return
         audio_duration_ms = self._get_wav_duration_ms(wav_path) if wav_path else 0
-        bubble_ms = self._settings["bubble_duration_ms"]["watch"]
-        if self._settings["tts"]["sync_with_audio"]:
-            bubble_ms = max(audio_duration_ms + 500, bubble_ms)
+        bubble_ms = max(audio_duration_ms + 500, 3000)
         self.show_reply(reply, mood, duration_ms=bubble_ms)
-        
         self._awaiting_reply = False
         self._start_watcher_timer()
         if wav_path and os.path.exists(wav_path):
@@ -1719,15 +1669,13 @@ class MeaPet(QWidget):
         print(f"[watch error] {err}")  # 终端输出
         # 显示简短提示，不打扰主人
         self._awaiting_reply = False
-        self._show_bubble(f"唔…看不清喵 ({err[:30]})", self._settings["bubble_duration_ms"]["default"])
-
+        self._show_bubble(f"唔…看不清喵 ({err[:30]})", 3000)
         self._start_watcher_timer()
 
     def _on_watch_silent(self):
         """视觉模型评估后决定不说话——安静恢复"""
         self._awaiting_reply = False
-        self._show_bubble("😼 没什么好说的喵…", self._settings["bubble_duration_ms"]["default"])
-
+        self._show_bubble("😼 没什么好说的喵…", 2000)
         self._start_watcher_timer()
 
     def _on_watch_progress(self, msg: str):

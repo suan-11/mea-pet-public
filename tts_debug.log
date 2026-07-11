@@ -821,3 +821,25 @@ ValueError: numpy.dtype size changed, may indicate binary incompatibility. Expec
 [12:38:51]   ▶ VITS 推理…
 [12:39:09]   ◀ VITS 返回 (rc=0, 18.5s)
 [12:39:09] ✓ VITS output: mea_729197.wav (18.5s)
+[05:22:23]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[05:22:23] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:19:39]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:19:39] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:21:19]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:21:19] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:26:59]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:26:59] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:33:13]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:33:13] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:41:59]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:41:59] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:42:13]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:42:13] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[06:46:54]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[06:46:54] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[07:17:20]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[07:17:20] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[07:28:35]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[07:28:35] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6
+[07:34:33]   → 检测到 GPT-SoVITS: /home/flexiatom/clone/met-pet-public-fix-linux-compat/.venv/bin/python
+[07:34:33] 🎤 MeaTTS v2 (subprocess) | python=python | GPT=mea_pro-e50.ckpt | SoVITS=mea_pro_e24_s13704.pth | top_k=15 top_p=0.8 temp=0.6

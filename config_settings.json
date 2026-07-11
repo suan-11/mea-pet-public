@@ -1,0 +1,13 @@
+{
+    "bubble_duration_ms": {
+        "default": 5000,
+        "reply": 8000,
+        "watch": 10000,
+        "interaction": 3000,
+        "thinking": 0
+    },
+    "tts": {
+        "sync_with_audio": false
+    }
+}
+
