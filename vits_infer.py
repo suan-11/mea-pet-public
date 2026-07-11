@@ -3,7 +3,7 @@ VITS Fast Fine-Tuning 推理脚本（独立版）
 全部依赖已内置在 vits_core/ 中
 用法: python vits_infer.py --text "[JA]こんにちわ[JA]" --output output.wav
 """
-import os, sys, json, argparse
+import os, sys, json, argparse, subprocess
 
 # 将 vits_core 加入模块搜索路径
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +21,45 @@ if os.path.isdir(_sp) and _sp not in sys.path:
 # 国内网络环境 SSL 证书可能验证失败，pyopenjtalk 首次加载会下载字典
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
+
+# ═══ 修复 numpy 二进制兼容性（跨平台：Windows / Linux） ═══
+# pyopenjtalk 的 htsengine.pyx C 扩展编译时链接了 numpy < 2.0 的 ABI。
+# 若运行时 numpy >= 2.0，会报：
+#   ValueError: numpy.dtype size changed, may indicate binary incompatibility.
+# 在模块导入之前检查已安装的 numpy 版本，自动安装兼容版本。
+_PIP_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
+_PIP_MIRROR_HOST = "pypi.tuna.tsinghua.edu.cn"
+
+def _fix_numpy_if_needed():
+    try:
+        from importlib.metadata import version as _ver
+        v = _ver("numpy")
+        if v.startswith("2."):
+            print("  ⚠ 检测到 numpy >= 2.0，pyopenjtalk 需要 numpy < 2.0，正在修复…", file=sys.stderr, flush=True)
+            # 尝试先不带 mirror（Linux/macOS 直连）
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--force-reinstall", "numpy>=1.21,<2.0", "-q"],
+                    timeout=120,
+                )
+            except (subprocess.CalledProcessError, Exception):
+                # 直连失败 → 走清华镜像（中国大陆/Windows）
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install",
+                     "--index-url", _PIP_MIRROR,
+                     "--trusted-host", _PIP_MIRROR_HOST,
+                     "--force-reinstall", "numpy>=1.21,<2.0", "-q"],
+                    timeout=120,
+                )
+            print("  ✓ numpy 已降级至 <2.0，继续加载…", file=sys.stderr, flush=True)
+            # 不需要 exit：实际 import numpy 发生在后面（torch → numpy），
+            # pip 已安装新版本到 site-packages，后续 import 会加载正确版本。
+        elif v.startswith("1."):
+            pass  # 正常
+    except (ImportError, subprocess.CalledProcessError, Exception):
+        pass  # 没有 importlib.metadata 或 pip 不可用，让后续导入报错
+
+_fix_numpy_if_needed()
 
 # 预下载 pyopenjtalk 词典（优先用项目内 dic/，没有才网络下载）
 import urllib.request, tarfile, io, os as _os
@@ -64,7 +103,6 @@ else:
 try:
     import pkg_resources
 except ModuleNotFoundError:
-    import subprocess
     _pip = [sys.executable, "-m", "pip", "install",
             "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple",
             "--trusted-host", "pypi.tuna.tsinghua.edu.cn",

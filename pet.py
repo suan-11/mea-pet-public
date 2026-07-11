@@ -19,7 +19,8 @@ from typing import Optional
 
 from PyQt5.QtWidgets import (
     QApplication, QLabel, QWidget, QMenu, QAction, QSystemTrayIcon,
-    QVBoxLayout, QHBoxLayout, QInputDialog, QFrame, QMessageBox
+    QVBoxLayout, QHBoxLayout, QInputDialog, QFrame, QMessageBox,
+    QDialog, QSlider, QPushButton
 )
 from PyQt5.QtGui import QPixmap, QIcon, QFont, QColor
 from PyQt5.QtCore import Qt, QTimer, QPoint, QThread, pyqtSignal, QObject, QRectF
@@ -343,6 +344,131 @@ class TTSWorker:
         self._thread = None
 
 
+class SizeScaleDialog(QDialog):
+    """立绘大小调节对话框 — 滑块实时预览"""
+    def __init__(self, current_factor: float, pet=None):
+        super().__init__(pet)
+        self._pet = pet
+        self._factor = current_factor
+        self._original = current_factor  # 取消时还原
+        self.setWindowTitle("调节立绘大小")
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(280, 130)
+
+        container = QFrame(self)
+        container.setStyleSheet("""
+            QFrame#sizeFrame {
+                background: rgba(30,30,40,240);
+                border: 1px solid rgba(255,255,255,30);
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #F0F0F0;
+                font-size: 14px;
+                font-family: "Microsoft YaHei","Noto Sans CJK SC","WenQuanYi Micro Hei",sans-serif;
+            }
+            QLabel#pctLabel {
+                font-size: 20px;
+                color: #FFB6C1;
+                font-weight: bold;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: rgba(255,255,255,30);
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #FFB6C1;
+                width: 18px;
+                margin: -6px 0;
+                border-radius: 9px;
+            }
+            QSlider::sub-page:horizontal {
+                background: rgba(255,182,193,120);
+                border-radius: 3px;
+            }
+            QPushButton {
+                background: rgba(255,255,255,20);
+                color: #F0F0F0;
+                border: 1px solid rgba(255,255,255,30);
+                border-radius: 6px;
+                padding: 5px 14px;
+                font-size: 12px;
+                font-family: "Microsoft YaHei","Noto Sans CJK SC","WenQuanYi Micro Hei",sans-serif;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,40);
+            }
+            QPushButton#okBtn {
+                background: rgba(255,182,193,60);
+                border: 1px solid rgba(255,182,193,80);
+            }
+            QPushButton#okBtn:hover {
+                background: rgba(255,182,193,90);
+            }
+        """)
+        container.setObjectName("sizeFrame")
+
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(16, 12, 16, 12)
+        c_layout.setSpacing(8)
+
+        # 百分比标签
+        self._pct_label = QLabel(f"{int(current_factor * 100)}%", self)
+        self._pct_label.setObjectName("pctLabel")
+        self._pct_label.setAlignment(Qt.AlignCenter)
+
+        # 滑块 (30%–300%)
+        self._slider = QSlider(Qt.Horizontal, self)
+        self._slider.setRange(30, 300)
+        self._slider.setValue(int(current_factor * 100))
+        self._slider.valueChanged.connect(self._on_slider)
+
+        # 按钮行
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+        reset_btn = QPushButton("重置", self)
+        reset_btn.clicked.connect(self._reset)
+        ok_btn = QPushButton("确定", self)
+        ok_btn.setObjectName("okBtn")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("取消", self)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(reset_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+
+        c_layout.addWidget(self._pct_label)
+        c_layout.addWidget(self._slider)
+        c_layout.addLayout(btn_layout)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(container)
+        self.setLayout(outer)
+
+    def _on_slider(self, value: int):
+        self._factor = value / 100.0
+        self._pct_label.setText(f"{value}%")
+        if self._pet and hasattr(self._pet, '_size_factor_preview'):
+            self._pet._size_factor_preview(self._factor)
+
+    def _reset(self):
+        self._slider.setValue(100)
+
+    def get_value(self) -> float:
+        return self._factor
+
+    def reject(self):
+        """取消时还原到打开前的值"""
+        self._factor = self._original
+        if self._pet and hasattr(self._pet, '_size_factor_preview'):
+            self._pet._size_factor_preview(self._original)
+        super().reject()
+
+
 class MeaPet(QWidget):
     """梅尔桌宠主窗口"""
 
@@ -415,7 +541,8 @@ class MeaPet(QWidget):
         """初始化渲染器：先 PNG（快速显示），Live2D 延后异步加载"""
         char = self.config.get("character", {})
         display_cfg = self.config.get("display", {})
-        self._scale = display_cfg.get("scale", 1.0) * 1.25  # 放大 25%放大你冯直接给我坐下没事了你还是放吧不是你的问题
+        self._scale = display_cfg.get("scale", 1.0) * 1.25  # 放大 25%
+        self._size_factor = display_cfg.get("size_factor", 1.0)
         self._use_live2d = False
         self._l2d_model = None
         self._l2d_pending = False
@@ -463,6 +590,10 @@ class MeaPet(QWidget):
                 png_label.deleteLater()
 
             self._use_live2d = True
+
+            # 应用 size_factor（_use_live2d 已为 True，Live2D 分支生效）
+            if self._size_factor != 1.0:
+                self._size_factor_preview(self._size_factor)
 
             # 确保窗口和 Live2D 可见（避免切换后隐藏）
             self.show()
@@ -541,8 +672,6 @@ class MeaPet(QWidget):
         if not os.path.isdir(model_dir):
             self._use_live2d = False
             return
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self._l2d_model = Live2DModel(model_dir)
         widget = self._l2d_model.create_widget(self)
         self.sprite_label = widget
@@ -786,6 +915,11 @@ class MeaPet(QWidget):
         mode_action.triggered.connect(self._toggle_render_mode)
         menu.addAction(mode_action)
 
+        # 立绘大小调节
+        size_action = QAction("📐 立绘大小调节...", self)
+        size_action.triggered.connect(self._open_size_dialog)
+        menu.addAction(size_action)
+
         # 截图吐槽
         snap_action = QAction("📸 看看我在干嘛", self)
         snap_action.triggered.connect(lambda: self._do_screen_watch(force=True))
@@ -903,20 +1037,61 @@ class MeaPet(QWidget):
         if pixmap.isNull():
             return
         scaled = pixmap.scaled(
-            int(pixmap.width() * self._scale),
-            int(pixmap.height() * self._scale),
+            int(pixmap.width() * self._scale * self._size_factor),
+            int(pixmap.height() * self._scale * self._size_factor),
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation
         )
         self.sprite_label.setPixmap(scaled)
         # 精灵左侧有透明留白且偏上，左移下移让角色居中
         sw, sh = scaled.width(), scaled.height()
-        self.sprite_label.move(-int(sw * 0.00), int(sh * 0.00))  # 左移25%，下移8%握草谁让你移了终于找到了哈哈直接给我坐下
+        self.sprite_label.move(-int(sw * 0.00), int(sh * 0.00))
         self.sprite_label.resize(scaled.size())
         self.resize(scaled.size())
 
     def _on_sprite_changed(self, code: str):
         self._update_sprite()
+
+    def _size_factor_preview(self, factor: float):
+        """滑块拖动时实时预览立绘大小"""
+        self._size_factor = factor
+        if self._use_live2d and self.sprite_label:
+            base_w, base_h = 400, 660
+            new_w = max(80, int(base_w * factor))
+            new_h = max(80, int(base_h * factor))
+            self.sprite_label.resize(new_w, new_h)
+            self.resize(new_w, new_h)
+            self._apply_hit_region()
+            QApplication.processEvents()
+        else:
+            pixmap = self.renderer.get_current_pixmap()
+            if not pixmap.isNull():
+                new_w = max(80, int(pixmap.width() * self._scale * factor))
+                new_h = max(80, int(pixmap.height() * self._scale * factor))
+                self.resize(new_w, new_h)
+            self._update_sprite()
+            self._apply_hit_region()
+            QApplication.processEvents()
+        self._position_bubble()
+
+    def _open_size_dialog(self):
+        """打开立绘大小调节滑块对话框"""
+        dialog = SizeScaleDialog(self._size_factor, self)
+        # 屏幕边界防护
+        screen = QApplication.primaryScreen().availableGeometry()
+        dlg_w, dlg_h = 280, 130
+        x = self.x() + (self.width() - dlg_w) // 2
+        y = self.y() + (self.height() - dlg_h) // 2
+        x = max(screen.x(), min(x, screen.x() + screen.width() - dlg_w))
+        y = max(screen.y(), min(y, screen.y() + screen.height() - dlg_h))
+        dialog.move(x, y)
+
+        if dialog.exec_() == QDialog.Accepted:
+            new_factor = dialog.get_value()
+            self._size_factor = new_factor
+            self.config.setdefault("display", {})["size_factor"] = round(new_factor, 2)
+            self._save_config()
+            self._show_bubble(f"立绘大小已设为 {int(new_factor*100)}%", 1500)
 
     def _position_bubble(self):
         """把消息框定位到立绘下方，与腿部重叠"""
@@ -1582,6 +1757,8 @@ class MeaPet(QWidget):
             self.renderer.expression_changed.connect(self._on_sprite_changed)
             self._update_sprite()
             self.renderer.start_blink_animation()
+            if self._size_factor != 1.0:
+                self._size_factor_preview(self._size_factor)
             self._apply_hit_region()
             self._show_bubble("🎭 切回 PNG 立绘喵～", 2500)
         else:
@@ -1595,6 +1772,8 @@ class MeaPet(QWidget):
                 self.sprite_label = None
             self._use_live2d = True
             self._init_live2d()
+            if self._size_factor != 1.0:
+                self._size_factor_preview(self._size_factor)
             self._apply_hit_region()
             self._show_bubble("🎭 Live2D 模式喵～", 2500)
         self._position_bubble()

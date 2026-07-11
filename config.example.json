@@ -30,7 +30,8 @@
   },
   "display": {
     "scale": 0.5,
-    "fps": 30
+    "fps": 30,
+    "size_factor": 1.0
   },
   "character": {
     "name": "梅尔",

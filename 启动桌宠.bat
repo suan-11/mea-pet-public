@@ -11,29 +11,29 @@ set PY_CMD=
 :: 0. Hermes venv（自带 PyTorch，免装依赖）
 if exist "%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe" (
     set PY_CMD="%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe"
-    goto py_found
+    goto dep_check
 )
 if exist "%USERPROFILE%\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe" (
     set PY_CMD="%USERPROFILE%\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe"
-    goto py_found
+    goto dep_check
 )
 
 :: 1a. 系统 PATH
 python --version >nul 2>&1
-if %errorlevel% equ 0 set PY_CMD=python&goto py_found
+if %errorlevel% equ 0 set PY_CMD=python&goto dep_check
 py --version >nul 2>&1
-if %errorlevel% equ 0 set PY_CMD=py&goto py_found
+if %errorlevel% equ 0 set PY_CMD=py&goto dep_check
 
 :: 1b. 常见安装路径
 for %%v in (313 312 311 310) do (
-    if exist "%LOCALAPPDATA%\Programs\Python\Python%%v\python.exe" set PY_CMD="%LOCALAPPDATA%\Programs\Python\Python%%v\python.exe"&goto py_found
-    if exist "%ProgramFiles%\Python\Python%%v\python.exe" set PY_CMD="%ProgramFiles%\Python\Python%%v\python.exe"&goto py_found
+    if exist "%LOCALAPPDATA%\Programs\Python\Python%%v\python.exe" set PY_CMD="%LOCALAPPDATA%\Programs\Python\Python%%v\python.exe"&goto dep_check
+    if exist "%ProgramFiles%\Python\Python%%v\python.exe" set PY_CMD="%ProgramFiles%\Python\Python%%v\python.exe"&goto dep_check
 )
 
 :: 1c. 便携版（有 pip 才直接用）
 if exist "%~dp0_python\python.exe" set PY_CMD="%~dp0_python\python.exe"
 if defined PY_CMD %PY_CMD% -m pip --version >nul 2>&1
-if defined PY_CMD if not errorlevel 1 goto py_found
+if defined PY_CMD if not errorlevel 1 goto dep_check
 if defined PY_CMD echo [MeaPet] 发现 _python\ 但 pip 未就绪，重新安装 pip ...
 
 :: ======== 2. 需要下载/修复 python + pip ========
@@ -117,37 +117,30 @@ if %PIP_EXIT% neq 0 (
 
 echo [MeaPet] Python 3.11 + pip 已就绪！
 
-:: ======== 4. 装依赖 ========
-:py_found
+:: ======== 4. 安装基础依赖 ========
+:dep_check
 %PY_CMD% --version
 
-%PY_CMD% -c "import PyQt5" 2>nul
-if errorlevel 1 %PY_CMD% -m pip install PyQt5 pywin32 requests pillow --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-if errorlevel 1 echo Install failed && pause && exit /b 1
-
-%PY_CMD% -c "import live2d.v3" 2>nul
-if errorlevel 1 %PY_CMD% -m pip install live2d-py PyOpenGL --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-
-%PY_CMD% -c "import soundfile" 2>nul
-if errorlevel 1 (
-    %PY_CMD% -m pip install torch torchaudio --index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl/cpu --trusted-host mirrors.tuna.tsinghua.edu.cn
-    %PY_CMD% -m pip install soundfile numpy einops av PyYAML tqdm pypinyin scipy psutil --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-    %PY_CMD% -m pip install transformers tokenizers huggingface_hub --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+echo [MeaPet] 正在安装基础依赖（PyQt5, pillow, PyOpenGL, numpy）...
+%PY_CMD% -m pip install -r linux_requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+if %errorlevel% neq 0 (
+    echo [MeaPet] 基础依赖安装失败喵
+    pause
+    exit /b 1
 )
 
-if exist "GPT-SoVITS-CPUFast/requirements.txt" (
-    %PY_CMD% -c "import gradio" 2>nul
-    if errorlevel 1 %PY_CMD% -m pip install -r "GPT-SoVITS-CPUFast/requirements.txt" --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+echo [MeaPet] 正在安装 Live2D 支持（live2d-py）...
+%PY_CMD% -m pip install live2d-py --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+if %errorlevel% neq 0 (
+    echo [MeaPet] Live2D 支持安装失败，桌宠将以 PNG 模式运行喵
 )
 
-:: VITS 依赖（pyopenjtalk 需要 setuptools 旧版带的 pkg_resources + numpy 1.x）
-%PY_CMD% -m pip install setuptools==69.5.1 "numpy<2" unidecode jamo inflect eng_to_ipa librosa Cython pyopenjtalk-prebuilt jieba cn2an ko_pron opencc indic_transliteration num_thai --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+:: ======== 5. 启动 ========
+if not exist "config.json" (
+    %PY_CMD% setup_wizard.py
+    goto end
+)
 
-if exist "config.json" goto run
-%PY_CMD% setup_wizard.py
-goto end
-
-:run
 %PY_CMD% pet.py
 
 :end
