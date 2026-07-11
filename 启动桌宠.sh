@@ -5,7 +5,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# --- 编码 ---
 export PYTHONIOENCODING=utf-8
+export PYTHONUNBUFFERED=1
+
+# --- X11 (Linux 桌面必须) ---
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+if [[ -z "${DISPLAY:-}" ]]; then
+    echo "[MeaPet] ⚠️  DISPLAY 未设置，请确认你在 X11/Wayland 桌面环境中运行"
+fi
+
+# --- XDG Runtime (PulseAudio/PipeWire 需要) ---
+if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+# --- Qt 相关 ---
+export QTWEBENGINE_DISABLE_SANDBOX=1
+# 输入法: 留空让 Qt 自动检测；可手动指定 fcitx / ibus / xim
+# export QT_IM_MODULE=
+
+# --- TTS (GPT-SoVITS) ---
+# 如果你有独立的 GPT-SoVITS Python 环境，设置此变量指向其 python 解释器
+# export GSV_PYTHON="$HOME/GPT-SoVITS/.venv/bin/python3"
+
+# --- HuggingFace 镜像 (国内用户) ---
+# export HF_ENDPOINT="https://hf-mirror.com"
+# export TOKENIZERS_PARALLELISM=false
+
+# --- 清理可能污染子进程的变量 ---
+unset PYTHONPATH PYTHONHOME 2>/dev/null || true
+
 VENV_DIR="$SCRIPT_DIR/.venv"
 PY_CMD=""
 
@@ -133,7 +163,7 @@ fi
 # ======== 7. 启动 ========
 if [[ ! -f "$SCRIPT_DIR/config.json" ]]; then
     echo "[MeaPet] 首次运行，启动配置向导 ..."
-    QT_QPA_PLATFORM=xcb "$PY_CMD" "$SCRIPT_DIR/setup_wizard.py"
+    "$PY_CMD" "$SCRIPT_DIR/setup_wizard.py"
     if [[ ! -f "$SCRIPT_DIR/config.json" ]]; then
         echo "[MeaPet] 配置未完成，退出。"
         exit 0
@@ -141,4 +171,4 @@ if [[ ! -f "$SCRIPT_DIR/config.json" ]]; then
 fi
 
 echo "[MeaPet] 启动桌宠 ..."
-QT_QPA_PLATFORM=xcb "$PY_CMD" "$SCRIPT_DIR/pet.py"
+"$PY_CMD" "$SCRIPT_DIR/pet.py"
