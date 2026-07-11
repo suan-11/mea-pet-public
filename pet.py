@@ -1,3 +1,4 @@
+
 """
 梅尔桌宠 - 主程序
 透明异形窗口 + 拖拽移动 + 表情切换 + 对话气泡
@@ -21,7 +22,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QInputDialog, QFrame, QMessageBox
 )
 from PyQt5.QtGui import QPixmap, QIcon, QFont, QColor
-from PyQt5.QtCore import Qt, QTimer, QPoint, QThread, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QTimer, QPoint, QThread, pyqtSignal, QObject, QRectF
 
 from utils import safe_print, log_error, ensure_utf8_stdout
 
@@ -42,8 +43,14 @@ os.environ.setdefault("QT_MULTIMEDIA_PREFERRED_PLUGINS", "windowsmediafoundation
 
 if sys.platform == "win32":
     import win32gui
-    import win32con
-    import win32api
+    # 删除部分无用导入
+
+
+def focusInEvent(self, event):
+    super().focusInEvent(event)
+    # 重置输入法状态，让 Fcitx5 知道这个窗口需要中文
+    from PyQt5.QtGui import QInputMethod
+    QInputMethod.instance().reset()
 
 
 def wrap_text(text: str, width: int = 10) -> str:
@@ -377,14 +384,29 @@ class MeaPet(QWidget):
         safe_print("[__init__] hit region done")
 
     def _init_window(self):
-        """窗口基础设置"""
         self.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Window
+            Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+            | Qt.Tool              # ← 关键：Tool 比 Window 更像"悬浮工具"
+            | Qt.SubWindow         # 辅助
         )
+        # 启用输入法支持
+        self.setAttribute(Qt.WA_InputMethodEnabled, True)
+        # 确保窗口可以获得焦点（否则输入法不会激活）
+        self.setFocusPolicy(Qt.StrongFocus)
+
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_AlwaysStackOnTop, True)  # X11 置顶加固
+        # 给 X11 WM 打 hint：这是 utility/dock，别 tile 我
+        self.setProperty("_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_UTILITY")
+        self.setWindowTitle("mea-pet")
+        # 或者更狠的：
+        # self.setWindowRole("desktop-pet")  # 有些 WM 认 role
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        self.bubble = DialogueBox(None)
+
 
         # 对话气泡（独立浮窗）
         self.bubble = DialogueBox(None)
@@ -1005,25 +1027,48 @@ class MeaPet(QWidget):
         return path if os.path.exists(path) else None
 
     def _apply_hit_region(self):
-        """设置窗口点击穿透区域"""
-        try:
-            import win32gui
-            hwnd = int(self.winId())
-            w, h = self.width(), self.height()
-            if not (w > 0 and h > 0):
+        #设置窗口点击穿透区域（跨平台）
+        if sys.platform == "win32":
+            # Windows 原生：使用 GDI 区域（性能好）
+            try:
+                import win32gui
+                hwnd = int(self.winId())
+                w, h = self.width(), self.height()
+                if not (w > 0 and h > 0):
+                    return
+                if self._use_live2d:
+                    # Live2D 模式：椭圆裁剪
+                    m = w // 16
+                    t = h // 16
+                    rgn = win32gui.CreateEllipticRgnIndirect((m, t, w - m, h - t))
+                else:
+                    # PNG 模式：矩形
+                    rgn = win32gui.CreateRoundRectRgn(0, 0, w, h, 0, 0)
+                win32gui.SetWindowRgn(hwnd, rgn, True)
                 return
-            if self._use_live2d:
-                # Live2D 模式：椭圆裁剪，角落可穿透点击
-                m = w // 16
-                t = h // 16
-                rgn = win32gui.CreateEllipticRgnIndirect((m, t, w - m, h - t))
-            else:
-                # PNG 模式：矩形窗口（立绘偏移后不会被切掉左半边）
-                # CreateRoundRectRgn(,,,,0,0) = 纯矩形，比 CreateRectRgn 兼容性更好
-                rgn = win32gui.CreateRoundRectRgn(0, 0, w, h, 0, 0)
-            win32gui.SetWindowRgn(hwnd, rgn, True)
-        except Exception as e:
-            safe_print(f"[WARN] _apply_hit_region failed: {e}")
+            except Exception as e:
+                safe_print(f"[WARN] Win32 hit region failed, fallback to Qt mask: {e}")
+
+        # 非 Windows 或 Win32 失败时：使用 Qt 的 setMask
+        from PyQt5.QtGui import QPainterPath, QRegion
+        from PyQt5.QtCore import QPoint, QRect
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+
+        if self._use_live2d:
+            # 椭圆遮罩
+            path = QPainterPath()
+            path.addEllipse(QRectF(w//16, h//16, w - w//8, h - h//8))
+
+            region = QRegion(path.toFillPolygon().toPolygon())
+        else:
+            # 矩形遮罩（整个窗口）
+            region = QRegion(0, 0, w, h)
+
+        self.setMask(region)
+
+
 
     # ========================
     # 空闲动画
@@ -1242,10 +1287,20 @@ class MeaPet(QWidget):
         if hasattr(self, '_watch_tts_worker') and self._watch_tts_worker and self._watch_tts_worker.done:
             result = self._watch_tts_worker.get_result()
             self._watch_tts_worker = None
+            # 把 _pending_reply 的数据取出来，传给回调，不要在回调前删除
+            pending = getattr(self, '_pending_reply', None)
+            if pending:
+                reply, mood = pending
+                self._on_watch_tts_and_show(result, reply, mood)  # 改为传参
+            else:
+                self._on_watch_tts_and_show(result, None, None)
+            # 清理 _pending_reply 放到回调之后
             if hasattr(self, '_pending_reply'):
                 reply, mood = self._pending_reply
                 del self._pending_reply
                 self._on_watch_tts_and_show(result)
+
+                
         # 没有待处理的 worker 就停止
         if not any([
             getattr(self, '_tts_worker', None),
@@ -1384,6 +1439,7 @@ class MeaPet(QWidget):
         text = text.strip()
         try:
             self._pending_reply = (text, mood)
+            safe_print(f"[watch] _pending_reply 已设置: {text[:40]}")
             # 使用专用 worker，不和互动触摸抢 _speak_worker
             self._watch_tts_worker = TTSWorker(self.tts, text, mood=mood)
             self._watch_tts_worker.start()
@@ -1395,7 +1451,18 @@ class MeaPet(QWidget):
             self._awaiting_reply = False
             self._start_watcher_timer()
 
-    def _on_watch_tts_and_show(self, raw: str):
+    def _on_watch_tts_and_show(self, raw: str, reply: str = None, mood: str = None):
+        safe_print(f"[watch] _on_watch_tts_and_show called, raw={raw is not None}, reply={reply is not None}")
+        if raw is None or reply is None:
+            safe_print("[TTS] watch tts returned None, skip audio")
+            if reply and mood:
+                self.show_reply(reply, mood, duration_ms=6000)
+            else:
+                safe_print("[watch] _pending_reply 已丢失!")
+            self._awaiting_reply = False
+            self._start_watcher_timer()
+            return
+            
         """屏幕吐槽：语音合成完成 → 显示文字 + 播放"""
         wav_path = raw.rsplit("|", 1)[0] if "|" in raw else raw
         if hasattr(self, '_pending_reply'):
@@ -1424,6 +1491,7 @@ class MeaPet(QWidget):
         self._start_watcher_timer()
 
     def _on_watch_error(self, err: str):
+        print(f"[watch error] {err}")  # 终端输出
         # 显示简短提示，不打扰主人
         self._awaiting_reply = False
         self._show_bubble(f"唔…看不清喵 ({err[:30]})", 3000)
@@ -1446,35 +1514,46 @@ class MeaPet(QWidget):
             self._watcher.set_search_result(result)
 
     def _toggle_standby(self):
-        """切换待机模式：暂停/恢复屏幕识图和互动"""
         self._standby = not self._standby
         if self._standby:
-            # 进入待机：停止 watcher、闭眼、设鼠标穿透区域
             self._watcher_timer.stop()
             self._safe_set_expression("011")  # 闭眼
-            self._show_bubble("💤 梅尔酱待机中……", 0)  # 持久
+            self._show_bubble("💤 梅尔酱待机中……", 0)
             self._position_bubble()
-            # 设极小区域（0×0）→ 整窗口鼠标穿透
-            if sys.platform == "win32":
-                try:
-                    import win32gui
-                    # 裁剪为模型中心一小块矩形（可拖拽/右键唤醒）
-                    w, h = self.width(), self.height()
-                    margin_x = w // 4
-                    margin_y = h // 4
-                    rgn = win32gui.CreateRectRgn(margin_x, margin_y, w - margin_x, h - margin_y)
-                    win32gui.SetWindowRgn(int(self.winId()), rgn, True)
-                except Exception:
-                    pass
+            # 设置极小可点击区域
+            self._set_standby_region()
         else:
-            # 退出待机：恢复交互 + 表情 + 定时器
-            self._safe_set_expression("001")  # 默认睁眼
+            self._safe_set_expression("001")
             if hasattr(self, 'bubble') and self.bubble:
                 self.bubble.hide()
             self._show_bubble("✨ 梅尔酱回来了喵～", 2500)
             self._position_bubble()
-            self._apply_hit_region()
+            self._apply_hit_region()  # 恢复正常区域
             self._start_watcher_timer()
+
+    def _set_standby_region(self):
+        """待机时缩小可点击区域（跨平台）"""
+        if sys.platform == "win32":
+            try:
+                import win32gui
+                w, h = self.width(), self.height()
+                margin_x = w // 4
+                margin_y = h // 4
+                rgn = win32gui.CreateRectRgn(margin_x, margin_y, w - margin_x, h - margin_y)
+                win32gui.SetWindowRgn(int(self.winId()), rgn, True)
+                return
+            except Exception as e:
+                safe_print(f"[WARN] Standby region failed: {e}")
+
+        # 非 Windows：使用 Qt mask 缩小到中心矩形
+        from PyQt5.QtGui import QRegion
+        from PyQt5.QtCore import QRect
+        w, h = self.width(), self.height()
+        margin_x = w // 4
+        margin_y = h // 4
+        region = QRegion(QRect(margin_x, margin_y, w - 2*margin_x, h - 2*margin_y))
+        self.setMask(region)
+
 
     def _toggle_render_mode(self):
         """切换 Live2D / PNG 立绘渲染模式"""
@@ -1565,4 +1644,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # 1. 打印环境变量，看一眼启动瞬间的值是多少
+    print(f"[ENV CHECK] QT_IM_MODULE = {os.environ.get('QT_IM_MODULE')}")
     main()
+

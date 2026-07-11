@@ -135,6 +135,7 @@ class ScreenWatcher(QThread):
             )
             if self._stop:
                 return
+            print(f"[watcher] Step2 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
             if resp.status_code != 200:
                 self.progress.emit(STAGE_ERROR)
                 self.error.emit(f"摘要失败: {resp.status_code}")
@@ -163,10 +164,11 @@ class ScreenWatcher(QThread):
                     "keep_alive": "2m",
                     "options": {"num_predict": 100, "temperature": 0.3},
                 },
-                timeout=60,
+                timeout=180,
             )
             if self._stop:
                 return
+            print(f"[watcher] Step3 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
             decision = ""
             strategy = "毒舌吐槽"
             search_query = ""
@@ -254,10 +256,11 @@ class ScreenWatcher(QThread):
                     "keep_alive": "2m",
                     "options": {"num_predict": 100, "temperature": 0.85},
                 },
-                timeout=60,
+                timeout=180,
             )
             if self._stop:
                 return
+            print(f"[watcher] Step4 status: {resp.status_code}, response[:200]: {resp.text[:200]}")
             if resp.status_code != 200:
                 self.progress.emit(STAGE_ERROR)
                 self.error.emit(f"回复失败: {resp.status_code}")

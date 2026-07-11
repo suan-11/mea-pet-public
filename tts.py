@@ -477,6 +477,15 @@ class MeaTTS:
         """
         if not self.enabled:
             return None
+
+        # 【新增】检查 GPT-SoVITS 模型文件是否存在
+        if not os.path.exists(self.gpt_path):
+            _safe_print(f"❌ TTS: GPT 模型文件不存在，跳过合成: {self.gpt_path}")
+            return None
+        if not os.path.exists(self.sovits_path):
+            _safe_print(f"❌ TTS: SoVITS 模型文件不存在，跳过合成: {self.sovits_path}")
+            return None
+
         if not text or not text.strip():
             return None
 

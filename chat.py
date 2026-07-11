@@ -56,7 +56,6 @@ class ChatEngine:
         self.bridge_url = bridge_url.rstrip("/")
         self.available = False
         self.memory = memory  # MeaMemory 实例
-        self._warmed_up = False
 
         self.history: List[Dict[str, str]] = [
             {"role": "system", "content": SYSTEM_PROMPT}
@@ -111,11 +110,9 @@ class ChatEngine:
             _safe_print(f"⚠ Ollama 未连接: {self.host}", flush=True)
         except Exception as e:
             _safe_print(f"⚠ Ollama 检测异常: {e}", flush=True)
-        finally:
+            
             self._backend_ready = True
-            if self.available and self.backend == "ollama":
-                self._warmup_async()
-
+            
         if self.backend == "deepseek":
             if self.api_key:
                 self.available = True
@@ -127,31 +124,6 @@ class ChatEngine:
             self.available = True
             _safe_print(f"✓ OpenClaw backend", flush=True)
 
-    def _warmup_async(self):
-        """后台预加载模型到内存，避免首次对话卡死"""
-        import threading
-        def _do():
-            try:
-                _safe_print(f"[warmup] 正在加载模型 {self.model} 到内存……", flush=True)
-                resp = requests.post(
-                    f"{self.host}/api/generate",
-                    json={
-                        "model": self.model,
-                        "prompt": "喵",  # 最小请求
-                        "stream": False,
-                        "options": {"num_predict": 1, "temperature": 0.1},
-                    },
-                    timeout=(5, 120),  # 加载模型最多等 120s
-                )
-                if resp.status_code == 200:
-                    self._warmed_up = True
-                    _safe_print(f"✓ 模型 {self.model} 已加载到内存", flush=True)
-                else:
-                    _safe_print(f"⚠ warmup 失败: {resp.status_code}", flush=True)
-            except Exception as e:
-                _safe_print(f"⚠ warmup 异常（首次对话会慢一些）: {e}", flush=True)
-        t = threading.Thread(target=_do, daemon=True)
-        t.start()
 
     def chat(self, message: str) -> Tuple[str, str]:
         """发送消息，返回 (回复文本, 情绪标签)"""
@@ -297,7 +269,7 @@ class ChatEngine:
                 "model": self.model,
                 "messages": self.history,
                 "stream": False,
-                "keep_alive": "30m",  # 30分钟保活，大幅减少重复加载
+                "keep_alive": "30s",  # 仅保活30s
                 "options": {
                     "temperature": self.temperature,
                     "num_predict": 150,  # 每次回复最多150token（约100汉字），够简短对话
