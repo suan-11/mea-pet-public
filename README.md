@@ -120,7 +120,45 @@ python setup_wizard.py
 python pet.py
 ```
 
-启动后，桌面宠物会出现在屏幕右下角。
+
+
+Linux部分
+
+
+依赖安装
+```bash
+linux_requirements.txt
+# live2d-py在https://github.com/EasyLive2D/live2d-py，建议下载预编译好的
+```
+
+创建配置文件
+```bash
+python setup_wizard.py
+```
+
+启动桌宠
+```bash
+QT_QPA_PLATFORM=xcb python pet.py
+```
+
+如果你使用niri
+```KDL
+window-rule {
+     match title="mea-pet"
+     open-floating true
+     focus-ring { }
+     border { }
+ }
+```
+
+如果你使用Fcitx5
+````
+QT_PLUGIN_PATH=/usr/lib/qt/plugins
+# 实际位置视优先级决定
+```
+
+
+启动后，桌面宠物会出现在屏幕右下角。（Linux可能不会）
 
 ---
 
