@@ -1862,17 +1862,12 @@ class MeaPet(QWidget):
                 self.sprite_label.deleteLater()
                 self.sprite_label = None
             self._use_live2d = True
+
+            # ★ 在初始化 Live2D 之前先保存配置，确保即使崩溃也能记住
+            self.config.setdefault("live2d", {})["enabled"] = True
+            self._save_config()
+
             self._init_live2d()          # 这会创建新的 sprite_label
-            # 确保新控件可见
-            if self.sprite_label:
-                self.sprite_label.show()
-                self.sprite_label.raise_()
-            self.show()                  # 确保主窗口可见
-            if self._size_factor != 1.0:
-                self._size_factor_preview(self._size_factor)
-            self._apply_hit_region()
-            self._position_bubble()
-            self._show_bubble("🎭 Live2D 模式喵～", 2500)
         
 
         # 更新配置并保存
