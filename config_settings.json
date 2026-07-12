@@ -11,7 +11,7 @@
   },
   "display": {
     "scale": 1.0,
-    "size_factor": 1.06
+    "size_factor": 0.66
   },
   "watcher_interval": {
     "min_ms": 60000,

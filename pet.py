@@ -660,6 +660,8 @@ class MeaPet(QWidget):
             # 应用 size_factor（_use_live2d 已为 True，Live2D 分支生效）
             if self._size_factor != 1.0:
                 self._size_factor_preview(self._size_factor)
+            else:
+                self._apply_hit_region()
 
             # 确保窗口和 Live2D 可见（避免切换后隐藏）
             self.show()
@@ -1251,14 +1253,17 @@ class MeaPet(QWidget):
                 w, h = self.width(), self.height()
                 if not (w > 0 and h > 0):
                     return
+                # 高DPI下 GDI 使用物理像素，需乘 devicePixelRatio
+                dpr = self.devicePixelRatio()
+                pw, ph = int(w * dpr), int(h * dpr)
                 if self._use_live2d:
                     # Live2D 模式：椭圆裁剪
-                    m = w // 16
-                    t = h // 16
-                    rgn = win32gui.CreateEllipticRgnIndirect((m, t, w - m, h - t))
+                    m = pw // 16
+                    t = ph // 16
+                    rgn = win32gui.CreateEllipticRgnIndirect((m, t, pw - m, ph - t))
                 else:
                     # PNG 模式：矩形
-                    rgn = win32gui.CreateRoundRectRgn(0, 0, w, h, 0, 0)
+                    rgn = win32gui.CreateRoundRectRgn(0, 0, pw, ph, 0, 0)
                 win32gui.SetWindowRgn(hwnd, rgn, True)
                 return
             except Exception as e:
@@ -1826,9 +1831,11 @@ class MeaPet(QWidget):
             try:
                 import win32gui
                 w, h = self.width(), self.height()
-                margin_x = w // 4
-                margin_y = h // 4
-                rgn = win32gui.CreateRectRgn(margin_x, margin_y, w - margin_x, h - margin_y)
+                dpr = self.devicePixelRatio()
+                pw, ph = int(w * dpr), int(h * dpr)
+                margin_x = pw // 4
+                margin_y = ph // 4
+                rgn = win32gui.CreateRectRgn(margin_x, margin_y, pw - margin_x, ph - margin_y)
                 win32gui.SetWindowRgn(int(self.winId()), rgn, True)
                 return
             except Exception as e:

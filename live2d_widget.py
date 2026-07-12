@@ -175,8 +175,8 @@ class Live2DWidget(QOpenGLWidget):
             # （这里可以简单判断坐标，或者通过读取像素判断是否透明）
             x, y = event.x(), event.y()
             w, h = self.width(), self.height()
-            # 简单的矩形碰撞检测
-            if w * 0.3 < x < w * 0.6 and 0 < y < h*0.7:
+            # 简单的矩形碰撞检测 — 扩大范围以适配非100%缩放
+            if w * 0.15 < x < w * 0.85 and 0 < y < h * 0.9:
                 return False  # 在模型区域内，不拦截，允许触发 mousePressEvent
             
             # 在模型区域外，返回 True 拦截事件，让操作系统将其传递给底层窗口
@@ -213,7 +213,9 @@ class Live2DWidget(QOpenGLWidget):
     
     def resizeGL(self, w, h):
         from OpenGL.GL import glViewport
-        glViewport(0, 0, w, h)
+        # 高DPI下需要用物理像素设置视口
+        dpr = self.devicePixelRatio()
+        glViewport(0, 0, int(w * dpr), int(h * dpr))
         if self.l2d.model and w > 0 and h > 0:
             self._fit_model_to_window(self.l2d.model)
     
