@@ -307,6 +307,17 @@ class ScreenWatcher(QThread):
             self.progress.emit(STAGE_CAPTURE)
             img = ImageGrab.grab()
             print(f"[watcher] screenshot captured: size={img.size}, mode={img.mode}")
+            
+            import os
+            save_dir = "screenshots"                     # 可改为配置项
+            os.makedirs(save_dir, exist_ok=True)
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = os.path.join(save_dir, f"screenshot_{timestamp}.png")
+            img.save(save_path)
+            print(f"[watcher] screenshot saved to {save_path}")
+            
+            
             ratio = 320 / img.width
             if ratio < 1.0:
                 img = img.resize((320, int(img.height * ratio)))
