@@ -35,7 +35,7 @@ STAGE_ERROR = "唔…没看清喵"
 # ========================
 # 场景摘要 prompt
 # ========================
-SUMMARY_PROMPT = "用一句话（不超过30字）描述这个屏幕截图的内容。只需描述画面上有什么软件、什么内容、用户在做什么。不要评价，不要吐槽。"
+SUMMARY_PROMPT = "用一句话（不超过30字）描述这个屏幕截图的内容。只需描述画面上有什么软件、什么内容、用户在做什么。如果只识别出一个角色，那就是你自己，不要把它出现在回答里。不要评价，不要吐槽。"
 
 
 # ========================
@@ -173,6 +173,7 @@ class ScreenWatcher(QThread):
                         "prompt": SUMMARY_PROMPT,
                         "images": [b64],
                         "stream": False,
+                        "think":False,
                         "options": {"num_predict": 50, "temperature": 0.3},
                     },
                     timeout=90,
@@ -217,6 +218,7 @@ class ScreenWatcher(QThread):
                             {"role": "user", "content": decision_prompt},
                         ],
                         "stream": False,
+                        "think":False,
                         "keep_alive": "2m",
                         "options": {"num_predict": 100, "temperature": 0.3},
                     },
@@ -320,6 +322,7 @@ class ScreenWatcher(QThread):
                             {"role": "user", "content": final_prompt},
                         ],
                         "stream": False,
+                        "think":False,
                         "keep_alive": "2m",
                         "options": {"num_predict": 100, "temperature": 0.85},
                     },

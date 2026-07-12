@@ -1137,9 +1137,9 @@ class MeaPet(QWidget):
         if self.bubble.isVisible():
             # 水平居中
             bubble_x = self.pos().x() + (self.width() - self.bubble.width()) // 2
-            # Live2D 模式下气泡再往上移（盖在腿部）
-            offset = 100 if self._use_live2d else 30
-            bubble_y = self.pos().y() + self.height() - self.bubble.height() - offset
+            # Live2D 模式下气泡再往上移（盖在腿部） 位置根据尺寸变化
+            offset = 250*self._size_factor if self._use_live2d else 180*self._size_factor
+            bubble_y = self.pos().y() + self.height() - self.bubble.height() - int(offset)
             self.bubble.move(bubble_x, bubble_y)
 
     def _place_bottom_right(self):
