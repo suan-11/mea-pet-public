@@ -44,7 +44,6 @@ Windows-first（Linux 支持）的 **PyQt5 透明桌宠**：
 | `meapet/desktop/status_language.py` | 统一状态/菜单短文案 |
 | `meapet/desktop/icons.py` | 桌面菜单/托盘标准图标 |
 | `wizard/` | 配置中心（Tab：环境 / 对话 / 语音 / 屏幕识图） |
-| `scripts/package_release.py` | **本地发布打包器（默认不入库）** |
 | `design-system/` | UI 设计源与页面补充说明 |
 
 ### Threading（勿随意改）
@@ -73,10 +72,10 @@ Windows-first（Linux 支持）的 **PyQt5 透明桌宠**：
 
 ### UI 实施路线
 
-1. **体验债**：菜单信息架构、统一状态语言、输入忙态反馈、硬编码色回收  
-2. **精致度**：气泡情绪微样式、系统图标一致、向导 progressive disclosure、减少动画  
-3. **陪伴感**：新手一次性提示（`ui.first_run_hint_shown`）、养成空状态、待机文案  
-4. **动效**：`display.reduced_motion` → `MEAPET_REDUCED_MOTION`；气泡情绪描边  
+1. **体验债**：菜单信息架构、统一状态语言、输入忙态反馈、硬编码色回收
+2. **精致度**：气泡情绪微样式、系统图标一致、向导 progressive disclosure、减少动画
+3. **陪伴感**：新手一次性提示（`ui.first_run_hint_shown`）、养成空状态、待机文案
+4. **动效**：`display.reduced_motion` → `MEAPET_REDUCED_MOTION`；气泡情绪描边
 
 页面补充：`design-system/pages/desktop.md`、`design-system/pages/wizard.md`。
 
@@ -92,21 +91,7 @@ python -m compileall -q meapet wizard
 ```
 
 - 测试目录：`tests/`
-- 打包测试依赖本地 `scripts/package_release.py`；缺失时 `importorskip`
 - 改 UI 后优先跑：`tests/test_ui_refactor.py`、`tests/test_live2d_startup.py`
-
-## Release packaging（本地工具）
-
-- 脚本：`scripts/package_release.py`（**gitignore，不入库**）
-- Windows：`打包发布.bat`（本地有脚本时可调用）
-- 只打包 Git **已跟踪**路径中的白名单内容；排除 config / 密钥 / db / 日志 / 截图 / venv / 默认模型与字典
-- LFS 指针只报告、不下载、不入 ZIP
-- **不是** in-place 升级器；接收者应新目录解压并自建 `config.json`
-
-```bash
-python scripts/package_release.py --dry-run
-python scripts/package_release.py
-```
 
 ## Key behaviors
 
@@ -137,8 +122,7 @@ pip install -r linux_requirements.txt
 
 ## Agent working notes
 
-1. 改桌宠 UI 先读 `design-system/MASTER.md` 与 `meapet/ui_theme.py`  
-2. 改菜单文案时同步 `tests/test_ui_refactor.py` 中根菜单断言  
-3. 状态提示优先改 `status_language.py`  
-4. 不要把 `scripts/package_release.py` 重新 `git add` 入库  
-5. 大文件注意 LFS / 可选资源；勿提交私人运行数据  
+1. 改桌宠 UI 先读 `design-system/MASTER.md` 与 `meapet/ui_theme.py`
+2. 改菜单文案时同步 `tests/test_ui_refactor.py` 中根菜单断言
+3. 状态提示优先改 `status_language.py`
+4. 大文件注意 LFS / 可选资源；勿提交私人运行数据

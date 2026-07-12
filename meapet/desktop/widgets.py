@@ -77,6 +77,12 @@ MOOD_BORDER_COLORS = {
 }
 
 
+def _reduced_motion_enabled() -> bool:
+    return os.environ.get(
+        "MEAPET_REDUCED_MOTION",
+        "",
+    ).strip().lower() in {"1", "true", "yes"}
+
 
 def wrap_text(text: str, width: int = 10) -> str:
     """中文按字符换行"""
@@ -562,13 +568,8 @@ class DialogueBox(QWidget):
         """保持空间连续性地移动到层级位置，并同步层级透明度。"""
         target_position = QPoint(position)
         target_opacity = min(max(float(opacity), 0.0), 1.0)
-        reduced_motion = os.environ.get(
-            "MEAPET_REDUCED_MOTION",
-            "",
-        ).strip().lower() in {"1", "true", "yes"}
-
         self._position_animation.stop()
-        if not animate or reduced_motion:
+        if not animate or _reduced_motion_enabled():
             self.move(target_position)
             if not self._fading:
                 self._opacity_animation.stop()
@@ -638,6 +639,17 @@ class DialogueBox(QWidget):
             return
         self._hide_timer.stop()
         self._opacity_animation.stop()
+        if _reduced_motion_enabled():
+            self._anim_timer.stop()
+            self._position_animation.stop()
+            self._fading = False
+            self._fade_out = False
+            self._set_visual_opacity(0.0)
+            self.hide()
+            if not self._dismissed_emitted:
+                self._dismissed_emitted = True
+                self.dismissed.emit()
+            return
         self._fading = True
         self._fade_out = True
         fade_steps = max(

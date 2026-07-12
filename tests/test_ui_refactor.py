@@ -1308,6 +1308,62 @@ class UiRefactorTests(unittest.TestCase):
         self.assertFalse(host._chat_input.input.isReadOnly())
         self.assertTrue(host._chat_input.send_button.isEnabled())
 
+    def test_chat_failure_paths_release_visible_busy_input(self) -> None:
+        from meapet.desktop.chat_flow import PetChatFlowMixin
+        from meapet.desktop.chat_input import ChatInputBox
+
+        class Host(PetChatFlowMixin):
+            _awaiting_reply = True
+            _chat_worker = None
+
+            def show_reply(self, *_args, **_kwargs):
+                pass
+
+            def _show_bubble(self, *_args, **_kwargs):
+                pass
+
+            def _position_bubble(self):
+                pass
+
+        host = Host()
+        host._chat_input = self._track(ChatInputBox())
+        host._chat_input.set_busy(True, "等待失败结果")
+
+        with patch("meapet.desktop.chat_flow.log_error"):
+            host._on_chat_error("测试错误")
+
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+        host._awaiting_reply = True
+        host._chat_input.set_busy(True, "等待超时结果")
+        host._on_chat_timeout()
+
+        self.assertFalse(host._awaiting_reply)
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+    def test_awaiting_state_ignores_stale_or_incompatible_composer(self) -> None:
+        from meapet.desktop.chat_input import set_awaiting_reply_state
+
+        class Host:
+            _awaiting_reply = True
+
+        host = Host()
+        host._chat_input = object()
+        set_awaiting_reply_state(host, False)
+        self.assertFalse(host._awaiting_reply)
+
+        class DeletedComposer:
+            @staticmethod
+            def set_busy(_busy, _message):
+                raise RuntimeError("wrapped C/C++ object has been deleted")
+
+        deleted = DeletedComposer()
+        host._chat_input = deleted
+        set_awaiting_reply_state(host, False)
+        self.assertIsNone(host._chat_input)
+
     def test_watcher_completion_releases_visible_busy_input(self) -> None:
         from meapet.desktop.chat_flow import PetChatFlowMixin
         from meapet.desktop.chat_input import ChatInputBox

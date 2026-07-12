@@ -124,4 +124,3 @@ def menu_section_interaction() -> str:
 
 def menu_section_system() -> str:
     return "系统"
-

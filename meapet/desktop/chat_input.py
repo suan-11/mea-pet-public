@@ -27,6 +27,28 @@ CHAT_COMPOSER_WIDTH = 480
 CHAT_COMPOSER_HEIGHT = 112
 
 
+def set_awaiting_reply_state(
+    host,
+    awaiting: bool,
+    message: str = "",
+) -> None:
+    """同步请求锁与当前消息编辑器，避免回复结束后仍保持只读。"""
+    busy = bool(awaiting)
+    host._awaiting_reply = busy
+    composer = getattr(host, "_chat_input", None)
+    if composer is None:
+        return
+    set_busy = getattr(composer, "set_busy", None)
+    if not callable(set_busy):
+        return
+    try:
+        set_busy(busy, message if busy else "")
+    except RuntimeError:
+        # Qt 对象已被销毁时清理悬空引用；请求状态本身仍已正确更新。
+        if getattr(host, "_chat_input", None) is composer:
+            host._chat_input = None
+
+
 class ChatInputBox(QWidget):
     """置顶的消息编辑器，支持 Enter 发送与 Esc 关闭。"""
 

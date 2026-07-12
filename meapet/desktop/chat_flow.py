@@ -10,7 +10,7 @@ from meapet.utils import safe_print, log_error, debug_enabled
 from meapet.chat.engine import SYSTEM_PROMPT
 from meapet.desktop import status_language
 from meapet.desktop.workers import ChatWorker, TTSWorker
-from meapet.desktop.chat_input import ChatInputBox
+from meapet.desktop.chat_input import ChatInputBox, set_awaiting_reply_state
 
 
 def _log_private_text(label: str, text: str, *, suffix: str = "") -> None:
@@ -70,7 +70,11 @@ class PetChatFlowMixin:
             self._show_bubble(status_language.thinking_busy(), 2500)
             self._position_bubble()
             return
-        self._awaiting_reply = True
+        set_awaiting_reply_state(
+            self,
+            True,
+            status_language.thinking_busy(),
+        )
         self._safe_set_mood("talking")
         _log_private_text("[pet] 发送给 LLM", message)
 
@@ -185,7 +189,7 @@ class PetChatFlowMixin:
         except Exception as e:
             safe_print(f"[pet] 取 TTS 风格失败: {e}")
         self.show_reply(reply, detected)
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         # 后台 TTS 合成
         self._tts_worker = TTSWorker(
             self.tts,
@@ -299,12 +303,12 @@ class PetChatFlowMixin:
             "annoyed",
             duration_ms=10000,
         )
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
 
     def _on_chat_timeout(self):
         """ChatWorker 超时 — 强制终止线程并释放锁"""
         safe_print("[pet] Chat超时，已释放对话锁")
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         self._show_bubble(status_language.chat_timeout(), 3000)
         self._position_bubble()
         if hasattr(self, '_chat_worker') and self._chat_worker:

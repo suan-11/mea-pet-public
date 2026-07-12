@@ -6,6 +6,7 @@ import random
 import time
 
 from meapet.desktop import status_language
+from meapet.desktop.chat_input import set_awaiting_reply_state
 from meapet.utils import (
     safe_print,
     log_error,
@@ -109,7 +110,7 @@ class PetWatcherMixin:
             if force:
                 if not self._watcher.stop():
                     safe_print("[watcher] previous capture did not stop in time")
-                    self._awaiting_reply = False
+                    set_awaiting_reply_state(self, False)
                     self._start_watcher_timer()
                     return
             else:
@@ -117,7 +118,7 @@ class PetWatcherMixin:
 
         if self._is_cloud_vision():
             if not self._confirm_cloud_capture(force=force):
-                self._awaiting_reply = False
+                set_awaiting_reply_state(self, False)
                 self._start_watcher_timer()
                 return
         else:
@@ -125,11 +126,15 @@ class PetWatcherMixin:
 
         if not self._watcher.prepare_start():
             safe_print("[watcher] capture thread is still running")
-            self._awaiting_reply = False
+            set_awaiting_reply_state(self, False)
             self._start_watcher_timer()
             return
 
-        self._awaiting_reply = True
+        set_awaiting_reply_state(
+            self,
+            True,
+            status_language.thinking_busy(),
+        )
         idle_s = time.time() - self._last_interaction_time
         self._watcher.set_idle_minutes(idle_s / 60.0)
         if self._is_cloud_vision():
@@ -174,7 +179,7 @@ class PetWatcherMixin:
                 str(e) if debug_enabled() else type(e).__name__,
             )
             self.show_reply(text, mood, duration_ms=self.config["bubble_duration_ms"]["watch"])
-            self._awaiting_reply = False
+            set_awaiting_reply_state(self, False)
             self._start_watcher_timer()
 
     def _on_watch_tts_and_show(self, raw: str, reply: str = None, mood: str = None):
@@ -186,7 +191,7 @@ class PetWatcherMixin:
 
             else:
                 safe_print("[watch] _pending_reply 已丢失!")
-            self._awaiting_reply = False
+            set_awaiting_reply_state(self, False)
             self._start_watcher_timer()
             return
             
@@ -197,7 +202,7 @@ class PetWatcherMixin:
             del self._pending_reply
         else:
             log_error("watch_tts", "_pending_reply missing")
-            self._awaiting_reply = False
+            set_awaiting_reply_state(self, False)
             self._start_watcher_timer()
             return
         audio_duration_ms = self._get_wav_duration_ms(wav_path) if wav_path else 0
@@ -206,14 +211,14 @@ class PetWatcherMixin:
             bubble_ms = max(audio_duration_ms + 500, bubble_ms)
         self.show_reply(reply, mood, duration_ms=bubble_ms)
         
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         self._start_watcher_timer()
         if wav_path and os.path.exists(wav_path):
             self._play_audio(wav_path)
 
     def _on_watch_tts_error(self, err: str):
         """屏幕吐槽 TTS 合成失败 —— 至少显示文字，不卡死"""
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         if hasattr(self, '_pending_reply'):
             reply, mood = self._pending_reply
             del self._pending_reply
@@ -223,14 +228,14 @@ class PetWatcherMixin:
     def _on_watch_error(self, err: str):
         _log_private_text("[watch] 识图错误", err)
         # 显示简短提示，不打扰主人
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         self._show_bubble(f"唔…看不清喵 ({err[:30]})", self.config["bubble_duration_ms"]["default"])
 
         self._start_watcher_timer()
 
     def _on_watch_silent(self):
         """视觉模型评估后决定不说话——安静恢复"""
-        self._awaiting_reply = False
+        set_awaiting_reply_state(self, False)
         self._show_bubble("😼 没什么好说的喵…", self.config["bubble_duration_ms"]["default"])
 
         self._start_watcher_timer()
