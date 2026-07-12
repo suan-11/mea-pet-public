@@ -365,7 +365,7 @@ class ScreenWatcher(QThread):
                         "temperature": 0.7,
                         "thinking": {"type": "enabled"},
                     },
-                    timeout=120,
+                    timeout=600,
                 )
                 
                 print(f"[watcher] MiMo response: status={resp.status_code}, elapsed=...")
@@ -404,7 +404,7 @@ class ScreenWatcher(QThread):
                         "stream": False,
                         "options": {"num_predict": 200, "temperature": 0.7},
                     },
-                    timeout=120,
+                    timeout=600,
                 )
                 if self._stop:
                     return
