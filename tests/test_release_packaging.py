@@ -252,6 +252,31 @@ def test_high_confidence_secret_aborts_without_creating_archive(
     assert not list(output.glob("*.zip"))
 
 
+def test_repeated_character_api_key_placeholder_is_not_a_secret(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    candidates = _make_project(project)
+    candidates.append(
+        _write(
+            project,
+            "meapet/key_placeholder.py",
+            "KEY_PLACEHOLDER = 'sk-" + "x" * 32 + "'\n",
+        )
+    )
+
+    result = build_release_archive(
+        project,
+        tmp_path / "output",
+        candidates=candidates,
+        version="1.2.3",
+        revision="abc1234",
+        source_epoch=1_704_067_200,
+    )
+
+    assert result.zip_path.is_file()
+
+
 def test_candidate_path_must_not_escape_project_root(tmp_path: Path) -> None:
     _make_project(tmp_path)
 
