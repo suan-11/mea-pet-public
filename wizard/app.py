@@ -416,7 +416,7 @@ class SetupWizard(QWidget):
                     else "jp"
                 ),
                 "translate_api_key": "",
-                "translate_model": "deepseek-chat",
+                "translate_model": "deepseek-v4-flash",
                 "api_base": "https://api.xiaomimimo.com/v1",
                 "model": "mimo-v2.5-tts",
                 "voice": (
@@ -455,7 +455,7 @@ class SetupWizard(QWidget):
         elif b == "deepseek":
             config["llm"]["api_key"] = self.key_page.key_input.text().strip()
             config["llm"]["api_base"] = self.key_page.api_base.text().strip()
-            config["llm"]["model"] = "deepseek-chat"
+            config["llm"]["model"] = "deepseek-v4-flash"
         elif b == "mimo":
             config["llm"]["api_key"] = self.key_page.key_input.text().strip()
             config["llm"]["api_base"] = self.key_page.api_base.text().strip()

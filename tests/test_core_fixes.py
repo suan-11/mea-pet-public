@@ -40,7 +40,7 @@ class TestRedactSecrets(unittest.TestCase):
         self.assertNotIn(key, red)
         self.assertIn("Bearer", red)
 
-        cfg = {"llm": {"api_key": key, "model": "deepseek-chat"}, "ok": 1}
+        cfg = {"llm": {"api_key": key, "model": "deepseek-v4-flash"}, "ok": 1}
         red_cfg = redact_mapping(cfg)
         self.assertEqual(red_cfg["ok"], 1)
         self.assertNotEqual(red_cfg["llm"]["api_key"], key)
@@ -189,7 +189,7 @@ class TestChatBackendInit(unittest.TestCase):
 
     def test_deepseek_available_with_key(self):
         from meapet.chat.engine import ChatEngine
-        eng = ChatEngine(backend="deepseek", api_key="sk-test", model="deepseek-chat")
+        eng = ChatEngine(backend="deepseek", api_key="sk-test", model="deepseek-v4-flash")
         self.assertTrue(eng.available)
 
 

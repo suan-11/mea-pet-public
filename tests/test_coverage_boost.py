@@ -338,7 +338,7 @@ class TestChatEngineMore(unittest.TestCase):
             "llm": {
                 "backend": "deepseek",
                 "api_key": "sk-from-config-file",
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "api_base": "https://api.deepseek.com",
             }
         })
@@ -517,7 +517,7 @@ class TestChatHttpMocks(unittest.TestCase):
     def test_chat_deepseek_success(self):
         from meapet.chat.engine import ChatEngine
 
-        eng = ChatEngine(backend="deepseek", api_key="k", api_base="https://api.example.com", model="deepseek-chat")
+        eng = ChatEngine(backend="deepseek", api_key="k", api_base="https://api.example.com", model="deepseek-v4-flash")
         eng.available = True
 
         class Resp:

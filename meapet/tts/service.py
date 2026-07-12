@@ -148,7 +148,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 )
                 or os.environ.get("MIMO_API_KEY", "")
             )
-        self.translate_model = tts_cfg.get("translate_model", "deepseek-chat")
+        self.translate_model = tts_cfg.get("translate_model", "	deepseek-v4-flash")
 
         # ═══ 后端配置 ═══
         engine = tts_cfg.get("engine", "gpt_sovits")

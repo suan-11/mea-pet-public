@@ -31,7 +31,7 @@
     "translate_to_jp": true,
     "voice_lang": "jp",
     "translate_api_key": "",
-    "translate_model": "deepseek-chat",
+    "translate_model": "deepseek-v4-flash",
     "auto_install_deps": false,
     "api_key": "",
     "api_base": "https://api.xiaomimimo.com/v1",
