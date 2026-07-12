@@ -105,48 +105,52 @@ class DialogueBox(QWidget):
         import re
         clean_text = re.sub(r'【.*?】', '', text).strip()
 
+        # 1. 设置文本
         self.text_label.setText(clean_text)
         self.text_label.setWordWrap(True)
+        self.text_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.name_label.setText(f" {name} ")
         self.name_label.show()
 
+        # 2. 宽度计算
         from PyQt5.QtGui import QFontMetrics
         fm = QFontMetrics(self.text_label.font())
         pad_h = 40
-        pad_v = 30
-        name_h = 32
-
         lines = clean_text.splitlines() or [""]
         longest_line = max(fm.horizontalAdvance(line) for line in lines)
         text_width = max(240, min(longest_line, 520))
-        bounds = fm.boundingRect(
-            QRect(0, 0, text_width, 1000),
-            Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop,
-            clean_text or " ",
-        )
         content_w = text_width + pad_h
-        content_h = max(54, min(bounds.height() + pad_v, 350))
 
-        self.text_label.setFixedSize(content_w, content_h)
+        # 3. 固定宽度，让高度自适应
+        self.text_label.setFixedWidth(content_w)
+        self.text_label.adjustSize()  # 高度自动算
 
-        total_w = content_w
-        total_h = name_h + content_h + 3
+        # 4. 获取自适应后的高度
+        label_w = self.text_label.width()
+        label_h = self.text_label.height()
 
-        self.setFixedSize(total_w, total_h)
-        self._container.setFixedSize(total_w, total_h)
-        self.name_label.setFixedWidth(total_w)
-        self._deco_line.setFixedWidth(total_w)
+        # 5. 姓名标签和装饰线的高度
+        name_h = self.name_label.height()
+        deco_h = self._deco_line.height()
 
-        # 重置透明度到完全不透明
+        # 6. 外边框缓冲
+        margin = 16
+        total_w = label_w + margin * 2
+        total_h = name_h + label_h + deco_h + margin * 2
+
+        # 7. 调整容器和窗口
+        self._container.resize(total_w, total_h)
+        self.resize(total_w, total_h)
+        self._container.adjustSize()
+        self.adjustSize()
+
+        # 8. 重置透明度
         self._opacity = 1.0
         self._fading = False
         self._fade_out = False
         self.setWindowOpacity(1.0)
-
         self.show()
         self.raise_()
-
-        # 自动隐藏（0=持续显示，不自动隐藏）
         if duration_ms > 0:
             self._hide_timer.start(duration_ms)
 
