@@ -414,6 +414,8 @@ class ScreenWatcher(QThread):
                     self.error.emit(f"偷看失败: {resp.status_code}")
                     return
                 raw = (resp.json().get("response") or "").strip()
+                print(f"[watcher] RAW MODEL OUTPUT ({len(raw)} chars):")
+                print(raw)
                 
                 print(f"[watcher] raw response received, chars={len(raw)}")
                 _debug_log(f"[watcher] raw response first 300 chars: {raw[:300]!r}")
