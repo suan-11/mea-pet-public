@@ -21,6 +21,12 @@ from meapet.config.store import (
 )
 from meapet.log import get_color_logger
 
+
+from meapet.config.store import save_config, config_path
+
+def _save_config(self, config: dict) -> None:
+    save_config(config, path=config_path())
+
 log = get_color_logger("watch_ctrl")
 
 
@@ -307,4 +313,4 @@ class PetWatcherMixin:
         else:
             if hasattr(self, "_watcher_timer") and self._watcher_timer:
                 self._watcher_timer.stop()
-            self._show_bubble(status_language.watcher_disabled(), 2500)
+            self._show_bubble("屏幕观察已关闭喵", 2500)
