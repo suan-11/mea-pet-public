@@ -115,6 +115,18 @@ class ConversationTimeline:
         with self._lock:
             self._terminal_callback = callback
 
+    def set_max_turns(self, max_turns: int) -> None:
+        """Apply a new per-conversation limit and prune immediately."""
+        limit = max(0, min(int(max_turns), 100))
+        with self._lock:
+            self.max_turns = limit
+            if limit == 0:
+                self._turns.clear()
+                return
+            for bucket in self._turns.values():
+                while len(bucket) > limit:
+                    bucket.popitem(last=False)
+
     def start_turn(
         self,
         key: ConversationKey,

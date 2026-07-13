@@ -246,7 +246,7 @@ class MeaPet(
                 terminal_callback=persist_turn,
             )
         else:
-            self._conversation_timeline.max_turns = timeline_turns
+            self._conversation_timeline.set_max_turns(timeline_turns)
             self._conversation_timeline.set_terminal_callback(persist_turn)
         if not getattr(self, "_conversation_timeline_loaded", False):
             try:
