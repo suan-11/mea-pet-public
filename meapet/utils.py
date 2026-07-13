@@ -9,6 +9,7 @@ import ipaddress
 import os
 import re
 import time
+import ctypes
 import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -264,3 +265,30 @@ def cleanup_audio_cache(
     except Exception:
         pass
     return {"removed": removed, "kept": kept}
+
+
+def enable_vt():
+    """开启 stdout 和 stderr 的 VT 转译支持"""
+    if sys.platform != 'win32':
+        return True
+
+    kernel32 = ctypes.windll.kernel32
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+
+    # logging 默认输出到 stderr(-12)，但也可能配置为 stdout(-11)
+    # 必须同时开启两个流的 VT 支持
+    handles = [-11, -12]
+    success_count = 0
+
+    for handle_id in handles:
+        try:
+            handle = kernel32.GetStdHandle(handle_id)
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                new_mode = mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                if kernel32.SetConsoleMode(handle, new_mode):
+                    success_count += 1
+        except Exception:
+            pass
+
+    return success_count > 0

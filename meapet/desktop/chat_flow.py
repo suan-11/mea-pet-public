@@ -169,12 +169,14 @@ class PetChatFlowMixin:
             else:
                 delta = 3
             upgrade_msg = engine.memory.add_affection(delta)
-            full_system = SYSTEM_PROMPT + "\n\n" + engine.memory.build_context_prompt()
+            full_system = SYSTEM_PROMPT + "\n\n" + engine.memory.build_context_prompt(current_query=user_msg)
             if upgrade_msg:
                 full_system += f"\n\n[内部：好感度升至{engine.memory.get_affection_tier()[1]}。请用稍暖的语气回应。]"
             engine.history[0] = {"role": "system", "content": full_system}
             engine.memory.mark_today_chatted()
+            engine.memory.increment_message_counter()
             engine._extract_memories(user_msg, reply)
+            engine._summarize_if_needed()
         except Exception as e:
             log.error(f"[memory] 操作失败: {e}")
 

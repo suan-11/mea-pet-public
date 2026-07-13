@@ -24,7 +24,7 @@ from PyQt5.QtGui import QSurfaceFormat
 from meapet.desktop.render_host import calculate_drag_position
 from meapet.log import get_color_logger
 
-log = get_color_logger("live2d")
+log = get_color_logger("live2d_widget")
 
 # 在 Windows 下可选导入 win32api（DLL 缺失时不阻塞启动）
 if sys.platform == "win32":
@@ -288,7 +288,7 @@ class Live2DWidget(QOpenGLWidget):
                 self._dbg_skip = 0
             self._dbg_skip += 1
             if self._dbg_skip <= 3:
-                log.debug(f"[PAINT] SKIP _ready={self._ready} model={self.l2d.model is not None}")
+                log.debug(f"[paint] SKIP _ready={self._ready} model={self.l2d.model is not None}")
             return
 
         # 每 2400 帧输出一次心跳
@@ -296,7 +296,7 @@ class Live2DWidget(QOpenGLWidget):
             self._dbg_frame = 0
         self._dbg_frame += 1
         if self._dbg_frame % 2400 == 0:
-            log.debug(f"[PAINT] frame={self._dbg_frame} alive")
+            log.debug(f"[paint] frame={self._dbg_frame} alive")
 
         live2d.clearBuffer()
 

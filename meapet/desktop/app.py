@@ -8,6 +8,13 @@ import os
 import sys
 import time
 import socket  # must import before PyQt (QtNetwork hook)
+# 在所有导入之前开启终端 VT 转译支持
+# 确保后续的 get_color_logger 和 logging 模块能正确输出彩色日志
+try:
+    from meapet.utils import enable_vt
+    enable_vt()
+except Exception:
+    pass
 from meapet.log import get_color_logger
 
 log = get_color_logger("app")
