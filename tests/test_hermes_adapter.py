@@ -107,6 +107,18 @@ class TestHermesConfig(unittest.TestCase):
                 session_key="x" * 257,
             )
 
+    def test_base_url_rejects_embedded_credentials_query_and_unknown_scheme(self):
+        from meapet.agent.hermes import HermesConfig
+
+        invalid_urls = (
+            "http://user:password@127.0.0.1:8642",
+            "http://127.0.0.1:8642?token=secret",
+            "ws://127.0.0.1:8642",
+        )
+        for url in invalid_urls:
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "base_url"):
+                HermesConfig(base_url=url, auth_token="token")
+
 
 class TestHermesAdapter(unittest.IsolatedAsyncioTestCase):
     def _request(self, *, turn_id="turn-1", history=()):
@@ -196,6 +208,22 @@ class TestHermesAdapter(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "auth_token"):
             await adapter.probe()
         self.assertEqual(calls, [])
+
+    async def test_probe_rejects_a_non_hermes_endpoint(self):
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"platform": "some-proxy", "features": {}})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.aclose)
+        adapter = HermesAdapter(
+            HermesConfig(base_url="http://127.0.0.1:8642", auth_token="secret"),
+            client=client,
+        )
+
+        with self.assertRaisesRegex(ValueError, "not a Hermes"):
+            await adapter.probe()
 
     async def test_stream_turn_sends_session_headers_recent_history_and_format_only_prompt(self):
         from meapet.agent.hermes import HermesAdapter, HermesConfig
@@ -340,6 +368,119 @@ class TestHermesAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0].category, "authentication")
         self.assertNotIn("private server diagnostic", repr(events[0]))
         self.assertNotIn("wrong", repr(events[0]))
+
+    async def test_other_http_errors_keep_distinct_safe_categories(self):
+        from meapet.agent.base import TurnFailed
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        cases = (
+            (403, "permission", False),
+            (429, "rate_limit", True),
+            (503, "backend_unavailable", True),
+            (418, "protocol", False),
+        )
+        for status_code, category, retryable in cases:
+            with self.subTest(status_code=status_code):
+                def handler(
+                    _request: httpx.Request,
+                    code: int = status_code,
+                ) -> httpx.Response:
+                    return httpx.Response(code, text="private upstream details")
+
+                client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                adapter = HermesAdapter(
+                    HermesConfig(
+                        base_url="http://127.0.0.1:8642",
+                        auth_token="secret",
+                    ),
+                    client=client,
+                )
+                try:
+                    events = [
+                        event
+                        async for event in adapter.stream_turn(self._request())
+                    ]
+                finally:
+                    await client.aclose()
+
+                self.assertEqual(len(events), 1)
+                self.assertIsInstance(events[0], TurnFailed)
+                self.assertEqual(events[0].category, category)
+                self.assertEqual(events[0].retryable, retryable)
+                self.assertNotIn("private upstream details", repr(events[0]))
+
+    async def test_non_sse_success_becomes_protocol_failure(self):
+        from meapet.agent.base import TurnFailed
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": []})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.aclose)
+        adapter = HermesAdapter(
+            HermesConfig(base_url="http://127.0.0.1:8642", auth_token="secret"),
+            client=client,
+        )
+
+        events = [event async for event in adapter.stream_turn(self._request())]
+
+        self.assertEqual(len(events), 1)
+        self.assertIsInstance(events[0], TurnFailed)
+        self.assertEqual(events[0].category, "protocol")
+
+    async def test_connection_failure_becomes_retryable_typed_failure(self):
+        from meapet.agent.base import TurnFailed
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("private network details", request=request)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.aclose)
+        adapter = HermesAdapter(
+            HermesConfig(base_url="http://127.0.0.1:8642", auth_token="secret"),
+            client=client,
+        )
+
+        events = [event async for event in adapter.stream_turn(self._request())]
+
+        self.assertEqual(len(events), 1)
+        self.assertIsInstance(events[0], TurnFailed)
+        self.assertEqual(events[0].category, "connection")
+        self.assertTrue(events[0].retryable)
+        self.assertNotIn("private network details", repr(events[0]))
+
+    async def test_unformatted_text_requests_one_repair_but_keeps_best_effort_result(self):
+        from meapet.agent.base import FormatRepairRequired, TurnCompleted
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        body = (
+            f"data: {_chat_chunk('先保住这句文字')}\n\n"
+            "data: [DONE]\n\n"
+        ).encode("utf-8")
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=body,
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        self.addAsyncCleanup(client.aclose)
+        adapter = HermesAdapter(
+            HermesConfig(base_url="http://127.0.0.1:8642", auth_token="secret"),
+            client=client,
+        )
+
+        events = [event async for event in adapter.stream_turn(self._request())]
+
+        repairs = [event for event in events if isinstance(event, FormatRepairRequired)]
+        completed = [event for event in events if isinstance(event, TurnCompleted)]
+        self.assertEqual(len(repairs), 1)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0].result.segments[0].display_text, "先保住这句文字")
 
     async def test_malformed_sse_json_becomes_protocol_failure(self):
         from meapet.agent.base import TurnFailed
