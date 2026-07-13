@@ -382,6 +382,8 @@ def _normalize_llm_contract(value: object) -> dict:
     agent.setdefault("session_id", "")
     agent.setdefault("session_key", "")
     agent.setdefault("history_turns", 5)
+    agent.setdefault("allow_insecure_ws", False)
+    agent.setdefault("identity_path", "")
     tls = copy.deepcopy(agent.get("tls")) if isinstance(agent.get("tls"), dict) else {}
     tls.setdefault("verify", True)
     tls.setdefault("ca_file", "")

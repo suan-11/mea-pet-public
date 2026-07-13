@@ -26,9 +26,7 @@ def create_agent_adapter_from_config(config: dict):
     agent = llm.setdefault("agent", {})
     kind = str(agent.get("kind") or "hermes").strip().lower()
 
-    if kind == "openclaw":
-        raise NotImplementedError("OpenClaw Agent 适配器尚未实现")
-    if kind != "hermes":
+    if kind not in {"hermes", "openclaw"}:
         raise ValueError(f"不支持的 Agent 类型: {kind or '<empty>'}")
 
     session_id = str(agent.get("session_id") or "").strip()
@@ -41,13 +39,34 @@ def create_agent_adapter_from_config(config: dict):
         agent["session_key"] = session_key
 
     tls = agent.get("tls") if isinstance(agent.get("tls"), dict) else {}
+    auth_token = resolve_secret(
+        str(agent.get("auth_token") or ""),
+        _AGENT_TOKEN_ENV,
+    )
+    if kind == "openclaw":
+        from meapet.agent.openclaw import OpenClawAdapter, OpenClawConfig
+
+        return OpenClawAdapter(
+            OpenClawConfig(
+                base_url=str(agent.get("base_url") or "ws://127.0.0.1:18789"),
+                auth_token=auth_token,
+                session_id=session_id,
+                session_key=session_key,
+                timeout_seconds=_positive_float(
+                    agent.get("timeout_seconds"),
+                    120.0,
+                ),
+                verify_tls=bool(tls.get("verify", True)),
+                ca_file=str(tls.get("ca_file") or ""),
+                allow_insecure_ws=bool(agent.get("allow_insecure_ws", False)),
+                identity_path=str(agent.get("identity_path") or ""),
+            )
+        )
+
     return HermesAdapter(
         HermesConfig(
             base_url=str(agent.get("base_url") or "http://127.0.0.1:8642"),
-            auth_token=resolve_secret(
-                str(agent.get("auth_token") or ""),
-                _AGENT_TOKEN_ENV,
-            ),
+            auth_token=auth_token,
             model=str(agent.get("model") or "hermes-agent"),
             session_id=session_id,
             session_key=session_key,

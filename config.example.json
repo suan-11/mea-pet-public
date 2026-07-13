@@ -25,6 +25,8 @@
       "session_id": "",
       "session_key": "",
       "history_turns": 5,
+      "allow_insecure_ws": false,
+      "identity_path": "",
       "tls": {
         "verify": true,
         "ca_file": ""

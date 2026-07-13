@@ -17,6 +17,7 @@ config.json
 config_settings.json
 config_settings.json.bak
 config*.bak*
+openclaw_device_identity.json
 
 # 日志与本地运行数据
 *.log

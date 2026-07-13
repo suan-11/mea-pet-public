@@ -221,6 +221,12 @@ class TestOpenClawDeviceIdentity(unittest.TestCase):
 
 
 class TestOpenClawAdapter(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self._identity_dir = tempfile.TemporaryDirectory()
+
+    async def asyncTearDown(self):
+        self._identity_dir.cleanup()
+
     def _config(self, **overrides):
         from meapet.agent.openclaw import OpenClawConfig
 
@@ -229,6 +235,9 @@ class TestOpenClawAdapter(unittest.IsolatedAsyncioTestCase):
             "auth_token": "shared-secret",
             "session_key": "agent:main:meapet:test",
             "timeout_seconds": 2,
+            "identity_path": str(
+                Path(self._identity_dir.name) / "openclaw-identity.json"
+            ),
         }
         values.update(overrides)
         return OpenClawConfig(**values)
