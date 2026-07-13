@@ -55,6 +55,7 @@ from meapet.desktop.widgets import DialogueBubbleStack
 from meapet.desktop.audio import PetAudioMixin
 from meapet.desktop.watch_ctrl import PetWatcherMixin
 from meapet.desktop.chat_flow import PetChatFlowMixin
+from meapet.desktop.control_bridge import PetControlBridgeMixin
 from meapet.desktop.interaction import PetInteractionMixin
 from meapet.desktop.window_chrome import PetWindowChromeMixin
 from meapet.desktop.render_host import PetRenderHostMixin, calculate_drag_position
@@ -95,6 +96,7 @@ class MeaPet(
     PetAudioMixin,
     PetWatcherMixin,
     PetChatFlowMixin,
+    PetControlBridgeMixin,
     PetInteractionMixin,
     PetWindowChromeMixin,
     PetRenderHostMixin,
@@ -157,6 +159,7 @@ class MeaPet(
         _safe("renderer", self._init_renderer)
         _safe("chat", self._init_chat)
         _safe("tts", self._init_tts)
+        _safe("control", self._init_control)
         self._cloud_watch_confirmed = False
         _safe("watcher", self._init_watcher)
         _safe("tray", self._setup_tray)
@@ -294,6 +297,8 @@ class MeaPet(
     def _init_watcher(self):
         llm_cfg = self.config.get("llm", {}) or {}
         vision_cfg = self.config.get("vision", {}) or {}
+        watcher_cfg = self.config.get("watcher", {}) or {}
+        capture_cfg = watcher_cfg.get("capture") or {}
 
         backend = resolve_vision_backend(vision_cfg, llm_cfg)
         vision_model = vision_cfg.get("model") or (
@@ -335,6 +340,9 @@ class MeaPet(
             api_base=api_base,
             api_key=api_key,
             mimo_model=mimo_model,
+            capture_scope=capture_cfg.get("scope", "full_screen"),
+            capture_region=capture_cfg.get("region"),
+            capture_application=capture_cfg.get("application", ""),
         )
         self._watcher.result_ready.connect(self._on_watch_result)
         self._watcher.error.connect(self._on_watch_error)

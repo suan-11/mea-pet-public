@@ -182,6 +182,9 @@ class PetChatFlowMixin:
             self._show_bubble(status_language.thinking_busy(), 2500)
             self._position_bubble()
             return
+        interrupt_control = getattr(self, "_interrupt_control_say", None)
+        if callable(interrupt_control):
+            interrupt_control()
         set_awaiting_reply_state(
             self,
             True,

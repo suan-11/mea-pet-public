@@ -105,6 +105,12 @@ class PetWindowChromeMixin:
 
     def _quit(self):
         safe_print("[pet] quitting by user/menu…")
+        stop_control = getattr(self, "_stop_control", None)
+        if callable(stop_control):
+            try:
+                stop_control()
+            except Exception:
+                pass
         try:
             if not self._use_live2d and self.renderer:
                 self.renderer.stop_blink_animation()

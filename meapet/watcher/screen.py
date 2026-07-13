@@ -10,11 +10,11 @@
 """
 import io
 import traceback
-from PIL import ImageGrab
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from meapet.utils import debug_enabled, redact_text
 from meapet.log import get_color_logger
+from meapet.watcher.capture import capture_screen_image
 
 log = get_color_logger("watcher")
 
@@ -218,7 +218,10 @@ class ScreenWatcher(QThread):
                  backend: str = "ollama",
                  api_base: str = "",
                  api_key: str = "",
-                 mimo_model: str = "mimo-v2.5"):
+                 mimo_model: str = "mimo-v2.5",
+                 capture_scope: str = "full_screen",
+                 capture_region: dict | None = None,
+                 capture_application: str = ""):
         super().__init__()
         self.host = ollama_host
         self.vision_model = vision_model
@@ -228,6 +231,11 @@ class ScreenWatcher(QThread):
         self.api_base = api_base.rstrip('/')
         self.api_key = api_key
         self.mimo_model = mimo_model
+        self.capture_scope = str(capture_scope or "full_screen").strip().lower()
+        self.capture_region = (
+            dict(capture_region) if isinstance(capture_region, dict) else None
+        )
+        self.capture_application = str(capture_application or "").strip()
         self._stop = False
         self.last_voice_text = ""
 
@@ -248,6 +256,14 @@ class ScreenWatcher(QThread):
             return False
         self._stop = False
         return True
+
+    def _capture_image(self):
+        """与手动/MCP 路径复用同一个范围截图后端。"""
+        return capture_screen_image(
+            scope=self.capture_scope,
+            region=self.capture_region,
+            application=self.capture_application,
+        ).image
 
 
 
@@ -299,7 +315,7 @@ class ScreenWatcher(QThread):
             if self._stop:
                 return
             self.progress.emit(STAGE_CAPTURE)
-            img = ImageGrab.grab()
+            img = self._capture_image()
             log.info(f"[screenshot] captured: size={img.size}, mode={img.mode}")
 
             import os
