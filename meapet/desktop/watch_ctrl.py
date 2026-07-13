@@ -22,12 +22,6 @@ from meapet.config.store import (
 from meapet.log import get_color_logger
 from meapet.vision.policy import resolve_vision_route
 
-
-from meapet.config.store import save_config, config_path
-
-def _save_config(self, config: dict) -> None:
-    save_config(config, path=config_path())
-
 log = get_color_logger("watch_ctrl")
 
 
