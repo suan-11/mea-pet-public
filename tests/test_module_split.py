@@ -305,11 +305,14 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
             def add_affection(self, _delta):
                 return None
 
-            def build_context_prompt(self):
+            def build_context_prompt(self, current_query=""):
                 return "测试上下文"
 
             def mark_today_chatted(self):
                 self.marked = True
+
+            def increment_message_counter(self):
+                pass
 
         class FakeEngine:
             def __init__(self):
@@ -322,6 +325,9 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
 
             def _extract_memories(self, user_msg, reply):
                 self.extracted = (user_msg, reply)
+
+            def _summarize_if_needed(self):
+                pass
 
         host = type("Host", (), {})()
         host.chat_engine = FakeEngine()
