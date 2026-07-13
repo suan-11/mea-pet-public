@@ -45,7 +45,7 @@ class _FakeProtocolClient:
         self.closed = True
 
 
-def _request(*, turn_id="direct-turn", tts_enabled=False):
+def _request(*, turn_id="direct-turn", tts_enabled=False, attachments=()):
     from meapet.agent.base import AgentTurnRequest
 
     return AgentTurnRequest(
@@ -68,6 +68,7 @@ def _request(*, turn_id="direct-turn", tts_enabled=False):
             },
         },
         tts_enabled=tts_enabled,
+        attachments=attachments,
     )
 
 
@@ -115,6 +116,40 @@ class TestDirectConversationAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "你好，主人")
         self.assertEqual(len(completed), 1)
         self.assertEqual(engine.history[-1], {"role": "assistant", "content": "你好，主人"})
+
+    async def test_image_attachment_is_sent_once_but_not_persisted_in_local_history(self):
+        from meapet.agent.base import ImageAttachment, TurnCompleted
+
+        client = _FakeProtocolClient((( _valid_output("看到了"),),))
+        engine = self._engine(client)
+        request = _request(
+            attachments=(
+                ImageAttachment(
+                    media_type="image/jpeg",
+                    data="YWJj",
+                    file_name="screenshot.jpg",
+                ),
+            )
+        )
+
+        events = [event async for event in engine.stream_turn(request)]
+
+        self.assertEqual(
+            client.requests[0].messages[-1],
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "现在几点"},
+                    {
+                        "type": "image",
+                        "media_type": "image/jpeg",
+                        "data": "YWJj",
+                    },
+                ],
+            },
+        )
+        self.assertTrue(any(isinstance(event, TurnCompleted) for event in events))
+        self.assertNotIn("YWJj", repr(engine.history))
 
     async def test_malformed_direct_output_is_repaired_once_without_original_task(self):
         from meapet.agent.base import FormatRepairRequired, TurnCompleted
