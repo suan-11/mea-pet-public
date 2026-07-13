@@ -252,6 +252,27 @@ class TestControlPresentation(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["image"]["data"])
         self.assertNotIn("path", repr(result).lower())
 
+    async def test_proactive_say_enters_isolated_timeline_as_complete_turn(self):
+        from meapet.conversation.timeline import ConversationKey, ConversationTimeline
+
+        host = self._host(tts_enabled=False)
+        host._conversation_key = ConversationKey("agent", "hermes", "session-a")
+        host._conversation_timeline = ConversationTimeline(max_turns=5)
+        queued = await host._control_broker.say(
+            [_segment("第一段"), _segment("第二段")],
+            request_id="active-timeline",
+        )
+
+        host._poll_control()
+
+        turn = host._conversation_timeline.find(queued["queue_id"])
+        self.assertEqual(turn.source, "agent_proactive")
+        self.assertEqual(
+            [segment.display_text for segment in turn.segments],
+            ["第一段", "第二段"],
+        )
+        self.assertEqual(turn.status, "complete")
+
 
 if __name__ == "__main__":
     unittest.main()

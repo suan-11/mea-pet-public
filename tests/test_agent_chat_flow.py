@@ -385,6 +385,44 @@ class TestAgentChatPolling(unittest.TestCase):
         self.assertEqual(host._agent_history, [])
         self.assertFalse(hasattr(host, "last_mood"))
 
+    def test_agent_segments_and_tool_states_are_projected_to_timeline(self):
+        from meapet.agent.base import ToolStatus
+        from meapet.conversation.output_protocol import SegmentCompleted
+        from meapet.conversation.timeline import ConversationKey, ConversationTimeline
+
+        segment = _segment()
+        host = self._host(tts_enabled=False)
+        host._conversation_key = ConversationKey("agent", "hermes", "session-a")
+        host._conversation_timeline = ConversationTimeline(max_turns=5)
+        host._active_agent_turn_id = "turn-flow"
+        host._conversation_timeline.start_turn(
+            host._conversation_key,
+            "turn-flow",
+            source="user_reply",
+            user_text="用户问题",
+        )
+        host._chat_worker = _Worker(
+            (
+                ToolStatus("started", "正在处理"),
+                ToolStatus("succeeded", "处理完成"),
+                SegmentCompleted(segment),
+                _completed(segment),
+            )
+        )
+
+        host._poll_chat()
+
+        turn = host._conversation_timeline.get(
+            host._conversation_key,
+            "turn-flow",
+        )
+        self.assertEqual(turn.status, "complete")
+        self.assertEqual(turn.segments, (segment,))
+        self.assertEqual(
+            [(entry.state, entry.safe_text) for entry in turn.system_entries],
+            [("started", "正在处理"), ("succeeded", "处理完成")],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

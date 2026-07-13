@@ -137,6 +137,27 @@ class TestTimelineViewer(unittest.TestCase):
         dialog._copy_all()
         self.assertEqual(QApplication.clipboard().text(), rendered)
 
+    def test_dialogue_bubble_emits_activation_for_full_turn_view(self):
+        from PyQt5.QtCore import QEvent, QPointF, Qt
+        from PyQt5.QtGui import QMouseEvent
+        from meapet.desktop.widgets import DialogueBox
+
+        bubble = DialogueBox()
+        self.addCleanup(bubble.deleteLater)
+        activated = []
+        bubble.activated.connect(lambda: activated.append(True))
+        event = QMouseEvent(
+            QEvent.MouseButtonRelease,
+            QPointF(10, 10),
+            Qt.LeftButton,
+            Qt.LeftButton,
+            Qt.NoModifier,
+        )
+
+        bubble.mouseReleaseEvent(event)
+
+        self.assertEqual(activated, [True])
+
 
 class TestAgentSessionReset(unittest.TestCase):
     def test_agent_reset_creates_new_session_without_deleting_local_memory(self):
