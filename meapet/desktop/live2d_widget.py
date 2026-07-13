@@ -8,6 +8,7 @@ import os
 import sys
 import math
 import traceback
+from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QOpenGLWidget
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal

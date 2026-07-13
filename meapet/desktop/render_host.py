@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtCore import QPoint, QRect, QSize, Qt, QTimer
@@ -290,32 +291,16 @@ class PetRenderHostMixin:
         l2d_cfg = self.config.get("live2d", {})
         model_dir = l2d_cfg.get("model_dir", "")
         force_png = os.environ.get("MEAPET_FORCE_PNG", "").strip().lower()
-        live2d_requested = (
-            force_png not in ("1", "true", "yes")
-            and l2d_cfg.get("enabled", False)
-            and os.path.isdir(model_dir)
-        )
-
-        if live2d_requested:
-            # 保持顶层窗口正常映射；背景和未完成 framebuffer 本身透明。
-            # Windows 的 QOpenGLWidget 不应以 0 opacity 首次映射，否则可能
-            # 永久丢失 DWM 合成表面。
+        if (force_png not in ("1", "true", "yes") and
+                l2d_cfg.get("enabled", False)):
             self.setWindowOpacity(1.0)
             try:
                 self._start_live2d_renderer()
                 return
             except Exception as exc:
                 safe_print(f"[pet] Live2D 初始化失败，使用 PNG: {exc}")
-                import traceback
-
-                safe_print(traceback.format_exc())
                 self._fallback_to_png(str(exc))
                 return
-
-        if force_png in ("1", "true", "yes"):
-            safe_print("[toggle] MEAPET_FORCE_PNG=1, skip Live2D")
-        elif l2d_cfg.get("enabled", False) and not os.path.isdir(model_dir):
-            safe_print(f"[live2d] 模型目录不存在，使用 PNG: {model_dir}")
 
         self._init_png_renderer()
         self.setWindowOpacity(1.0)
@@ -468,6 +453,12 @@ class PetRenderHostMixin:
         from meapet.desktop.live2d_widget import Live2DModel
         l2d_cfg = self.config.get("live2d", {})
         model_dir = l2d_cfg.get("model_dir", "")
+        if hasattr(sys, '_MEIPASS'):
+            model_dir = Path(model_dir)
+            if model_dir.is_absolute():
+                model_dir = str(model_dir)
+            else:
+                model_dir = str(Path(sys._MEIPASS) / model_dir)
         safe_print(f"[live2d] 开始初始化，model_dir={model_dir}")
         if not os.path.isdir(model_dir):
             safe_print("[live2d] 模型目录不存在，回退至 PNG")
