@@ -1,49 +1,9 @@
 """TTS 共享工具与常量（供 tts.py 与引擎 mixin 使用）"""
 import os
-import sys
-import time
 import subprocess
-import threading
-from meapet.paths import project_path
-from meapet.utils import debug_enabled, redact_text
+from meapet.log import get_color_logger
 
-
-_TTS_LOG_MAX_BYTES = 1_000_000
-_TTS_LOG_LOCK = threading.Lock()
-
-
-def _rotate_tts_log(log_path: str) -> None:
-    """限制 TTS 调试日志体积，保留一个上一代日志。"""
-    try:
-        if os.path.getsize(log_path) < _TTS_LOG_MAX_BYTES:
-            return
-    except OSError:
-        return
-    try:
-        os.replace(log_path, f"{log_path}.1")
-    except OSError:
-        pass
-
-
-def _safe_print(*args, **kwargs):
-    """GUI 环境下安全打印；凭据脱敏并限制日志文件体积。"""
-    now = time.strftime("%H:%M:%S")
-    try:
-        msg = redact_text(' '.join(str(a) for a in args))
-        log_path = project_path('tts_debug.log')
-        with _TTS_LOG_LOCK:
-            _rotate_tts_log(log_path)
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(f'[{now}] {msg}\n')
-        print(f'[TTS][{now}] {msg}', file=sys.stderr, flush=True)
-    except Exception:
-        pass
-
-
-def _debug_print(*args, **kwargs):
-    """显式设置 MEAPET_DEBUG=1 时才记录可能包含正文的日志。"""
-    if debug_enabled():
-        _safe_print(*args, **kwargs)
+log = get_color_logger("tts")
 
 
 _LFS_POINTER_HEADER = b"version https://git-lfs.github.com/spec/v1"
@@ -140,21 +100,21 @@ def _install_modules(py_exe: str, packages: list[str],
         cmd.extend(["-i", GSV_PIP_INDEX])
     cmd.extend(packages)
     try:
-        _safe_print(f"  pip install {len(packages)} 个包 …")
+        log.info(f"pip install {len(packages)} 个包 …")
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         if r.returncode != 0:
-            _safe_print(f"  pip 失败: {r.stderr[-200:]}")
+            log.warn(f"  pip 失败: {r.stderr[-200:]}")
             return False
-        _safe_print("  pip 成功")
+        log.info("pip 成功")
         return True
     except Exception as e:
-        _safe_print(f"  pip 异常: {e}")
+        log.error(f"pip 异常: {e}")
         return False
 
 
 def auto_install_gsv_deps(py_exe: str, allow_download: bool = False) -> bool:
     """检查 GSV 依赖；仅当 allow_download=True 时才 pip 安装（默认不自动下载）"""
-    _safe_print(f"  → 检查 GSV 依赖 (Python: {py_exe})")
+    log.info(f"检查 GSV 依赖 (Python: {py_exe})")
 
     # 快速检查缺了哪些
     missing = []
@@ -164,15 +124,15 @@ def auto_install_gsv_deps(py_exe: str, allow_download: bool = False) -> bool:
             missing.append(pkg)
 
     if not missing:
-        _safe_print("  ✓ 所有 GSV 依赖已安装")
+        log.info("所有 GSV 依赖已安装")
         return True
 
     if not allow_download:
-        _safe_print(f"  ⚠ 缺少 {len(missing)} 个依赖：{', '.join(missing[:6])}{'…' if len(missing)>6 else ''}")
-        _safe_print("  → 默认不自动 pip 安装。请手动安装，或设置 MEAPET_ALLOW_DOWNLOAD=1 / tts.auto_install_deps=true")
+        log.warn(f"缺少 {len(missing)} 个依赖：{', '.join(missing[:6])}{'…' if len(missing)>6 else ''}")
+        log.warn("  → 默认不自动 pip 安装。请手动安装，或设置 MEAPET_ALLOW_DOWNLOAD=1 / tts.auto_install_deps=true")
         return False
 
-    _safe_print(f"  ⚠ 缺少 {len(missing)} 个依赖，按需安装 …")
+    log.info(f"缺少 {len(missing)} 个依赖，按需安装 …")
     # 拆成两批：torch 系用 PyTorch 官方源，其余用清华源
     torch_pkgs = [p for p in missing if p in ("torch", "torchaudio")]
     other_pkgs = [p for p in missing if p not in ("torch", "torchaudio")]
@@ -184,17 +144,17 @@ def auto_install_gsv_deps(py_exe: str, allow_download: bool = False) -> bool:
         ok = _install_modules(py_exe, other_pkgs) and ok
 
     if not ok:
-        _safe_print("  ❌ pip 安装失败，请检查网络或手动安装")
+        log.error("pip 安装失败，请检查网络或手动安装")
         return False
 
     # 最终验证
     still = [p for p in GSV_REQUIRED_PACKAGES
              if not _has_module(py_exe, _get_import_name(p))]
     if still:
-        _safe_print(f"  ⚠ 仍有 {len(still)} 个包未装: {still}")
+        log.warn(f"仍有 {len(still)} 个包未装: {still}")
         return False
 
-    _safe_print("  ✓ 所有依赖安装完成")
+    log.info("所有依赖安装完成")
     return True
 
 

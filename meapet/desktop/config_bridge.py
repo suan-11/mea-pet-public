@@ -8,7 +8,9 @@ from meapet.config.store import (
     save_config as store_save_config,
     normalize_config,
 )
-from meapet.utils import safe_print
+from meapet.log import get_color_logger
+
+log = get_color_logger("config_bridge")
 
 
 class PetConfigBridgeMixin:
@@ -27,7 +29,7 @@ class PetConfigBridgeMixin:
             self.config = normalize_config(self.config)
             store_save_config(self.config)
         except Exception as e:
-            safe_print(f"[config] 保存失败: {e}")
+            log.error(f"[config] 保存失败: {e}")
 
     def _disconnect_watcher_signals(self):
         if not hasattr(self, "_watcher") or self._watcher is None:

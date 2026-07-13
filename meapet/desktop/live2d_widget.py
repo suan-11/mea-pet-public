@@ -22,7 +22,9 @@ from PyQt5.QtCore import QEvent
 from PyQt5.QtGui import QSurfaceFormat
 
 from meapet.desktop.render_host import calculate_drag_position
-from meapet.utils import safe_print
+from meapet.log import get_color_logger
+
+log = get_color_logger("live2d")
 
 # 在 Windows 下可选导入 win32api（DLL 缺失时不阻塞启动）
 if sys.platform == "win32":
@@ -32,9 +34,11 @@ if sys.platform == "win32":
     except Exception:
         win32api = None
         win32con = None
+
+
 class Live2DModel:
     """Live2D 模型控制器，提供与 SpriteRenderer 兼容的接口"""
-    
+
     def __init__(self, model_dir: str):
         """
         model_dir: 包含 .model3.json 的目录
@@ -45,8 +49,6 @@ class Live2DModel:
         self._loaded = False
         self._current_expression = "001"  # 兼容接口
 
-
-
         # 找 model3.json
         self._model_json = None
         for f in os.listdir(model_dir):
@@ -55,24 +57,24 @@ class Live2DModel:
                 break
         if not self._model_json:
             raise FileNotFoundError(f"在 {model_dir} 中找不到 .model3.json")
-        
+
         self._name = os.path.splitext(os.path.basename(self._model_json))[0]
-    
+
     def create_widget(self, parent=None):
         """创建并返回 Live2DWidget"""
         self.widget = Live2DWidget(self, parent)
         return self.widget
-    
+
     def get_model(self) -> live2d.LAppModel:
         return self.model
-    
+
     def get_suggested_size(self) -> tuple:
         """返回建议显示尺寸（模型加载后）"""
         # 模型比例 5000:7000 = 5:7，目标宽度匹配 PNG 立绘
         return (525, 735)
-    
+
     # ====== 兼容 SpriteRenderer 的接口 ======
-    
+
     def set_mood(self, mood: str):
         """设置情绪表情"""
         self._current_expression = mood
@@ -87,7 +89,7 @@ class Live2DModel:
             elif mood == "sad" or mood == "melancholy":
                 # 可扩展，暂无对应 motion
                 pass
-    
+
     def set_expression(self, expr: str):
         """设置差分表情（兼容接口）"""
         self._current_expression = expr
@@ -98,25 +100,25 @@ class Live2DModel:
         elif expr == "001":
             # 默认睁眼
             pass
-    
+
     def start_blink_animation(self):
         """眨眼由 Live2D SDK 自动处理，这里不需要做任何事"""
         pass
-    
+
     def stop_blink_animation(self):
         pass
-    
+
     def expression_changed(self):
         """无操作（Live2D 是连续的）"""
         pass
-    
+
     def get_current_expression(self) -> str:
         return self._current_expression
-    
+
     def get_current_pixmap(self):
         """无操作"""
         return None
-    
+
     def set_size(self, width: int, height: int):
         if self.model:
             scale_w = width / self.model.GetCanvasSize()[0]
@@ -127,14 +129,14 @@ class Live2DModel:
 
 class Live2DWidget(QOpenGLWidget):
     """透明 Live2D 渲染窗口"""
-    
+
     # 信号：摸头(head) / 摸尾巴(tail)
     head_patted = pyqtSignal()
     tail_patted = pyqtSignal()
     chat_requested = pyqtSignal()
     first_frame_ready = pyqtSignal()
     initialization_failed = pyqtSignal(str)
-    
+
     def __init__(self, l2d_model: Live2DModel, parent=None):
         super().__init__(parent)
 
@@ -146,9 +148,9 @@ class Live2DWidget(QOpenGLWidget):
         QSurfaceFormat.setDefaultFormat(fmt)
         self.setFormat(fmt)
 
-        
+
         self.l2d = l2d_model
-        
+
         # 1. Qt 自身的透明设置
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_AlwaysStackOnTop, True) # 确保在最上层渲染
@@ -168,12 +170,12 @@ class Live2DWidget(QOpenGLWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer)
         self.frameSwapped.connect(self._on_frame_swapped)
-        
+
         # 鼠标位置与拖拽
         self._mouse_x = 0
         self._mouse_y = 0
-        self._press_pos = None  
-        
+        self._press_pos = None
+
         # 【新增】窗口拖拽状态
         self._dragging_window = False
         self._drag_pointer_origin = None
@@ -182,7 +184,7 @@ class Live2DWidget(QOpenGLWidget):
         self.resize(525, 735)
 
         # 3. 【删除】这行代码，否则鼠标事件无法触发
-        # self.setAttribute(Qt.WA_TransparentForMouseEvents, True) 
+        # self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -190,7 +192,7 @@ class Live2DWidget(QOpenGLWidget):
         if obj == self and event.type() == QEvent.MouseButtonPress:
             # 如果是右键，不拦截，用于呼出菜单
             if event.button() == Qt.RightButton:
-                return False  
+                return False
             # 如果是左键，判断是否点击在模型的非透明区域
             # （这里可以简单判断坐标，或者通过读取像素判断是否透明）
             x, y = event.x(), event.y()
@@ -198,12 +200,12 @@ class Live2DWidget(QOpenGLWidget):
             # 简单的矩形碰撞检测 — 扩大范围以适配非100%缩放
             if w * 0.15 < x < w * 0.85 and 0 < y < h * 0.9:
                 return False  # 在模型区域内，不拦截，允许触发 mousePressEvent
-            
+
             # 在模型区域外，返回 True 拦截事件，让操作系统将其传递给底层窗口
-            return True  
-        
+            return True
+
         return super().eventFilter(obj, event)
-    
+
     def initializeGL(self):
         try:
             live2d.glInit()
@@ -240,8 +242,8 @@ class Live2DWidget(QOpenGLWidget):
         if self._initialization_error:
             return
         self._initialization_error = f"{type(exc).__name__}: {exc}"
-        safe_print(f"[live2d] OpenGL 初始化失败: {self._initialization_error}")
-        safe_print(traceback.format_exc())
+        log.error(f"[live2d] OpenGL 初始化失败: {self._initialization_error}")
+        log.debug(traceback.format_exc())
         QTimer.singleShot(
             0,
             lambda reason=self._initialization_error: self.initialization_failed.emit(
@@ -264,7 +266,7 @@ class Live2DWidget(QOpenGLWidget):
         glViewport(0, 0, int(w * dpr), int(h * dpr))
         if self.l2d.model and w > 0 and h > 0:
             self._fit_model_to_window(self.l2d.model)
-    
+
     def paintGL(self):
         try:
             from OpenGL.GL import (
@@ -286,22 +288,18 @@ class Live2DWidget(QOpenGLWidget):
                 self._dbg_skip = 0
             self._dbg_skip += 1
             if self._dbg_skip <= 3:
-                import sys as _s
-                _s.stderr.write(f"[PAINT] SKIP _ready={self._ready} model={self.l2d.model is not None}\n")
-                _s.stderr.flush()
+                log.debug(f"[PAINT] SKIP _ready={self._ready} model={self.l2d.model is not None}")
             return
-        
+
         # 每 2400 帧输出一次心跳
         if not hasattr(self, '_dbg_frame'):
             self._dbg_frame = 0
         self._dbg_frame += 1
         if self._dbg_frame % 2400 == 0:
-            import sys as _s
-            _s.stderr.write(f"[PAINT] frame={self._dbg_frame} alive\n")
-            _s.stderr.flush()
-        
+            log.debug(f"[PAINT] frame={self._dbg_frame} alive")
+
         live2d.clearBuffer()
-        
+
         # 每帧从系统获取光标全局坐标，映射后驱动眼球+身体追踪
         from PyQt5.QtGui import QCursor
         gp = QCursor.pos()
@@ -323,7 +321,7 @@ class Live2DWidget(QOpenGLWidget):
             self.l2d.model.SetParameterValue("ParamAngleY", -cy * 30, 1.0)
             self.l2d.model.SetParameterValue("ParamBodyAngleZ", cx * 10, 1.0)
             self.l2d.model.SetParameterValue("ParamAngleZ", cx * 10, 1.0)
-        
+
         self.l2d.model.Update()
         self.l2d.model.Draw()
         self._frame_drawn = True
@@ -336,7 +334,7 @@ class Live2DWidget(QOpenGLWidget):
 
     def _on_timer(self):
         self.update()
-    
+
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
         # 仅当左键按下时，记录初始位置
@@ -352,7 +350,7 @@ class Live2DWidget(QOpenGLWidget):
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        
+
         # 1. 处理窗口拖拽逻辑
         if (
             event.buttons() & Qt.LeftButton
@@ -379,7 +377,7 @@ class Live2DWidget(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
-        
+
         # 1. 释放左键时，重置拖拽状态
         if event.button() == Qt.LeftButton:
             parent = self.parentWidget()
@@ -388,19 +386,19 @@ class Live2DWidget(QOpenGLWidget):
                 flush_move()
             self._drag_pointer_origin = None
             self._drag_window_origin = None
-            
+
             # 2. 【核心逻辑】如果刚才发生了窗口拖拽，直接清空状态，绝对不触发互动
             if self._dragging_window:
                 self._dragging_window = False
                 self._press_pos = None
                 event.accept()
                 return
-            
+
             # 3. 如果没有拖拽窗口，且是有效的点击，才判断是否触发互动
             if self.l2d.model and self._press_pos is not None:
                 px, py = self._press_pos
                 dist = math.sqrt((event.x() - px)**2 + (event.y() - py)**2)
-                
+
                 # 移动距离小于 8px 视为点击
                 if dist < 8:
                     if py < self.height() * 0.5:
@@ -409,7 +407,7 @@ class Live2DWidget(QOpenGLWidget):
                     else:
                         self.l2d.model.StartMotion("Angry", 0, live2d.MotionPriority.FORCE)
                         self.tail_patted.emit()
-            
+
             # 4. 清空按下位置
             self._press_pos = None
             event.accept()
@@ -427,12 +425,12 @@ class Live2DWidget(QOpenGLWidget):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
-    
+
     def play_motion(self, motion_name: str, priority=3):
         """播放指定 motion"""
         if self.l2d.model:
             self.l2d.model.StartMotion(motion_name, 0, priority)
-    
+
     def shutdown(self):
         self._timer.stop()
         self._ready = False

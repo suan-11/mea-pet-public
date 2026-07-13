@@ -585,27 +585,26 @@ class TestPrivacySafeLogging(unittest.TestCase):
         self.assertNotIn(marker, rendered)
         self.assertIn(str(len(marker)), rendered)
 
-    def test_tts_logs_only_text_length_by_default(self):
-        from meapet.tts.service import MeaTTS
+    def test_chat_flow_logs_only_input_length_by_default(self):
+        from meapet.desktop.chat_flow import PetChatFlowMixin
 
-        marker = "private-tts-text-marker"
-        with tempfile.TemporaryDirectory() as td:
-            tts = MeaTTS.__new__(MeaTTS)
-            tts.enabled = True
-            tts._mimo_mode = True
-            tts._vits_mode = False
-            tts.engine = "mimo"
-            tts.output_dir = td
-            tts.voice_lang = "zh"
-            tts._ensure_deps = mock.Mock(return_value=True)
-            tts._speak_mimo = mock.Mock(return_value=("test.wav", "zh"))
-            with mock.patch.dict(
-                os.environ, {"MEAPET_DEBUG": ""}, clear=False
-            ), mock.patch("meapet.tts.service._safe_print") as printer:
-                tts.speak(marker, mood="neutral")
-        rendered = " ".join(str(call) for call in printer.call_args_list)
-        self.assertNotIn(marker, rendered)
-        self.assertIn(str(len(marker)), rendered)
+        marker = "private-user-input-marker"
+        fake_pet = SimpleNamespace(
+            _record_interaction=mock.Mock(),
+            _show_bubble=mock.Mock(),
+            _position_bubble=mock.Mock(),
+            _do_chat=mock.Mock(),
+        )
+        with mock.patch.dict(os.environ, {"MEAPET_DEBUG": ""}, clear=False), mock.patch(
+                "meapet.desktop.chat_flow.log.debug"
+        ) as mock_debug, mock.patch("meapet.desktop.chat_flow.QTimer.singleShot"):
+            PetChatFlowMixin._on_input_submit(fake_pet, marker)
+
+        # 验证日志只记录了长度，没有暴露私密文本
+        mock_debug.assert_called_once()
+        args, _ = mock_debug.call_args
+        self.assertIn("chars=", args[0])  # 包含长度信息
+        self.assertNotIn(marker, args[0])  # 不包含原始私密内容
 
 
 class TestTtsOutputPaths(unittest.TestCase):

@@ -14,11 +14,12 @@ import unicodedata
 import uuid
 from typing import Optional
 
-from meapet.utils import audio_cache_key, legacy_audio_cache_name
+from meapet.utils import audio_cache_key, legacy_audio_cache_name, debug_enabled
+from meapet.log import get_color_logger
+
+log = get_color_logger("tts")
 
 from meapet.tts.common import (
-    _safe_print,
-    _debug_print,
     auto_install_gsv_deps,
     is_git_lfs_pointer,
     is_model_artifact_ready,
@@ -73,15 +74,15 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 if _rp and _rp not in _seen:
                     _seen.add(_rp)
                     self.python_exe = _p
-                    _safe_print(f"  → 检测到 GPT-SoVITS: {_p}")
+                    log.info(f"检测到 GPT-SoVITS: {_p}")
                     break
             if not self.python_exe:
                 self.python_exe = sys.executable
-                _safe_print(f"  ⚠ 未找到 GPT-SoVITS，降级至当前解释器: {self.python_exe}")
+                log.warn(f"未找到 GPT-SoVITS，降级至当前解释器: {self.python_exe}")
 
         # 验证 python_exe 是否存在
         if not os.path.isfile(self.python_exe):
-            _safe_print(f"  ⚠ python_exe 不存在: {self.python_exe}")
+            log.warn(f"python_exe 不存在: {self.python_exe}")
             self.python_exe = sys.executable
 
         # 推理脚本路径
@@ -207,14 +208,14 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             clone_info = ""
             if self._mimo_voiceclone:
                 clone_info = f" | clone_ref={os.path.basename(self.mimo_clone_ref) if self.mimo_clone_ref else 'auto'}"
-            _safe_print(
-                f"🎤 MeaTTS (MiMo cloud) | model={self.mimo_model} | "
+            log.info(
+                f"MeaTTS (MiMo cloud) | model={self.mimo_model} | "
                 f"voice={self.mimo_voice}{clone_info} | base={self.mimo_api_base} | "
                 f"key={'yes' if self.mimo_api_key else 'NO'}"
             )
         else:
-            _safe_print(
-                f"🎤 MeaTTS v2 (subprocess) | engine={self.engine} | "
+            log.info(
+                f"MeaTTS v2 (subprocess) | engine={self.engine} | "
                 f"python={os.path.basename(self.python_exe)} | "
                 f"GPT={self.gpt_model} | SoVITS={self.sovits_model} | "
                 f"top_k={self.top_k} top_p={self.top_p} temp={self.temperature}"
@@ -225,7 +226,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         if self._mimo_mode:
             key_ok = bool(self.mimo_api_key)
             base_ok = bool(self.mimo_api_base)
-            _safe_print(
+            log.info(
                 f"Health (mimo): key={key_ok} base={base_ok} "
                 f"model={self.mimo_model} voice={self.mimo_voice}"
             )
@@ -246,7 +247,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 ),
             }
             self._deps_ready = all(checks.values())
-            _safe_print(
+            log.info(
                 "Health (vits): "
                 + " ".join(f"{name}={ok}" for name, ok in checks.items())
             )
@@ -260,7 +261,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             os.path.exists(os.path.join(self.ref_dir, t))
             for t in ["normal", "soft", "clam"]
         )
-        _safe_print(
+        log.info(
             f"Health: python={python_ok} script={script_ok} "
             f"GPT={gpt_ok} SoVITS={s2_ok} Refs={ref_ok}"
         )
@@ -272,8 +273,8 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 ("SoVITS", self.sovits_path),
             ):
                 if is_git_lfs_pointer(path):
-                    _safe_print(
-                        f"  ⚠ {label} 模型仍是 Git LFS pointer；"
+                    log.warn(
+                        f"{label} 模型仍是 Git LFS pointer；"
                         "请手动准备真实模型文件（程序不会自动拉取）"
                     )
             self._deps_ready = False
@@ -287,9 +288,9 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 self._deps_ready = True
             else:
                 if allow:
-                    _safe_print("  ⚠ GSV 依赖安装不完全，TTS 可能失败")
+                    log.warn("GSV 依赖安装不完全，TTS 可能失败")
                 else:
-                    _safe_print("  ⚠ GSV 依赖未齐（默认不自动下载）")
+                    log.warn("GSV 依赖未齐（默认不自动下载）")
 
         return bool(all_ok and self._deps_ready)
 
@@ -307,7 +308,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             ok = bool(self.mimo_api_key and self.mimo_api_base)
             self._deps_ready = ok
             if not ok:
-                _safe_print("  ⚠ MiMo TTS: 缺少 api_key 或 api_base")
+                log.warn("MiMo TTS: 缺少 api_key 或 api_base")
             return ok
         if self._vits_mode:
             return self.health_check()
@@ -317,7 +318,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             if auto_install_gsv_deps(self.python_exe, allow_download=allow):
                 self._deps_ready = True
                 return True
-            _safe_print("  ⚠ GSV 依赖未就绪")
+            log.warn("GSV 依赖未就绪")
         return False
 
     # 日语后处理：替换不常见/粗俗词为 GPT-SoVITS 模型更友好的表达
@@ -337,8 +338,8 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         try:
             import translators as ts
         except ImportError:
-            _safe_print("  translate: 未安装 translators（不会自动下载）。"
-                        "可选: pip install translators，或配置 translate_api_key 走 DeepSeek。")
+            log.info("translate: 未安装 translators（不会自动下载）。"
+                     "可选: pip install translators，或配置 translate_api_key 走 DeepSeek。")
             ts = None
 
         if ts is not None:
@@ -349,17 +350,19 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                                            from_language='zh', to_language='ja')
                     if jp and len(jp) >= 2:
                         jp = self._clean_jp(jp)
-                        _safe_print(f"  translate ({svc}): chars={len(jp)}")
-                        _debug_print(f"  translate ({svc}) [debug]: {jp[:80]}")
+                        log.info(f"translate ({svc}): chars={len(jp)}")
+                        if debug_enabled():
+                            log.debug(f"translate ({svc}) [debug]: {jp[:80]}")
                         return jp
                 except Exception as e:
-                    _safe_print(f"  translate ({svc}) failed: {type(e).__name__}")
-                    _debug_print(f"  translate ({svc}) exception [debug]: {e!r}")
+                    log.warn(f"translate ({svc}) failed: {type(e).__name__}")
+                    if debug_enabled():
+                        log.debug(f"translate ({svc}) exception [debug]: {e!r}")
                     continue
 
         # 2) 回退：DeepSeek API
         if not self.translate_api_key:
-            _safe_print("  translate: no API key, local also failed")
+            log.warn("  translate: no API key, local also failed")
             return ""
         import urllib.request
         prompt = (
@@ -389,12 +392,14 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 jp = jp.replace("\n", "").strip()
                 jp = self._clean_jp(jp)
                 if jp and len(jp) >= 2:
-                    _safe_print(f"  translate (api): chars={len(jp)}")
-                    _debug_print(f"  translate (api) [debug]: {jp[:80]}")
+                    log.info(f"translate (api): chars={len(jp)}")
+                    if debug_enabled():
+                        log.debug(f"translate (api) [debug]: {jp[:80]}")
                     return jp
         except Exception as e:
-            _safe_print(f"  translate (api) failed: {type(e).__name__}")
-            _debug_print(f"  translate (api) exception [debug]: {e!r}")
+            log.warn(f"translate (api) failed: {type(e).__name__}")
+            if debug_enabled():
+                log.debug(f"translate (api) exception [debug]: {e!r}")
         return ""
 
 
@@ -408,11 +413,11 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         2) 否则若 translate_enabled → 再尝试翻译（回退）
         """
         if self._text_has_kana(clean):
-            _safe_print("  → 已是日语，跳过翻译")
+            log.info("已是日语，跳过翻译")
             return clean
         if not self.translate_enabled:
             return clean
-        _safe_print("  → 无日语行，回退翻译…")
+        log.info("无日语行，回退翻译…")
         jp = self._translate_to_jp(clean)
         if jp and len(jp) >= 2:
             return jp
@@ -443,26 +448,26 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         if not self._mimo_mode and not self._vits_mode:
             if not is_model_artifact_ready(self.gpt_path):
                 if is_git_lfs_pointer(self.gpt_path):
-                    _safe_print("❌ TTS: GPT 模型仍是 Git LFS pointer，不会自动拉取")
+                    log.error("TTS: GPT 模型仍是 Git LFS pointer，不会自动拉取")
                 else:
-                    _safe_print(f"❌ TTS: GPT 模型文件不存在，跳过合成: {self.gpt_path}")
+                    log.error(f"TTS: GPT 模型文件不存在，跳过合成: {self.gpt_path}")
                 return None
             if not is_model_artifact_ready(self.sovits_path):
                 if is_git_lfs_pointer(self.sovits_path):
-                    _safe_print("❌ TTS: SoVITS 模型仍是 Git LFS pointer，不会自动拉取")
+                    log.error("TTS: SoVITS 模型仍是 Git LFS pointer，不会自动拉取")
                 else:
-                    _safe_print(f"❌ TTS: SoVITS 模型文件不存在，跳过合成: {self.sovits_path}")
+                    log.error(f"TTS: SoVITS 模型文件不存在，跳过合成: {self.sovits_path}")
                 return None
         elif self._vits_mode:
             vits_model = project_path("vits_models", "G_latest.pth")
             if not is_model_artifact_ready(vits_model):
                 if is_git_lfs_pointer(vits_model):
-                    _safe_print("❌ TTS: VITS 模型仍是 Git LFS pointer，不会自动拉取")
+                    log.error("TTS: VITS 模型仍是 Git LFS pointer，不会自动拉取")
                 return None
 
         # 确保依赖就绪
         if not self._ensure_deps():
-            _safe_print("TTS: 依赖未就绪，跳过合成")
+            log.warn("TTS: 依赖未就绪，跳过合成")
             return None, ""
 
         # 去除表情标记、动作括号、对话标记
@@ -478,12 +483,14 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             return None, ""
         # 检查文本是否包含任何可发音内容（字母、数字、汉字等）
         if not any(unicodedata.category(c).startswith(('L', 'N')) for c in clean):
-            _safe_print(f"  TTS: 跳过无实际内容的文本 chars={len(clean)}")
-            _debug_print(f"  TTS: 跳过文本 [debug]: {clean[:40]}")
+            log.warn(f"TTS: 跳过无实际内容的文本 chars={len(clean)}")
+            if debug_enabled():
+                log.debug(f"TTS: 跳过文本 [debug]: {clean[:40]}")
             return None, ""
 
-        _safe_print(f"🔊 TTS: chars={len(clean)} mood={mood} engine={self.engine}")
-        _debug_print(f"🔊 TTS [debug]: {clean[:60]}")
+        log.info(f"TTS: chars={len(clean)} mood={mood} engine={self.engine}")
+        if debug_enabled():
+            log.debug(f"TTS [debug]: {clean[:60]}")
 
         # 输出文件
         output_wav = self._new_output_wav_path()
@@ -501,8 +508,9 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             else:
                 tts_text = clean
                 lang_tag = "zh"
-            _safe_print(f"  → MiMo 合成: lang={lang_tag} chars={len(tts_text)}")
-            _debug_print(f"  → MiMo 合成 [debug]: {tts_text[:60]}")
+            log.info(f"MiMo 合成: lang={lang_tag} chars={len(tts_text)}")
+            if debug_enabled():
+                log.debug(f"MiMo 合成: {tts_text[:60]}")
             return self._speak_mimo(
                 tts_text,
                 output_wav,
@@ -514,7 +522,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         # ── 本地引擎：获取参考音频 + 中文→日语 ──
         ref_wav, ref_text, ref_lang = self._get_ref_paths(mood)
         if not ref_wav and not self._vits_mode:
-            _safe_print(f"TTS: no ref for mood={mood}")
+            log.warn(f"TTS: no ref for mood={mood}")
             return None, ""
 
         has_kana = any(
@@ -525,10 +533,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             "ニャにゃ"
         )
         if has_kana:
-            _safe_print("  → 已是日语，跳过翻译")
+            log.info("已是日语，跳过翻译")
             tts_text = clean
         elif self.translate_enabled:
-            _safe_print("  → 无日语行，回退翻译…")
+            log.info("无日语行，回退翻译…")
             jp = self._translate_to_jp(clean)
             if jp and len(jp) >= 2:
                 tts_text = jp
@@ -537,8 +545,9 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         else:
             tts_text = clean
 
-        _safe_print(f"  → 合成: lang=jp chars={len(tts_text)}")
-        _debug_print(f"  → 合成 [debug]: {tts_text[:60]}")
+        log.info(f"合成: lang=jp chars={len(tts_text)}")
+        if debug_enabled():
+            log.debug(f"合成: {tts_text[:60]}")
 
         if self._vits_mode:
             return self._speak_vits(tts_text, output_wav)
@@ -613,20 +622,22 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             if not safe:
                 continue
             # 先合成才能知道语言——暂用临时名，合成完再改名
-            _safe_print(f"[prerender] chars={len(text)} mood={mood}")
-            _debug_print(f"[prerender] text [debug]: {text!r}")
+            log.info(f"[prerender] chars={len(text)} mood={mood}")
+            if debug_enabled():
+                log.debug(f"[prerender] text [debug]: {text!r}")
             result = self.speak(text, mood)
             wav, tts_lang = result if result else (None, "")
             if wav and tts_lang:
                 cache_path = os.path.join(cache_dir, f"{tts_lang}_{safe}.wav")
                 if os.path.exists(cache_path):
-                    _safe_print(f"[cache] existing entry chars={len(text)} (overwriting)")
+                    log.info(f"[cache] existing entry chars={len(text)} (overwriting)")
                 shutil.move(wav, cache_path)
                 results[text] = cache_path
-                _safe_print(f"[prerender] completed chars={len(text)} lang={tts_lang}")
-                _debug_print(f"[prerender] output [debug]: {cache_path}")
+                log.info(f"[prerender] completed chars={len(text)} lang={tts_lang}")
+                if debug_enabled():
+                    log.debug(f"[prerender] output [debug]: {cache_path}")
             else:
-                _safe_print(f"[prerender] failed chars={len(text)}")
+                log.warn(f"[prerender] failed chars={len(text)}")
         return results
 
     def get_cached(self, text: str, cache_dir: str = None) -> Optional[str]:

@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 from typing import Optional
 from meapet.paths import project_path
-from meapet.tts.common import _debug_print, _safe_print
+from meapet.log import get_color_logger
+from meapet.utils import debug_enabled
+
+log = get_color_logger("tts")
 
 
 _MIMO_CLONE_MIME_BY_EXTENSION = {
@@ -51,7 +54,7 @@ class TtsMimoMixin:
         from meapet.http_async import post_json
 
         if not self.mimo_api_key:
-            _safe_print("  ❌ MiMo TTS: 无 API Key")
+            log.error("MiMo TTS: 无 API Key")
             return None, ""
 
         style_prompt = self._mimo_style_for_mood(mood, style=style)
@@ -67,8 +70,8 @@ class TtsMimoMixin:
         if self._mimo_voiceclone:
             ref = self._pick_clone_ref_wav(mood)
             if not ref:
-                _safe_print(
-                    "  ❌ voice-clone 未找到参考音频。"
+                log.warn(
+                    "voice-clone 未找到参考音频。"
                     "请把 wav/mp3 放到 voice_cache/，或在 config 设 tts.clone_ref"
                 )
                 return None, ""
@@ -92,27 +95,28 @@ class TtsMimoMixin:
             if self._mimo_voiceclone and ref
             else str(self.mimo_voice)
         )
-        _safe_print(f"  ▶ MiMo TTS 请求(async) model={model_name} voice={voice_log}")
+        log.info(f"MiMo TTS 请求(async) model={model_name} voice={voice_log}")
         t1 = time.time()
         try:
             timeout = max(float(self.timeout), 120.0 if self._mimo_voiceclone else float(self.timeout))
             resp = await post_json(url, headers=headers, json=payload, timeout=timeout)
         except Exception as e:
-            _safe_print(f"  ❌ MiMo TTS 网络错误: {e}")
+            log.error(f"MiMo TTS 网络错误: {e}")
             return None, ""
 
         elapsed = time.time() - t1
         if resp.status_code != 200:
-            _safe_print(
-                f"  ❌ MiMo TTS HTTP {resp.status_code} ({elapsed:.1f}s) "
+            log.warn(
+                f"MiMo TTS HTTP {resp.status_code} ({elapsed:.1f}s) "
                 f"body_len={len(resp.text or '')}"
             )
-            _debug_print(f"  MiMo TTS error body [debug]: {(resp.text or '')[:300]}")
+            if debug_enabled():
+                log.debug(f"MiMo TTS error body [debug]: {(resp.text or '')[:300]}")
             return None, ""
         try:
             data = resp.json()
         except Exception as e:
-            _safe_print(f"  ❌ MiMo TTS JSON 解析失败: {e}")
+            log.error(f"MiMo TTS JSON 解析失败: {e}")
             return None, ""
 
         message = (data.get("choices") or [{}])[0].get("message") or {}
@@ -121,25 +125,25 @@ class TtsMimoMixin:
         if not b64:
             b64 = (data.get("audio") or {}).get("data") or ""
         if not b64:
-            _safe_print(
-                f"  ❌ MiMo TTS 响应无 audio.data keys={list(message.keys())}"
+            log.warn(
+                f"MiMo TTS 响应无 audio.data keys={list(message.keys())}"
             )
             return None, ""
         try:
             raw = base64.b64decode(b64)
         except Exception as e:
-            _safe_print(f"  ❌ MiMo TTS base64 解码失败: {e}")
+            log.error(f"MiMo TTS base64 解码失败: {e}")
             return None, ""
         try:
             with open(output_wav, "wb") as f:
                 f.write(raw)
         except Exception as e:
-            _safe_print(f"  ❌ MiMo TTS 写文件失败: {e}")
+            log.error(f"MiMo TTS 写文件失败: {e}")
             return None, ""
         if not os.path.exists(output_wav) or os.path.getsize(output_wav) < 44:
-            _safe_print("  ❌ MiMo TTS 输出文件异常")
+            log.warn("MiMo TTS 输出文件异常")
             return None, ""
-        _safe_print(
+        log.info(
             f"✓ MiMo TTS output: {os.path.basename(output_wav)} "
             f"({elapsed:.1f}s, {os.path.getsize(output_wav)} bytes) lang={lang_tag}"
         )
@@ -208,8 +212,8 @@ class TtsMimoMixin:
         if self.mimo_clone_ref and os.path.isfile(self.mimo_clone_ref):
             ref_lang = self._detect_lang_from_path(self.mimo_clone_ref)
             if ref_lang and ref_lang != want:
-                _safe_print(
-                    f"  ⚠ clone_ref 语言={ref_lang} 与 voice_lang={want} 不一致，"
+                log.warn(
+                    f"clone_ref 语言={ref_lang} 与 voice_lang={want} 不一致，"
                     f"仍使用显式路径: {os.path.basename(self.mimo_clone_ref)}"
                 )
             return self.mimo_clone_ref
@@ -262,7 +266,8 @@ class TtsMimoMixin:
             if ref_wav:
                 _add_candidate(ref_wav, base_score=2_000_000)
         except Exception as e:
-            _debug_print(f"  MiMo clone 获取 GPT-SoVITS 参考失败 [debug]: {e}")
+            if debug_enabled():
+                log.debug(f"  MiMo clone 获取 GPT-SoVITS 参考失败 [debug]: {e}")
 
         # 再扫 GPT-Sovits 各情绪目录，避免只命中旧的 jp 样本
         try:
@@ -283,13 +288,13 @@ class TtsMimoMixin:
         candidates.sort(key=lambda x: x[0], reverse=True)
         best = candidates[0]
         if best[0] < 0:
-            _safe_print(
-                f"  ⚠ 未找到 voice_lang={want} 的 clone 样本，"
+            log.warn(
+                f"未找到 voice_lang={want} 的 clone 样本，"
                 f"回退 {os.path.basename(best[1])} (lang={best[2]})"
             )
         else:
-            _safe_print(
-                f"  → clone 选用与 voice_lang={want} 一致: "
+            log.info(
+                f"clone 选用与 voice_lang={want} 一致: "
                 f"{os.path.basename(best[1])} (lang={best[2]})"
             )
         return best[1]
@@ -304,8 +309,8 @@ class TtsMimoMixin:
         ext = os.path.splitext(ref_path)[1].lower()
         mime = _MIMO_CLONE_MIME_BY_EXTENSION.get(ext)
         if not mime:
-            _safe_print(
-                "  ❌ clone 参考音频格式不支持；MiMo VoiceClone 仅支持 WAV/MP3"
+            log.warn(
+                "clone 参考音频格式不支持；MiMo VoiceClone 仅支持 WAV/MP3"
             )
             return None
 
@@ -327,15 +332,15 @@ class TtsMimoMixin:
         try:
             raw_size = os.path.getsize(ref_path)
         except OSError as e:
-            _safe_print(f"  ❌ 读取 clone 参考音频大小失败: {e}")
+            log.error(f"读取 clone 参考音频大小失败: {e}")
             return None
 
         # Base64 长度可由原始长度精确预计算；先拒绝超限文件，避免无谓读入内存。
         encoded_size = 4 * ((raw_size + 2) // 3)
         uri_size = len(uri_prefix) + encoded_size
         if uri_size > _MIMO_MAX_CLONE_VOICE_URI_BYTES:
-            _safe_print(
-                f"  ❌ clone 参考音频编码后过大 ({uri_size} bytes)，"
+            log.warn(
+                f"clone 参考音频编码后过大 ({uri_size} bytes)，"
                 f"上限为 {_MIMO_MAX_CLONE_VOICE_URI_BYTES} bytes"
             )
             return None
@@ -344,22 +349,22 @@ class TtsMimoMixin:
             with open(ref_path, "rb") as f:
                 raw = f.read()
         except Exception as e:
-            _safe_print(f"  ❌ 读取 clone 参考音频失败: {e}")
+            log.error(f"读取 clone 参考音频失败: {e}")
             return None
 
         b64 = base64.b64encode(raw).decode("ascii")
         uri = f"{uri_prefix}{b64}"
         # 文件可能在 stat 与读取之间变化，因此对最终请求值再次校验。
         if len(uri) > _MIMO_MAX_CLONE_VOICE_URI_BYTES:
-            _safe_print(
-                f"  ❌ clone 参考音频编码后过大 ({len(uri)} bytes)，"
+            log.warn(
+                f"clone 参考音频编码后过大 ({len(uri)} bytes)，"
                 f"上限为 {_MIMO_MAX_CLONE_VOICE_URI_BYTES} bytes"
             )
             return None
 
         self._mimo_clone_voice_uri = uri
         self._mimo_clone_cache_key = cache_key
-        _safe_print(
+        log.info(
             f"  → clone 参考: {os.path.basename(ref_path)} "
             f"({len(raw)} bytes, {mime})"
         )

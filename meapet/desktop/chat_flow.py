@@ -6,24 +6,29 @@ import shutil
 
 from PyQt5.QtCore import QTimer
 
-from meapet.utils import safe_print, log_error, debug_enabled
+from meapet.utils import debug_enabled
 from meapet.chat.engine import SYSTEM_PROMPT
 from meapet.desktop.workers import ChatWorker, TTSWorker
 from meapet.desktop.chat_input import ChatInputBox
+from meapet.log import get_color_logger
+
+log = get_color_logger("chat_flow")
 
 
 def _log_private_text(label: str, text: str, *, suffix: str = "") -> None:
     """默认仅记录文本长度；显式调试时才记录正文。"""
     value = str(text or "")
     tail = f" {suffix}" if suffix else ""
-    safe_print(f"{label}: chars={len(value)}{tail}")
     if debug_enabled():
-        safe_print(f"{label} [debug]: {value}")
+        log.debug(f"{label}: chars={len(value)}{tail}\n{value}")
+    else:
+        log.debug(f"{label}: chars={len(value)}{tail}")
 
 
 class PetChatFlowMixin:
     def _start_chat(self):
         """双击触发：在桌宠附近打开消息编辑器。"""
+        log.info("[chat] 启动对话编辑器")
         clear_bubbles = getattr(self, "_clear_bubbles", None)
         if callable(clear_bubbles):
             clear_bubbles()
@@ -50,7 +55,8 @@ class PetChatFlowMixin:
     def _on_input_submit(self, text: str):
         """用户提交了输入"""
         self._record_interaction()
-        _log_private_text("[pet] 收到输入", text)
+        _log_private_text("[input] 收到用户输入", text)
+        log.info("[input] 提交消息，准备回复")
         self._show_bubble("……？", 1500)
         self._position_bubble()
         QTimer.singleShot(1200, lambda: self._do_chat(text))
@@ -58,11 +64,11 @@ class PetChatFlowMixin:
     def _do_chat(self, message: str):
         """执行 LLM 对话（后台线程）"""
         if self._awaiting_reply:
-            safe_print("[pet] 对话被拒绝：正在等待回复中")
+            log.warn("[chat] 对话被拒绝：正在等待回复中")
             return
         self._awaiting_reply = True
         self._safe_set_mood("talking")
-        _log_private_text("[pet] 发送给 LLM", message)
+        _log_private_text("[chat] 发送给 LLM", message)
 
         # 显示思考中提示
         self._show_bubble("💭 梅尔正在思考……", self.config["bubble_duration_ms"]["thinking"])  # 0 = 持久显示
@@ -91,6 +97,7 @@ class PetChatFlowMixin:
         self._chat_poll = QTimer(self)
         self._chat_poll.timeout.connect(self._poll_chat)
         self._chat_poll.start(100)
+        log.info("[chat] ChatWorker 已启动")
 
     def _poll_chat(self):
         """主线程轮询 ChatWorker 完成状态"""
@@ -111,7 +118,7 @@ class PetChatFlowMixin:
             self._on_chat_done(reply, mood)
         else:
             # result 和 error 都为空（异常路径未捕获到）→ 释放锁，防止死锁
-            safe_print("[pet] _poll_chat: 空结果，释放对话锁")
+            log.warn("[chat] _poll_chat: 空结果，释放对话锁")
             self._awaiting_reply = False
             if hasattr(self, '_chat_timeout') and self._chat_timeout:
                 self._chat_timeout.stop()
@@ -152,10 +159,11 @@ class PetChatFlowMixin:
             engine.memory.mark_today_chatted()
             engine._extract_memories(user_msg, reply)
         except Exception as e:
-            safe_print(f"[memory] 操作失败: {e}")
+            log.error(f"[memory] 操作失败: {e}")
 
     def _on_chat_done(self, reply: str, mood: str):
-        _log_private_text("[pet] LLM 回复", reply, suffix=f"mood={mood}")
+        _log_private_text("[reply] LLM 回复", reply, suffix=f"mood={mood}")
+        log.info(f"[reply] 收到回复，mood={mood}")
         if hasattr(self, '_chat_timeout'):
             self._chat_timeout.stop()
         eng = getattr(self, "chat_engine", None)
@@ -169,14 +177,14 @@ class PetChatFlowMixin:
                 jp = (eng.take_voice_text() or "").strip()
                 if jp:
                     voice_text = jp
-                    _log_private_text("[pet] TTS 使用模型日语行", jp)
+                    _log_private_text("[tts] TTS 使用模型日语行", jp)
         except Exception as e:
-            safe_print(f"[pet] 取日语行失败: {e}")
+            log.error(f"[tts] 取日语行失败: {e}")
         try:
             if eng is not None and hasattr(eng, "take_tts_style"):
                 tts_style = (eng.take_tts_style() or "").strip()
         except Exception as e:
-            safe_print(f"[pet] 取 TTS 风格失败: {e}")
+            log.error(f"[tts] 取 TTS 风格失败: {e}")
         self.show_reply(reply, detected)
         self._awaiting_reply = False
         # 后台 TTS 合成
@@ -224,7 +232,7 @@ class PetChatFlowMixin:
             else:
                 self._on_watch_tts_and_show(result, None, None)
 
-                
+
         # 没有待处理的 worker 就停止
         if not any([
             getattr(self, '_tts_worker', None),
@@ -257,9 +265,9 @@ class PetChatFlowMixin:
         """TTS 合成完成 → 播放语音（文字已显示）"""
         wav_path = raw.rsplit("|", 1)[0] if "|" in raw else raw
         if not wav_path or not os.path.exists(wav_path):
-            safe_print(f"[audio] TTS 完成但文件无效: chars={len(raw or '')}")
+            log.warn(f"[audio] TTS 完成但文件无效: chars={len(raw or '')}")
             if debug_enabled():
-                safe_print(f"[audio] 无效 TTS 返回 [debug]: {raw!r}")
+                log.debug(f"[audio] 无效 TTS 返回: {raw!r}")
             return
         # 可选：气泡时长对齐音频
         audio_ms = self._get_wav_duration_ms(wav_path)
@@ -278,19 +286,16 @@ class PetChatFlowMixin:
         self._play_audio(wav_path)
 
     def _on_chat_error(self, err: str):
-        _log_private_text("[pet] Chat错误", err)
+        _log_private_text("[chat] 错误", err)
+        log.error(f"[chat] 对话错误: {err[:200] if not debug_enabled() else err}")
         if hasattr(self, '_chat_timeout'):
             self._chat_timeout.stop()
-        log_error(
-            "pet_chat",
-            err if debug_enabled() else f"error_chars={len(err or '')}",
-        )
         self.show_reply(f"出错啦：{err}", "annoyed", duration_ms=10000)
         self._awaiting_reply = False
 
     def _on_chat_timeout(self):
         """ChatWorker 超时 — 强制终止线程并释放锁"""
-        safe_print("[pet] Chat超时，已释放对话锁")
+        log.warn("[chat] ChatWorker 超时，释放锁")
         self._awaiting_reply = False
         self._show_bubble("唔…好像没响应喵。再试一次？", 3000)
         self._position_bubble()
@@ -300,7 +305,7 @@ class PetChatFlowMixin:
                 # 用 terminate() 强制终止
                 self._chat_worker.terminate()
                 if not self._chat_worker.wait(2000):
-                    safe_print("[pet] ChatWorker 无法终止")
+                    log.warn("[chat] ChatWorker 无法终止")
             self._chat_worker.deleteLater()
             self._chat_worker = None
 
@@ -309,7 +314,7 @@ class PetChatFlowMixin:
         try:
             self.show_reply(text, mood)
         except Exception as e:
-            log_error("speak_and_show/show", f"{type(e).__name__}: {e}")
+            log.error(f"[speak] 显示文字失败: {type(e).__name__}: {e}")
         try:
             tts = getattr(self, "tts", None)
             if tts and getattr(tts, "enabled", False) and len((text or "").strip()) >= 2:
@@ -318,7 +323,7 @@ class PetChatFlowMixin:
                 try:
                     cached = tts.get_cached(text)
                 except Exception as e:
-                    log_error("speak_and_show/cache", f"{type(e).__name__}: {e}")
+                    log.error(f"[speak] 缓存查询失败: {type(e).__name__}: {e}")
                 if cached:
                     self._play_audio(cached)
                     return
@@ -326,8 +331,7 @@ class PetChatFlowMixin:
                 self._speak_worker.start()
                 self._ensure_tts_poll()
         except Exception as e:
-            log_error("speak_and_show", f"{type(e).__name__}: {e}")
-            safe_print(f"[pet] speak_and_show error: {e}")
+            log.error(f"[speak] 语音合成启动失败: {type(e).__name__}: {e}")
 
     def _on_speak_audio_ready(self, raw: str):
         """后台语音合成完成，播放并缓存"""
@@ -361,8 +365,3 @@ class PetChatFlowMixin:
         self._safe_set_mood(mood)
         self._show_bubble(text, max(duration_ms, 3000))
         self._position_bubble()
-
-
-    # ========================
-    # LLM 对话
-    # ========================

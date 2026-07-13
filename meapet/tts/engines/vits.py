@@ -6,13 +6,16 @@ import subprocess
 import time
 from typing import Optional
 from meapet.paths import project_path, project_root
-from meapet.tts.common import _debug_print, _safe_print
+from meapet.log import get_color_logger
+from meapet.utils import debug_enabled
+
+log = get_color_logger("tts")
 
 
 class TtsVitsMixin:
     def _speak_vits(self, tts_text: str, output_wav: str) -> Optional[tuple[str, str]]:
         """VITS 后端推理"""
-        _safe_print("  ▶ VITS 推理…")
+        log.info("VITS 推理…")
         t1 = time.time()
         vits_script = project_path("meapet", "tools", "vits_infer.py")
         vits_python = getattr(self, '_vits_python', self.python_exe)
@@ -26,20 +29,22 @@ class TtsVitsMixin:
                 cwd=project_root(),
             )
             elapsed = time.time() - t1
-            _safe_print(f"  ◀ VITS 返回 (rc={proc.returncode}, {elapsed:.1f}s)")
+            log.info(f"VITS 返回 (rc={proc.returncode}, {elapsed:.1f}s)")
 
             if proc.returncode != 0:
-                _safe_print(f"VITS failed: rc={proc.returncode} stderr_chars={len(proc.stderr or '')}")
-                _debug_print(f"VITS stderr [debug]: {(proc.stderr or '')[-200:]}")
+                log.warn(f"VITS failed: rc={proc.returncode} stderr_chars={len(proc.stderr or '')}")
+                if debug_enabled():
+                    log.debug(f"VITS stderr [debug]: {(proc.stderr or '')[-200:]}")
                 return None, ""
 
             if not os.path.exists(output_wav):
-                _safe_print("VITS: 输出文件不存在")
+                log.warn("VITS: 输出文件不存在")
                 return None, ""
 
-            _safe_print(f"✓ VITS output: {os.path.basename(output_wav)} ({elapsed:.1f}s)")
+            log.info(f"VITS output: {os.path.basename(output_wav)} ({elapsed:.1f}s)")
             return output_wav, "jp"
         except Exception as e:
-            _safe_print(f"VITS exception: {type(e).__name__}")
-            _debug_print(f"VITS exception [debug]: {e!r}")
+            log.error(f"VITS exception: {type(e).__name__}")
+            if debug_enabled():
+                log.debug(f"VITS exception [debug]: {e!r}")
             return None, ""

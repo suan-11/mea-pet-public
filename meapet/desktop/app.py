@@ -8,7 +8,7 @@ import os
 import sys
 import time
 import socket  # must import before PyQt (QtNetwork hook)
-from ..log import get_color_logger
+from meapet.log import get_color_logger
 
 log = get_color_logger("app")
 
@@ -517,7 +517,7 @@ def main():
                     f"opacity={pet2.windowOpacity():.2f} mapping=continuous"
                 )
             except Exception as exc:
-                log.debug(f"renderer reveal failed: {exc}")
+                log.error(f"渲染器显示失败: {exc}")
         QTimer.singleShot(600, _greet)
 
     if hasattr(pet, "when_renderer_ready"):

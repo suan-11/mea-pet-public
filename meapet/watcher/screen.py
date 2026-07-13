@@ -9,11 +9,14 @@
 设计参考：Sakura（Rvosy/sakura）的主动搭话 prompt 架构
 """
 import io
+import traceback
 from PIL import ImageGrab
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from meapet.utils import debug_enabled, redact_text
+from meapet.log import get_color_logger
 
+log = get_color_logger("watcher")
 
 # Windows GBK 兼容 — 由 pet.py 统一调用 ensure_utf8_stdout()
 # 各模块不重复包装 stdout，避免多次 TextIOWrapper 后旧 wrapper GC 时关闭底层 buffer
@@ -30,11 +33,6 @@ STAGE_SEARCH = "让我查一下…"
 STAGE_SILENT = "算了，没什么好说的"
 STAGE_ERROR = "唔…没看清喵"
 
-
-def _debug_log(message: str) -> None:
-    """仅在显式调试模式输出可能包含对话或响应体的内容。"""
-    if debug_enabled():
-        print(redact_text(message))
 
 def parse_decision(decision: str) -> tuple:
     """
@@ -74,12 +72,8 @@ def parse_decision(decision: str) -> tuple:
     return should_speak, strategy, search_query
 
 
-
-
-
 def parse_watch_output(raw: str) -> tuple:
-    _debug_log(f"[parse_watch_output] input raw chars={len(raw)}")
-
+    log.debug(f"[parse] input chars={len(raw)}")
     """
     解析一次多模态偷看输出。
     返回 (should_speak, display_zh, voice_jp, mood, strategy_hint)
@@ -300,13 +294,13 @@ class ScreenWatcher(QThread):
 
             self.last_voice_text = ""
 
-            print(f"[watcher] thread started, idle_minutes={self.idle_minutes}, backend={self.backend}")
+            log.info(f"[thread] started, idle_minutes={self.idle_minutes}, backend={self.backend}")
             # ========== 1) 截屏 ==========
             if self._stop:
                 return
             self.progress.emit(STAGE_CAPTURE)
             img = ImageGrab.grab()
-            print(f"[watcher] screenshot captured: size={img.size}, mode={img.mode}")
+            log.info(f"[screenshot] captured: size={img.size}, mode={img.mode}")
 
             import os
             save_dir = "screenshots"                     # 可改为配置项
@@ -315,7 +309,7 @@ class ScreenWatcher(QThread):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(save_dir, f"screenshot_{timestamp}.png")
             img.save(save_path)
-            print(f"[watcher] screenshot saved to {save_path}")
+            log.info(f"[screenshot] saved to {save_path}")
 
 
             ratio = 320 / img.width
@@ -324,7 +318,7 @@ class ScreenWatcher(QThread):
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=50)
             b64 = base64.b64encode(buf.getvalue()).decode()
-            print(f"[watcher] image encoded to base64, length={len(b64)}")
+            log.info(f"[screenshot] encoded base64 length={len(b64)}")
 
             if self._stop:
                 return
@@ -333,7 +327,7 @@ class ScreenWatcher(QThread):
             prompt = UNIFIED_WATCH_PROMPT.format(idle_minutes=int(self.idle_minutes))
             raw = ""
 
-            print(f"[watcher] calling model: backend={self.backend}, model={self.vision_model if self.backend=='ollama' else self.mimo_model}, prompt_len={len(prompt)}")
+            log.info(f"[model] calling: backend={self.backend}, model={self.vision_model if self.backend=='ollama' else self.mimo_model}, prompt_len={len(prompt)}")
 
 
 
@@ -344,7 +338,7 @@ class ScreenWatcher(QThread):
                     "Content-Type": "application/json",
                 }
 
-                print(f"[watcher] MiMo request: url={self.api_base}/chat/completions, model={self.mimo_model}, max_tokens=2048")
+                log.info(f"[mimo] request: url={self.api_base}/chat/completions, model={self.mimo_model}, max_tokens=2048")
 
                 if self.api_key:
                     headers["api-key"] = self.api_key
@@ -379,7 +373,7 @@ class ScreenWatcher(QThread):
                     timeout=600,
                 )
 
-                print(f"[watcher] MiMo response: status={resp.status_code}, elapsed=...")
+                log.info(f"[mimo] response: status={resp.status_code}")
 
                 if self._stop:
                     return
@@ -387,20 +381,19 @@ class ScreenWatcher(QThread):
                     msg = (resp.json().get("choices") or [{}])[0].get("message") or {}
                     rc = (msg.get("reasoning_content") or "").strip()
                     raw = self._mimo_extract_text(msg)
-                    print(
-                        f"[watcher] one-shot MiMo status=200 "
-                        f"content_len={len(raw)} reasoning_len={len(rc)} "
+                    log.info(
+                        f"[mimo] one-shot success: content_len={len(raw)} reasoning_len={len(rc)} "
                         f"model={self.mimo_model}"
                     )
                     if rc and not (msg.get("content") or "").strip():
-                        print("[watcher] one-shot 使用 reasoning 尾部兜底")
+                        log.info("[mimo] used reasoning tail as fallback")
                 else:
                     body = (resp.text or "").replace("\n", " ").strip()
-                    print(
-                        f"[watcher] one-shot MiMo status={resp.status_code} "
+                    log.warn(
+                        f"[mimo] HTTP {resp.status_code} "
                         f"model={self.mimo_model} body_len={len(body)}"
                     )
-                    _debug_log(f"[watcher] one-shot error body: {body[:500]}")
+                    log.debug(f"[mimo] error body: {body[:500]}")
                     self.progress.emit(STAGE_ERROR)
                     self.error.emit(f"偷看失败: HTTP {resp.status_code}")
                     return
@@ -419,26 +412,25 @@ class ScreenWatcher(QThread):
                 )
                 if self._stop:
                     return
-                print(f"[watcher] one-shot Ollama status={resp.status_code}")
+                log.info(f"[ollama] response status={resp.status_code}")
                 if resp.status_code != 200:
                     self.progress.emit(STAGE_ERROR)
                     self.error.emit(f"偷看失败: {resp.status_code}")
                     return
                 raw = (resp.json().get("response") or "").strip()
-                print(f"[watcher] RAW MODEL OUTPUT ({len(raw)} chars):")
-                print(raw)
+                log.debug(f"[ollama] raw output ({len(raw)} chars):\n{raw}")
 
-                print(f"[watcher] raw response received, chars={len(raw)}")
-                _debug_log(f"[watcher] raw response first 300 chars: {raw[:300]!r}")
+                log.info(f"[ollama] raw response chars={len(raw)}")
+                log.debug(f"[ollama] raw first 300 chars: {raw[:300]!r}")
 
-            print(f"[watcher] one-shot response chars={len(raw or '')}")
-            _debug_log(f"[watcher] one-shot raw: {(raw or '')[:200]!r}")
+            log.info(f"[parse] one-shot response chars={len(raw or '')}")
+            log.debug(f"[parse] raw: {(raw or '')[:200]!r}")
             should_speak, display, voice, mood, _hint = parse_watch_output(raw)
-            print(f"[watcher] parse result: should_speak={should_speak}, mood={mood}, display_len={len(display)}, voice_len={len(voice)}")
+            log.info(f"[parse] result: should_speak={should_speak}, mood={mood}, display_len={len(display)}, voice_len={len(voice)}")
 
             if not should_speak:
                 self.progress.emit(STAGE_SILENT)
-                print(f"[watcher] decided to stay silent (idle_minutes={self.idle_minutes})")
+                log.info(f"[parse] silent decision (idle_minutes={self.idle_minutes})")
                 self.silent.emit()
                 return
 
@@ -452,10 +444,10 @@ class ScreenWatcher(QThread):
             # 日语给 TTS；没有则 TTS 侧再回退翻译
             self.last_voice_text = voice or ""
             if voice:
-                print(f"[watcher] bilingual voice chars={len(voice)}")
-                _debug_log(f"[watcher] bilingual voice_jp={voice[:40]!r}")
+                log.info(f"[parse] bilingual voice chars={len(voice)}")
+                log.debug(f"[parse] bilingual voice_jp={voice[:40]!r}")
             else:
-                print("[watcher] 无日语行，TTS 将回退翻译/原文")
+                log.info("[parse] no japanese line, TTS will fallback to translation/original")
 
             # 情绪兜底
             if not mood or mood == "neutral":
@@ -466,9 +458,8 @@ class ScreenWatcher(QThread):
 
         except Exception as e:
             self.progress.emit(STAGE_ERROR)
-            import traceback
-            print(f"[watcher] exception in run(): {type(e).__name__}: {e}")
-            _debug_log(traceback.format_exc())
+            log.error(f"[run] exception: {type(e).__name__}: {e}")
+            log.error(f"[run] traceback:\n{traceback.format_exc()}")
             self.error.emit(str(e))
 
     # ---- 搜索回传接口 ----
@@ -490,7 +481,7 @@ class ScreenWatcher(QThread):
             # 与 TTS 对齐：部分网关只认 api-key
             if self.api_key:
                 headers["api-key"] = self.api_key
-            print(f"[watcher] _mimo_chat: sending {len(messages)} messages, max_tokens={max_tokens}")
+            log.info(f"[mimo_chat] sending {len(messages)} messages, max_tokens={max_tokens}")
             resp = self._http_post(
                 f"{self.api_base}/chat/completions",
                 headers=headers,
@@ -504,27 +495,26 @@ class ScreenWatcher(QThread):
                 },
                 timeout=timeout,
             )
-            print(f"[watcher] _mimo_chat response: status={resp.status_code}")
+            log.info(f"[mimo_chat] response status={resp.status_code}")
             if resp.status_code == 200:
                 msg = (resp.json().get("choices") or [{}])[0].get("message") or {}
                 text = self._mimo_extract_text(msg)
-                print(f"[watcher] _mimo_chat extracted text length={len(text)}")
+                log.info(f"[mimo_chat] extracted text length={len(text)}")
                 rc = (msg.get("reasoning_content") or "").strip()
-                print(
-                    f"[watcher] MiMo chat content_len={len(text)} "
+                log.info(
+                    f"[mimo_chat] content_len={len(text)} "
                     f"reasoning_len={len(rc)}"
                 )
                 return text
             body = (resp.text or "").replace("\n", " ").strip()
-            print(
-                f"[watcher] MiMo chat HTTP {resp.status_code} "
+            log.warn(
+                f"[mimo_chat] HTTP {resp.status_code} "
                 f"model={self.mimo_model} body_len={len(body)}"
             )
-            _debug_log(f"[watcher] MiMo chat error body: {body[:500]}")
+            log.debug(f"[mimo_chat] error body: {body[:500]}")
             return ""
         except Exception as e:
-            print(f"[watcher] MiMo chat error: {type(e).__name__}")
-            _debug_log(f"[watcher] MiMo chat exception: {e!r}")
+            log.error(f"[mimo_chat] error: {type(e).__name__}: {e!r}")
             return ""
 
     def _guess_mood(self, text: str, strategy: str = "", idle_minutes: float = 0) -> str:
@@ -551,10 +541,10 @@ class ScreenWatcher(QThread):
 
 if __name__ == "__main__":
     w = ScreenWatcher(idle_minutes=5)
-    w.progress.connect(lambda s: print(f"[{s}]"))
-    w.result_ready.connect(lambda t, m: print(f"梅尔 [{m}]: {t}"))
-    w.silent.connect(lambda: print("(不说话)"))
-    w.error.connect(lambda e: print(f"ERROR: {e}"))
-    w.search_request.connect(lambda q: print(f"[搜索请求: {q}]"))
+    w.progress.connect(lambda s: log.info(f"[test] {s}"))
+    w.result_ready.connect(lambda t, m: log.info(f"[test] 梅尔 [{m}]: {t}"))
+    w.silent.connect(lambda: log.info("[test] (不说话)"))
+    w.error.connect(lambda e: log.error(f"[test] ERROR: {e}"))
+    w.search_request.connect(lambda q: log.info(f"[test] 搜索请求: {q}"))
     w.start()
     w.wait()

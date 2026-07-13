@@ -7,7 +7,11 @@ import subprocess
 import time
 from typing import Optional
 from meapet.paths import project_root
-from meapet.tts.common import _debug_print, _safe_print, LANG_TTS, MOOD_TO_REF
+from meapet.log import get_color_logger
+from meapet.utils import debug_enabled
+from meapet.tts.common import LANG_TTS, MOOD_TO_REF
+
+log = get_color_logger("tts")
 
 
 class TtsGsvMixin:
@@ -32,12 +36,12 @@ class TtsGsvMixin:
         }
         payload_json = json.dumps(payload, ensure_ascii=False)
 
-        _safe_print(f"  ref={os.path.basename(ref_wav)} lang={ref_lang}")
-        _safe_print(f"  text_len={len(tts_text)} chars payload_size={len(payload_json)} bytes")
+        log.info(f"ref={os.path.basename(ref_wav)} lang={ref_lang}")
+        log.info(f"text_len={len(tts_text)} chars payload_size={len(payload_json)} bytes")
 
         try:
             cmd = [self.python_exe, self.infer_script]
-            _safe_print("  ▶ 启动推理子进程…")
+            log.info("启动推理子进程…")
             t1 = time.time()
 
             proc = subprocess.run(
@@ -52,52 +56,56 @@ class TtsGsvMixin:
             stdout_text = proc.stdout.decode('utf-8', errors='replace')
             stderr_text = proc.stderr.decode('utf-8', errors='replace')
 
-            _safe_print(f"  ◀ 子进程返回 (rc={proc.returncode}, {elapsed:.1f}s)")
+            log.info(f"子进程返回 (rc={proc.returncode}, {elapsed:.1f}s)")
             if stderr_text.strip():
-                _safe_print(f"  ⚠ stderr chars={len(stderr_text.strip())}")
-                _debug_print(f"  stderr [debug]: {stderr_text.strip()[-200:]}")
+                log.warn(f"stderr chars={len(stderr_text.strip())}")
+                if debug_enabled():
+                    log.debug(f"stderr [debug]: {stderr_text.strip()[-200:]}")
 
             if proc.returncode != 0:
-                _safe_print(f"TTS subprocess failed: rc={proc.returncode}")
-                if stderr_text.strip():
-                    _debug_print(f"  stderr [debug]: {stderr_text[:300]}")
+                log.error(f"TTS subprocess failed: rc={proc.returncode}")
+                if stderr_text.strip() and debug_enabled():
+                    log.debug(f"stderr [debug]: {stderr_text[:300]}")
                 return None, ""
 
             # 取最后一行非空 JSON
             lines = [l.strip() for l in stdout_text.split('\n') if l.strip()]
             if not lines:
-                _safe_print("TTS: 子进程无输出")
+                log.warn("TTS: 子进程无输出")
                 return None, ""
             last_line = lines[-1]
             result = json.loads(last_line)
 
             if not result.get("ok"):
                 err = result.get('error', 'unknown')
-                _safe_print(f"TTS subprocess error chars={len(str(err))}")
-                _debug_print(f"TTS subprocess error [debug]: {err}")
+                log.error(f"TTS subprocess error chars={len(str(err))}")
+                if debug_enabled():
+                    log.debug(f"TTS subprocess error [debug]: {err}")
                 if result.get("captured"):
                     captured = str(result["captured"])
-                    _safe_print(f"  captured chars={len(captured)}")
-                    _debug_print(f"  captured [debug]: {captured[:300]}")
+                    log.warn(f"captured chars={len(captured)}")
+                    if debug_enabled():
+                        log.debug(f"captured [debug]: {captured[:300]}")
                 return None, ""
 
             duration = result.get("duration", 0)
             result_lang = "jp"
-            _safe_print(f"✓ SoVITS output: {os.path.basename(output_wav)} ({duration}s) lang={result_lang}")
+            log.info(f"SoVITS output: {os.path.basename(output_wav)} ({duration}s) lang={result_lang}")
             return output_wav, result_lang
 
         except subprocess.TimeoutExpired:
-            _safe_print(f"TTS timeout ({self.timeout}s)")
+            log.error(f"TTS timeout ({self.timeout}s)")
             return None, ""
         except json.JSONDecodeError as e:
-            _safe_print(f"TTS JSON parse error: {type(e).__name__}")
-            if 'last_line' in dir():
-                _debug_print(f"  last_line [debug]: {last_line[:200]}")
+            log.error(f"TTS JSON parse error: {type(e).__name__}")
+            if 'last_line' in locals() and debug_enabled():
+                log.debug(f"  last_line [debug]: {last_line[:200]}")
             return None, ""
         except Exception as e:
-            _safe_print(f"TTS subprocess error: {type(e).__name__}")
+            log.error(f"TTS subprocess error: {type(e).__name__}")
             import traceback
-            _debug_print(traceback.format_exc())
+            if debug_enabled():
+                log.debug(traceback.format_exc())
             return None, ""
 
     def _get_ref_paths(self, mood: str) -> tuple:
@@ -150,17 +158,17 @@ class TtsGsvMixin:
                 fallback_label = "中文"
             alt_wav, alt_txt = _scan(fallback)
             if alt_wav and alt_txt:
-                _safe_print(
-                    f"  ⚠ 无 {prefixes[0]}* 参考，回退 {os.path.basename(alt_wav)}"
+                log.warn(
+                    f"无 {prefixes[0]}* 参考，回退 {os.path.basename(alt_wav)}"
                 )
                 wav_file, txt_file = alt_wav, alt_txt
                 lang_label = fallback_label
 
         if not wav_file or not txt_file:
             if not os.path.isdir(ref_folder):
-                _safe_print(f"Ref folder not found: {ref_folder}")
+                log.warn(f"Ref folder not found: {ref_folder}")
             else:
-                _safe_print(f"No ref audio for mood={mood} type={ref_type}")
+                log.warn(f"No ref audio for mood={mood} type={ref_type}")
             return None, None, None
 
         with open(txt_file, "r", encoding="utf-8") as f:
