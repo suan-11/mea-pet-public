@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 
 from PyQt5.QtWidgets import (
     QAction,
@@ -410,7 +411,13 @@ class PetWindowChromeMixin:
         reconf_action.triggered.connect(self._reopen_setup_wizard)
         settings_menu.addAction(reconf_action)
         settings_menu.addSeparator()
-        reset_action = QAction("重置所有记忆…", self)
+        reset_label = (
+            "新建 Agent 会话…"
+            if str(((self.config.get("llm") or {}).get("mode") or "direct")).lower()
+            == "agent"
+            else "重置所有记忆…"
+        )
+        reset_action = QAction(reset_label, self)
         reset_action.setObjectName("DangerAction")
         reset_action.setIcon(standard_icon("reset"))
         reset_action.triggered.connect(self._reset_memory)
@@ -437,6 +444,10 @@ class PetWindowChromeMixin:
         self._status_panel.refresh()
 
     def _reset_memory(self):
+        llm = (getattr(self, "config", {}) or {}).get("llm") or {}
+        if str(llm.get("mode") or "direct").strip().lower() == "agent":
+            self._start_new_agent_session()
+            return
         import random
         reply = QMessageBox.question(
             self,
@@ -451,6 +462,62 @@ class PetWindowChromeMixin:
                 "-什么都没发生喵。" if random.random() < 0.1 else "……你是谁喵？",
                 3000,
             )
+
+    def _start_new_agent_session(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "新建 Agent 会话",
+            "确定要开始一个新的 Agent 会话吗？\n\n"
+            "当前会话将结束，MeaPet 中的旧时间线仍可只读查看。"
+            "此操作不会删除 Agent 服务端的数据或长期记忆，也暂不支持切回旧会话。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        worker = getattr(self, "_chat_worker", None)
+        if worker is not None and callable(getattr(worker, "terminate", None)):
+            try:
+                worker.terminate()
+                worker.wait(1000)
+            except Exception:
+                pass
+
+        llm = self.config.setdefault("llm", {})
+        agent = llm.setdefault("agent", {})
+        agent["session_id"] = f"meapet-{uuid.uuid4().hex}"
+        self._agent_history = []
+        self._active_agent_turn_id = ""
+        self._agent_tts_workers = {}
+        self._agent_bubbles = {}
+
+        try:
+            old_adapter = getattr(self, "agent_adapter", None)
+            close = getattr(old_adapter, "close", None)
+            if callable(close):
+                from meapet.async_runtime import submit
+
+                submit(close())
+        except Exception:
+            pass
+
+        from meapet.agent.factory import create_agent_adapter_from_config
+
+        try:
+            self.agent_adapter = create_agent_adapter_from_config(self.config)
+            self._save_config()
+            refresh_key = getattr(self, "_refresh_conversation_key", None)
+            if callable(refresh_key):
+                refresh_key()
+            self._show_bubble(
+                "已开始新的 Agent 会话。旧时间线仍可查看。",
+                4500,
+                mood=None,
+            )
+        except Exception as exc:
+            safe_print(f"[agent] 新建会话失败: {type(exc).__name__}: {exc}")
+            self._show_bubble("新建 Agent 会话失败，请检查配置。", 8000, mood=None)
 
     def _reopen_setup_wizard(self):
         try:
