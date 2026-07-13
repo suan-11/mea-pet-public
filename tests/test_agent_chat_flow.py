@@ -127,8 +127,9 @@ class TestAgentFactory(unittest.TestCase):
             config["llm"]["agent"]["session_id"],
         )
 
-    def test_factory_does_not_treat_unimplemented_openclaw_as_generic_http(self):
+    def test_factory_builds_official_openclaw_gateway_adapter(self):
         from meapet.agent.factory import create_agent_adapter_from_config
+        from meapet.agent.openclaw import OpenClawAdapter
         from meapet.config.store import normalize_config
 
         config = normalize_config(
@@ -139,13 +140,17 @@ class TestAgentFactory(unittest.TestCase):
                         "kind": "openclaw",
                         "base_url": "ws://127.0.0.1:18789",
                         "auth_token": "token",
+                        "session_key": "agent:main:meapet:test",
                     },
                 }
             }
         )
 
-        with self.assertRaisesRegex(NotImplementedError, "OpenClaw"):
-            create_agent_adapter_from_config(config)
+        adapter = create_agent_adapter_from_config(config)
+
+        self.assertIsInstance(adapter, OpenClawAdapter)
+        self.assertEqual(adapter.config.auth_token, "token")
+        self.assertEqual(adapter.config.session_key, "agent:main:meapet:test")
 
 
 class TestAgentChatWorkerSelection(unittest.TestCase):
