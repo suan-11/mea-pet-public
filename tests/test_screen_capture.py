@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+from PIL import Image
 
 
 class _Image:
@@ -131,6 +135,107 @@ class TestScreenCapture(unittest.TestCase):
             region={"x": 1, "y": 2, "width": 30, "height": 40},
             application="",
         )
+
+    def test_inherit_uses_main_backend_once_and_never_writes_screenshot(self):
+        from meapet.agent.base import TurnCompleted
+        from meapet.conversation.output_protocol import ParseResult
+        from meapet.conversation.types import ReplySegment
+        from meapet.watcher.screen import ScreenWatcher
+
+        class Adapter:
+            def __init__(self):
+                self.requests = []
+
+            async def stream_turn(self, request):
+                self.requests.append(request)
+                yield TurnCompleted(
+                    request.turn_id,
+                    ParseResult(
+                        (
+                            ReplySegment(
+                                display_text="看到了喵",
+                                voice_text="看到了喵",
+                                voice_language="zh",
+                                mood="curious",
+                                tts_style="轻声",
+                            ),
+                        ),
+                        (),
+                        True,
+                        "meapet",
+                    ),
+                )
+
+        adapter = Adapter()
+        watcher = ScreenWatcher(mode="inherit")
+        watcher.configure_reply(
+            adapter,
+            frontend_context={"frontend_capabilities": {}},
+            tts_enabled=True,
+        )
+        watcher._capture_image = mock.Mock(return_value=Image.new("RGB", (64, 64)))
+        watcher._request_visual_observation = mock.Mock(
+            side_effect=AssertionError("inherit must not call a relay model")
+        )
+        results = []
+        watcher.result_ready.connect(lambda text, mood: results.append((text, mood)))
+
+        with tempfile.TemporaryDirectory() as td, mock.patch("os.getcwd", return_value=td):
+            watcher.run()
+            self.assertFalse((Path(td) / "screenshots").exists())
+
+        self.assertEqual(results, [("看到了喵", "curious")])
+        self.assertEqual(len(adapter.requests), 1)
+        self.assertEqual(len(adapter.requests[0].attachments), 1)
+        self.assertEqual(watcher.last_voice_language, "zh")
+        self.assertEqual(watcher.last_tts_style, "轻声")
+
+    def test_relay_observes_then_sends_only_structured_text_to_main_backend(self):
+        from meapet.agent.base import TurnCompleted
+        from meapet.conversation.output_protocol import ParseResult
+        from meapet.conversation.types import ReplySegment
+        from meapet.watcher.screen import ScreenWatcher
+
+        class Adapter:
+            def __init__(self):
+                self.requests = []
+
+            async def stream_turn(self, request):
+                self.requests.append(request)
+                yield TurnCompleted(
+                    request.turn_id,
+                    ParseResult(
+                        (
+                            ReplySegment(
+                                display_text="原来在看文档喵",
+                                voice_text="原来在看文档喵",
+                                voice_language="zh",
+                                mood="neutral",
+                                tts_style="",
+                            ),
+                        ),
+                        (),
+                        True,
+                        "meapet",
+                    ),
+                )
+
+        adapter = Adapter()
+        watcher = ScreenWatcher(mode="relay", backend="ollama")
+        watcher.configure_reply(adapter, frontend_context={}, tts_enabled=False)
+        watcher._capture_image = mock.Mock(return_value=Image.new("RGB", (64, 64)))
+        watcher._request_visual_observation = mock.Mock(
+            return_value=(
+                '{"summary":"浏览器文档","application":"Firefox",'
+                '"activity":"reading","notable_text":[],"sensitive":false}'
+            )
+        )
+
+        watcher.run()
+
+        watcher._request_visual_observation.assert_called_once()
+        self.assertEqual(adapter.requests[0].attachments, ())
+        self.assertIn('"activity":"reading"', adapter.requests[0].user_text)
 
 
 if __name__ == "__main__":
