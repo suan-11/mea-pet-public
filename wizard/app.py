@@ -679,11 +679,14 @@ class SetupWizard(QWidget):
                 "reference_audios": reference_audios,
                 "top_k": 15, "top_p": 0.8,
                 "temperature": 0.6, "speed": 1.0,
-                "translate_to_jp": (
-                    bool(self.tts_page.mimo_translate_jp_cb.isChecked())
-                    if hasattr(self.tts_page, "mimo_translate_jp_cb")
-                    and self.tts_page.backend_combo.currentData() == "mimo"
-                    else self.tts_page.backend_combo.currentData() != "mimo"
+                "translate_to_jp": bool(
+                    hasattr(self.tts_page, "translation_enabled_cb")
+                    and self.tts_page.translation_enabled_cb.isChecked()
+                ),
+                "translate_target_language": (
+                    self.tts_page.translate_target_combo.currentData() or "jp"
+                    if hasattr(self.tts_page, "translate_target_combo")
+                    else "jp"
                 ),
                 "voice_lang": (
                     (self.tts_page.mimo_voice_lang_combo.currentData() or "jp")
@@ -859,10 +862,6 @@ class SetupWizard(QWidget):
                 if hasattr(self.tts_page, "mimo_voice_lang_combo"):
                     config["tts"]["voice_lang"] = (
                         self.tts_page.mimo_voice_lang_combo.currentData() or "jp"
-                    )
-                if hasattr(self.tts_page, "mimo_translate_jp_cb"):
-                    config["tts"]["translate_to_jp"] = bool(
-                        self.tts_page.mimo_translate_jp_cb.isChecked()
                     )
                 if hasattr(self.tts_page, "mimo_voiceclone_cb"):
                     use_clone = bool(self.tts_page.mimo_voiceclone_cb.isChecked())

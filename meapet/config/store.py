@@ -20,7 +20,10 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
-from meapet.config.normalizers import normalize_gsv_ref_language
+from meapet.config.normalizers import (
+    canonical_tts_language,
+    normalize_gsv_ref_language,
+)
 from meapet.ui_theme import normalize_ui_font_scale
 from meapet.utils import mask_secret, normalize_watcher
 
@@ -498,6 +501,22 @@ def normalize_config(config: dict) -> dict:
         tts.get("gsv_ref_lang")
     )
     tts["reference_audios"] = _normalize_reference_audios(tts)
+    tts["translate_to_jp"] = bool(tts.get("translate_to_jp", False))
+    tts["translate_target_language"] = canonical_tts_language(
+        tts.get("translate_target_language")
+        or tts.get("voice_lang")
+        or "jp"
+    )
+    raw_supported = tts.get("supported_languages")
+    if isinstance(raw_supported, (list, tuple)):
+        supported = []
+        for value in raw_supported:
+            language = canonical_tts_language(value)
+            if language and language not in supported:
+                supported.append(language)
+        tts["supported_languages"] = supported
+    else:
+        tts.pop("supported_languages", None)
     cfg["tts"] = tts
 
     # watcher 统一结构（interval 内嵌，不再用顶层 watcher_interval）

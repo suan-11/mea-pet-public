@@ -145,9 +145,9 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         voice_row.addWidget(self.mimo_voice_input)
         mimo_layout.addLayout(voice_row)
 
-        # 合成语言（影响文本是否译日语 + clone 参考音频语言）
+        # 默认/翻译兜底语言（正常回复仍优先遵循模型输出语言）
         lang_row = QHBoxLayout()
-        language_label = QLabel("合成语言：")
+        language_label = QLabel("默认合成语言：")
         language_label.setObjectName("FieldLabel")
         lang_row.addWidget(language_label)
         self.mimo_voice_lang_combo = QComboBox()
@@ -158,20 +158,12 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         self.mimo_voice_lang_combo.addItem("中文（克隆用 zh_* 参考）", "zh")
         self.mimo_voice_lang_combo.addItem("英文", "en")
         self.mimo_voice_lang_combo.setToolTip(
-            "决定念什么语言，以及 voice-clone 优先选 zh_* / jp_* / en_* 参考音频。\n"
-            "选中文时请放中文参考（如 GPT-Sovits/normal/zh_normal.wav）。"
+            "旧格式回复或需要翻译兜底时使用；新回复会优先遵循 voice_language。\n"
+            "voice-clone 只会使用与最终合成语言一致的参考音频。"
         )
         self.mimo_voice_lang_combo.currentIndexChanged.connect(self._on_mimo_voice_lang_changed)
         lang_row.addWidget(self.mimo_voice_lang_combo, 1)
         mimo_layout.addLayout(lang_row)
-
-        self.mimo_translate_jp_cb = QCheckBox("先翻译成日语再合成（仅当合成语言=日语时生效）")
-        self.mimo_translate_jp_cb.setChecked(True)
-        self.mimo_translate_jp_cb.setToolTip(
-            "开启后中文回复会先译成日语，再交给 TTS。\n"
-            "合成语言为中文/英文时此项无效。"
-        )
-        mimo_layout.addWidget(self.mimo_translate_jp_cb)
 
         self.mimo_voiceclone_cb = QCheckBox("使用 voice-clone（发送参考音频克隆音色）")
         self.mimo_voiceclone_cb.setToolTip(
@@ -339,22 +331,48 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         packaged_hint.setObjectName("HelperText")
         layout.addWidget(packaged_hint)
 
-        # 翻译提示（中文 → 日语翻译，使用阿里巴巴免费翻译 API，无需 Key）
+        # 翻译只是“输出语言不受 TTS 支持”时的显式兜底。
         self.translate_frame = QFrame()
         tf = QVBoxLayout(self.translate_frame)
         tf.setContentsMargins(0, 5, 0, 0)
+        self.translation_enabled_cb = QCheckBox(
+            "输出语言不受支持时，使用翻译 API 后再合成"
+        )
+        self.translation_enabled_cb.setChecked(False)
+        self.translation_enabled_cb.setAccessibleName("TTS 语言翻译兜底")
+        self.translation_enabled_cb.setToolTip(
+            "仅在 voice_language 没有可用 TTS/参考音频时调用。\n"
+            "模型请求失败、TTS 请求失败都不会触发翻译。"
+        )
+        tf.addWidget(self.translation_enabled_cb)
+        # 保留旧属性名，避免第三方页面扩展失效。
+        self.mimo_translate_jp_cb = self.translation_enabled_cb
+
+        target_row = QHBoxLayout()
+        target_label = QLabel("翻译目标语言：")
+        target_label.setObjectName("FieldLabel")
+        target_row.addWidget(target_label)
+        self.translate_target_combo = QComboBox()
+        self.translate_target_combo.setObjectName("TtsTranslationTargetLanguage")
+        self.translate_target_combo.setAccessibleName("TTS 翻译目标语言")
+        self.translate_target_combo.addItem("日语", "jp")
+        self.translate_target_combo.addItem("中文", "zh")
+        self.translate_target_combo.addItem("英语", "en")
+        target_row.addWidget(self.translate_target_combo, 1)
+        tf.addLayout(target_row)
+
         translate_hint = QLabel(
-            "中文会自动翻译成日语再合成（先用免费翻译 API，加 Key 可备用 DeepSeek）"
+            "只会翻译到已有固定参考音频、且当前 TTS 可合成的语言。"
         )
         translate_hint.setObjectName("HelperText")
         translate_hint.setWordWrap(True)
         tf.addWidget(translate_hint)
         self.translate_key = QLineEdit()
-        self.translate_key.setObjectName("TranslationFallbackKey")
-        self.translate_key.setPlaceholderText("可选：DeepSeek API Key（免费翻译失效时备用）")
+        self.translate_key.setObjectName("TranslationApiKey")
+        self.translate_key.setPlaceholderText("启用语言兜底时必填：翻译 API Key")
         self.translate_key.setStyleSheet(STYLE_INPUT)
         self.translate_key.setEchoMode(QLineEdit.Password)
-        self.translate_key.setAccessibleName("翻译备用 DeepSeek API Key")
+        self.translate_key.setAccessibleName("翻译 API Key")
         tf.addWidget(self.translate_key)
         layout.addWidget(self.translate_frame)
         self._sync_engine_details_visibility()
@@ -397,9 +415,11 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             "mimo_api_base_input",
             "mimo_fill_from_chat_btn",
             "mimo_voice_lang_combo",
-            "mimo_translate_jp_cb",
             "mimo_voiceclone_cb",
             "mimo_clone_ref_input",
+            "translation_enabled_cb",
+            "translate_target_combo",
+            "translate_key",
         ):
             if hasattr(self, attr):
                 getattr(self, attr).setEnabled(on)
@@ -463,10 +483,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         if hasattr(self, "gsv_container"):
             self.gsv_container.setVisible(is_gsv and self.enable_cb.isChecked())
 
-        # 本地日语引擎才显示「译日语」备用 Key；MiMo 默认中文直出
-        self.translate_frame.setVisible(
-            self.enable_cb.isChecked() and not is_mimo
-        )
+        self.translate_frame.setVisible(self.enable_cb.isChecked())
 
         if is_vits:
             self._check_vits()
@@ -509,19 +526,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
 
 
     def _on_mimo_voice_lang_changed(self, *_args):
-        """根据合成语言更新 clone 提示 / 译日语开关可用性。"""
+        """根据默认合成语言更新 clone 提示。"""
         lang = "jp"
         if hasattr(self, "mimo_voice_lang_combo"):
             lang = self.mimo_voice_lang_combo.currentData() or "jp"
-        if hasattr(self, "mimo_translate_jp_cb"):
-            self.mimo_translate_jp_cb.setEnabled(lang == "jp")
-            if lang == "jp":
-                # 切到日语时默认打开译日语（若用户已关则不强制？这里仅当未勾选时打开）
-                if not self.mimo_translate_jp_cb.isChecked() and not getattr(self, "_loaded_from_config", False):
-                    self.mimo_translate_jp_cb.setChecked(True)
-            else:
-                # 非日语时关闭译日语，避免误导
-                self.mimo_translate_jp_cb.setChecked(False)
         tips = {
             "jp": "提示：当前合成语言=日语 → 自动优先 jp_*.wav（voice_cache / GPT-Sovits）。",
             "zh": "提示：当前合成语言=中文 → 自动优先 zh_*.wav（如 GPT-Sovits/normal/zh_normal.wav）。",
@@ -577,24 +585,20 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                     break
             self._on_mimo_voice_lang_changed()
 
-        if hasattr(self, "mimo_translate_jp_cb"):
-            # 显式配置优先；否则：日语模式默认开翻译
-            if "translate_to_jp" in tts_cfg:
-                self.mimo_translate_jp_cb.setChecked(bool(tts_cfg.get("translate_to_jp")))
-            else:
-                cur_lang = (
-                    self.mimo_voice_lang_combo.currentData()
-                    if hasattr(self, "mimo_voice_lang_combo")
-                    else "jp"
-                )
-                self.mimo_translate_jp_cb.setChecked(cur_lang == "jp")
-            # 语言切完后再同步一次可用性
-            cur_lang = (
-                self.mimo_voice_lang_combo.currentData()
-                if hasattr(self, "mimo_voice_lang_combo")
-                else "jp"
+        if hasattr(self, "translation_enabled_cb"):
+            self.translation_enabled_cb.setChecked(
+                bool(tts_cfg.get("translate_to_jp", False))
             )
-            self.mimo_translate_jp_cb.setEnabled(cur_lang == "jp")
+        if hasattr(self, "translate_target_combo"):
+            target_language = normalize_gsv_ref_language(
+                tts_cfg.get("translate_target_language")
+                or tts_cfg.get("voice_lang")
+                or "jp"
+            )
+            for index in range(self.translate_target_combo.count()):
+                if self.translate_target_combo.itemData(index) == target_language:
+                    self.translate_target_combo.setCurrentIndex(index)
+                    break
 
         if hasattr(self, "mimo_voiceclone_cb"):
             model = str(tts_cfg.get("model") or "")

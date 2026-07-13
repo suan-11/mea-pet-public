@@ -5,25 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from meapet.conversation.types import normalize_voice_language
-
-
-_PRIMARY_ALIASES = {
-    "ja": "jp",
-    "jp": "jp",
-    "zh": "zh",
-    "cn": "zh",
-    "en": "en",
-}
-
-
-def canonical_tts_language(value: object) -> str:
-    """Reduce a BCP-47 language to the stable tag used by TTS engines."""
-    normalized = normalize_voice_language(value)
-    if not normalized:
-        return ""
-    primary = normalized.split("-", 1)[0].lower()
-    return _PRIMARY_ALIASES.get(primary, primary)
+from meapet.config.normalizers import canonical_tts_language
 
 
 def _unique_languages(values: Iterable[object]) -> tuple[str, ...]:

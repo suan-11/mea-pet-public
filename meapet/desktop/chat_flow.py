@@ -207,12 +207,21 @@ class PetChatFlowMixin:
         tts = getattr(self, "tts", None)
         tts_enabled = bool(tts is not None and getattr(tts, "enabled", False))
         configured_tts = (getattr(self, "config", {}) or {}).get("tts") or {}
-        voice_language = normalize_voice_language(
-            getattr(tts, "voice_lang", "")
-            or configured_tts.get("voice_lang")
-            or ""
-        )
-        languages = (voice_language,) if voice_language else ()
+        languages = ()
+        if tts is not None and hasattr(tts, "supported_languages"):
+            try:
+                languages = tuple(tts.supported_languages())
+            except Exception as exc:
+                log.warning(
+                    f"[agent] 读取 TTS 语言能力失败: {type(exc).__name__}"
+                )
+        if not languages:
+            voice_language = normalize_voice_language(
+                getattr(tts, "voice_lang", "")
+                or configured_tts.get("voice_lang")
+                or ""
+            )
+            languages = (voice_language,) if voice_language else ()
 
         affection_level = ""
         memory = getattr(self, "memory", None)
