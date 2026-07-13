@@ -214,9 +214,35 @@ class MeaPet(
     def _init_chat(self):
         self.memory = MeaMemory()
         self._schedule_memory_maintenance()
-        self.chat_engine = create_engine_from_config(self.config, self.memory)
-        if self.chat_engine.backend == "ollama" and self.chat_engine.available:
-            QTimer.singleShot(2000, self._show_warmup_status)
+        llm_config = self.config.get("llm") or {}
+        mode = str(llm_config.get("mode") or "direct").strip().lower()
+        self._agent_history = []
+        self._agent_tts_workers = {}
+        self._agent_bubbles = {}
+        self._active_agent_turn_id = ""
+
+        if mode == "agent":
+            from meapet.agent.factory import create_agent_adapter_from_config
+
+            agent_config = llm_config.get("agent") or {}
+            previous_scope = (
+                str(agent_config.get("session_id") or ""),
+                str(agent_config.get("session_key") or ""),
+            )
+            self.chat_engine = None
+            self.agent_adapter = create_agent_adapter_from_config(self.config)
+            current_agent_config = (self.config.get("llm") or {}).get("agent") or {}
+            current_scope = (
+                str(current_agent_config.get("session_id") or ""),
+                str(current_agent_config.get("session_key") or ""),
+            )
+            if current_scope != previous_scope:
+                self._save_config()
+        else:
+            self.agent_adapter = None
+            self.chat_engine = create_engine_from_config(self.config, self.memory)
+            if self.chat_engine.backend == "ollama" and self.chat_engine.available:
+                QTimer.singleShot(2000, self._show_warmup_status)
         QTimer.singleShot(1200, self._maybe_show_first_run_hint)
 
     def _apply_motion_preference(self) -> None:
