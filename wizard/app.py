@@ -575,6 +575,29 @@ class SetupWizard(QWidget):
             self._drag = e.globalPos()
 
     def collect_config(self):
+        reference_audios = {}
+        reference_inputs = getattr(self.tts_page, "gsv_reference_inputs", {})
+        reference_texts = getattr(self.tts_page, "_gsv_reference_texts", {})
+        loaded_reference_paths = getattr(
+            self.tts_page,
+            "_gsv_reference_loaded_paths",
+            {},
+        )
+        for language, widget in reference_inputs.items():
+            path = widget.text().strip()
+            if not path:
+                continue
+            text = (
+                str(reference_texts.get(language) or "").strip()
+                if path == loaded_reference_paths.get(language)
+                else ""
+            )
+            reference_audios[language] = {"path": path, "text": text}
+
+        legacy_language = "jp"
+        if legacy_language not in reference_audios and reference_audios:
+            legacy_language = next(iter(reference_audios))
+        legacy_reference = reference_audios.get(legacy_language) or {}
         config = {
             "llm": {"backend": self.llm_page.get_backend(), "temperature": 0.7},
             "vision": {"model": "qwen3.5:4b", "backend": "", "enabled": False},
@@ -586,16 +609,9 @@ class SetupWizard(QWidget):
                 "gpt_model": "mea_pro-e50.ckpt",
                 "sovits_model": "mea_pro_e24_s13704.pth",
                 "ref_dir": "./GPT-Sovits",
-                "gsv_ref_wav": (
-                    self.tts_page.gsv_ref_wav_input.text().strip()
-                    if hasattr(self.tts_page, "gsv_ref_wav_input")
-                    else ""
-                ),
-                "gsv_ref_lang": (
-                    self.tts_page.gsv_ref_lang_combo.currentData() or "jp"
-                    if hasattr(self.tts_page, "gsv_ref_lang_combo")
-                    else "jp"
-                ),
+                "gsv_ref_wav": str(legacy_reference.get("path") or ""),
+                "gsv_ref_lang": legacy_language,
+                "reference_audios": reference_audios,
                 "top_k": 15, "top_p": 0.8,
                 "temperature": 0.6, "speed": 1.0,
                 "translate_to_jp": (
@@ -754,6 +770,11 @@ class SetupWizard(QWidget):
                 config["llm"]["api_base"] = self.key_page_ds.api_base.text().strip()
             config["tts"]["engine"] = self.tts_page.backend_combo.currentData()
             config["tts"]["enabled"] = self.tts_page.enable_cb.isChecked()
+            config["tts"]["reference_audios"] = reference_audios
+            config["tts"]["gsv_ref_wav"] = str(
+                legacy_reference.get("path") or ""
+            )
+            config["tts"]["gsv_ref_lang"] = legacy_language
             if config["tts"].get("engine") == "mimo":
                 if hasattr(self.tts_page, "mimo_api_key_input"):
                     k = self.tts_page.mimo_api_key_input.text().strip()

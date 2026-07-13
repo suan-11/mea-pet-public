@@ -32,11 +32,15 @@ class TtsPageGsvMixin:
             self.gsv_dir_input.setText(folder)
             self._check_gsv()
 
-    def _browse_gsv_ref_wav(self):
+    def _browse_gsv_ref_wav(self, language: str = "jp"):
         """选择固定 GPT-SoVITS 参考音频。"""
+        inputs = getattr(self, "gsv_reference_inputs", {})
+        target = inputs.get(language)
+        if target is None:
+            target = getattr(self, "gsv_ref_wav_input", None)
         current = ""
-        if hasattr(self, "gsv_ref_wav_input"):
-            current = self.gsv_ref_wav_input.text().strip()
+        if target is not None:
+            current = target.text().strip()
         if current and os.path.isfile(current):
             start_dir = os.path.dirname(current)
         else:
@@ -51,8 +55,8 @@ class TtsPageGsvMixin:
             start_dir,
             "WAV Audio (*.wav);;All (*.*)",
         )
-        if path and hasattr(self, "gsv_ref_wav_input"):
-            self.gsv_ref_wav_input.setText(path)
+        if path and target is not None:
+            target.setText(path)
 
     def _find_python_exe(self, base_dir):
         r"""在整合包目录中查找 runtime\python.exe"""
