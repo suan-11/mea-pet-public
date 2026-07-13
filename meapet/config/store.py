@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
+from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.ui_theme import normalize_ui_font_scale
 from meapet.utils import mask_secret, normalize_watcher
 
@@ -51,33 +52,6 @@ DEFAULT_BUBBLE = {
 }
 
 DEFAULT_WATCHER_INTERVAL = {"min_ms": 180000, "max_ms": 360000}
-
-_GSV_REF_LANGUAGE_ALIASES = {
-    "jp": "jp",
-    "ja": "jp",
-    "jpn": "jp",
-    "japanese": "jp",
-    "日文": "jp",
-    "日语": "jp",
-    "zh": "zh",
-    "cn": "zh",
-    "zh-cn": "zh",
-    "zh_cn": "zh",
-    "chinese": "zh",
-    "中文": "zh",
-    "汉语": "zh",
-    "en": "en",
-    "eng": "en",
-    "english": "en",
-    "英文": "en",
-    "英语": "en",
-}
-
-
-def normalize_gsv_ref_language(value: object) -> str:
-    """把 GPT-SoVITS 参考音频语言规范为 ``jp`` / ``zh`` / ``en``。"""
-    raw = str(value or "jp").strip().lower()
-    return _GSV_REF_LANGUAGE_ALIASES.get(raw, "jp")
 
 
 def project_root() -> str:

@@ -29,7 +29,7 @@ from wizard.env_utils import (
 from wizard.page_tts_gsv import TtsPageGsvMixin
 from wizard.page_tts_mimo import TtsPageMimoMixin
 from wizard.page_tts_vits import TtsPageVitsMixin
-from meapet.config.store import normalize_gsv_ref_language
+from meapet.config.normalizers import normalize_gsv_ref_language
 
 
 class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):

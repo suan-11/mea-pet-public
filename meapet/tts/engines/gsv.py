@@ -6,7 +6,8 @@ import os
 import subprocess
 import time
 from typing import Optional
-from meapet.config.store import normalize_gsv_ref_language
+
+from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.paths import project_root
 from meapet.log import get_color_logger
 from meapet.utils import debug_enabled

@@ -14,9 +14,9 @@ import unicodedata
 import uuid
 from typing import Optional
 
+from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.utils import audio_cache_key, legacy_audio_cache_name, debug_enabled
 from meapet.log import get_color_logger
-from meapet.config.store import normalize_gsv_ref_language
 
 log = get_color_logger("tts")
 
