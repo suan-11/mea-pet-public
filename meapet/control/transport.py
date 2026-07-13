@@ -6,6 +6,7 @@ import ipaddress
 import json
 import os
 import secrets
+import ssl
 import threading
 import time
 from collections import defaultdict, deque
@@ -413,6 +414,9 @@ class CompanionMcpRuntime:
             ssl_certfile=self.config.cert_file or None,
             ssl_keyfile=self.config.key_file or None,
             ssl_ca_certs=self.config.ca_file or None,
+            ssl_cert_reqs=(
+                ssl.CERT_REQUIRED if self.config.ca_file else ssl.CERT_NONE
+            ),
         )
         self._server = uvicorn.Server(uvicorn_config)
         await self._server.serve()

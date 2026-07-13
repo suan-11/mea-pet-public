@@ -13,6 +13,7 @@ import shutil
 import unicodedata
 import uuid
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.utils import audio_cache_key, legacy_audio_cache_name, debug_enabled
@@ -445,7 +446,29 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         )
 
     def _translation_endpoint(self) -> str:
-        base = self.translate_api_base.rstrip("/")
+        raw = str(self.translate_api_base or "").strip().rstrip("/")
+        parsed = urlsplit(raw)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "translation API base URL must be http(s) without credentials, "
+                "query, or fragment"
+            )
+        base = urlunsplit(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc,
+                parsed.path.rstrip("/"),
+                "",
+                "",
+            )
+        )
         if base.endswith("/chat/completions"):
             return base
         return f"{base}/chat/completions"
@@ -510,7 +533,8 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            # Endpoint is restricted to a validated http(s) URL above.
+            with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
                 result = json.loads(resp.read().decode("utf-8"))
         except Exception as exc:
             log.warning(f"翻译 API 请求失败: {type(exc).__name__}")
