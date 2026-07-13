@@ -53,6 +53,18 @@ DEFAULT_BUBBLE = {
 
 DEFAULT_WATCHER_INTERVAL = {"min_ms": 180000, "max_ms": 360000}
 
+DEFAULT_AGENT_CONTROL = {
+    "enabled": False,
+    "listen_host": "127.0.0.1",
+    "port": 8765,
+    "allowed_agent_ip": "127.0.0.1",
+    "auth_token": "",
+    "allow_insecure_http": False,
+    "cert_file": "",
+    "key_file": "",
+    "ca_file": "",
+}
+
 
 def project_root() -> str:
     from meapet.paths import project_root as _pr
@@ -333,17 +345,91 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return out
 
 
+def _normalize_llm_contract(value: object) -> dict:
+    """补齐 direct/agent 显式结构，同时保留当前运行路径使用的旧字段。"""
+    llm = copy.deepcopy(value) if isinstance(value, dict) else {}
+    backend = str(llm.get("backend") or "ollama").strip().lower() or "ollama"
+    requested_mode = str(llm.get("mode") or "").strip().lower()
+    if requested_mode not in {"direct", "agent"}:
+        requested_mode = "agent" if backend in {"hermes", "openclaw"} else "direct"
+
+    direct = copy.deepcopy(llm.get("direct")) if isinstance(llm.get("direct"), dict) else {}
+    provider = backend if backend not in {"hermes", "openclaw"} else "ollama"
+    direct.setdefault("provider", provider)
+    direct.setdefault("protocol", "ollama_chat" if provider == "ollama" else "openai_chat")
+    direct.setdefault("api_base", str(llm.get("api_base") or "").strip())
+    direct.setdefault("host", str(llm.get("host") or "").strip())
+    direct.setdefault("model", str(llm.get("model") or "").strip())
+    direct.setdefault("api_key", str(llm.get("api_key") or "").strip())
+    direct.setdefault("temperature", llm.get("temperature", 0.7))
+    direct.setdefault("max_tokens", llm.get("max_tokens", 512))
+
+    agent = copy.deepcopy(llm.get("agent")) if isinstance(llm.get("agent"), dict) else {}
+    kind = str(agent.get("kind") or "").strip().lower()
+    if kind not in {"hermes", "openclaw"}:
+        kind = backend if backend in {"hermes", "openclaw"} else "hermes"
+    default_url = (
+        "ws://127.0.0.1:18789"
+        if kind == "openclaw"
+        else "http://127.0.0.1:8642"
+    )
+    agent["kind"] = kind
+    agent.setdefault(
+        "base_url",
+        str(llm.get("bridge_url") or default_url).strip() or default_url,
+    )
+    agent.setdefault("auth_token", "")
+    agent.setdefault("session_id", "")
+    agent.setdefault("session_key", "")
+    agent.setdefault("history_turns", 5)
+    tls = copy.deepcopy(agent.get("tls")) if isinstance(agent.get("tls"), dict) else {}
+    tls.setdefault("verify", True)
+    tls.setdefault("ca_file", "")
+    agent["tls"] = tls
+
+    llm["mode"] = requested_mode
+    llm["direct"] = direct
+    llm["agent"] = agent
+    return llm
+
+
+def _normalize_agent_control(value: object) -> dict:
+    control = copy.deepcopy(value) if isinstance(value, dict) else {}
+    for key, default in DEFAULT_AGENT_CONTROL.items():
+        control.setdefault(key, default)
+    control["enabled"] = bool(control.get("enabled", False))
+    control["allow_insecure_http"] = bool(
+        control.get("allow_insecure_http", False)
+    )
+    control["listen_host"] = (
+        str(control.get("listen_host") or "127.0.0.1").strip() or "127.0.0.1"
+    )
+    control["allowed_agent_ip"] = (
+        str(control.get("allowed_agent_ip") or "127.0.0.1").strip()
+        or "127.0.0.1"
+    )
+    try:
+        port = int(control.get("port", 8765))
+    except (TypeError, ValueError):
+        port = 8765
+    control["port"] = port if 1 <= port <= 65535 else 8765
+    for key in ("auth_token", "cert_file", "key_file", "ca_file"):
+        control[key] = str(control.get(key) or "").strip()
+    return control
+
+
 
 def normalize_config(config: dict) -> dict:
     """补全默认字段、规范化 watcher / bubble / display / tts.sync"""
     cfg = copy.deepcopy(config or {})
 
-    cfg.setdefault("llm", {})
+    cfg["llm"] = _normalize_llm_contract(cfg.get("llm"))
     cfg.setdefault("vision", {})
     cfg.setdefault("tts", {})
     cfg.setdefault("display", {})
     cfg.setdefault("character", {})
     cfg.setdefault("live2d", {})
+    cfg["agent_control"] = _normalize_agent_control(cfg.get("agent_control"))
 
     # bubble
     bub = cfg.get("bubble_duration_ms") if isinstance(cfg.get("bubble_duration_ms"), dict) else {}
