@@ -34,7 +34,7 @@ from meapet.ui_theme import (
     set_ui_font_scale,
 )
 from wizard.pages import (
-    EnvCheckPage, LLMPage, ApiKeyPage, TTSPage, VisionPage,
+    EnvCheckPage, LLMPage, BackendPage, ApiKeyPage, TTSPage, VisionPage,
 )
 
 class SetupWizard(QWidget):
@@ -126,6 +126,7 @@ class SetupWizard(QWidget):
         # 页面内容保留原有控件和配置收集逻辑，只把导航改为普通标签页。
         self.env_page = EnvCheckPage()
         self.display_page = self._build_display_settings(initial_font_scale)
+        self.backend_page = BackendPage()
         self.llm_page = LLMPage()
         self.key_page_ds = ApiKeyPage(self, backend="deepseek")
         self.key_page_mimo = ApiKeyPage(self, backend="mimo")
@@ -135,6 +136,7 @@ class SetupWizard(QWidget):
         for page in (
             self.env_page,
             self.display_page,
+            self.backend_page,
             self.llm_page,
             self.key_page_ds,
             self.key_page_mimo,
@@ -174,6 +176,7 @@ class SetupWizard(QWidget):
         )
         self.tabs.addTab(
             self._make_scroll_tab(
+                self.backend_page,
                 self.llm_page,
                 self.key_page_ds,
                 self.key_page_mimo,
@@ -345,8 +348,33 @@ class SetupWizard(QWidget):
             self.llm_page.radio_ollama,
             self.llm_page.radio_ds,
             self.llm_page.radio_mimo,
+            self.llm_page.radio_custom,
         ):
             radio.toggled.connect(self._on_llm_backend_changed)
+        self.backend_page.direct_radio.toggled.connect(
+            self._on_conversation_mode_changed
+        )
+        self.backend_page.agent_radio.toggled.connect(
+            self._on_conversation_mode_changed
+        )
+        self.backend_page.agent_base_url.textChanged.connect(
+            self._refresh_required_tabs
+        )
+        self.backend_page.control_enabled.toggled.connect(
+            self._refresh_required_tabs
+        )
+        self.backend_page.control_allow_http.toggled.connect(
+            self._refresh_required_tabs
+        )
+        self.backend_page.control_listen_host.textChanged.connect(
+            self._refresh_required_tabs
+        )
+        self.backend_page.control_cert_file.textChanged.connect(
+            self._refresh_required_tabs
+        )
+        self.backend_page.control_key_file.textChanged.connect(
+            self._refresh_required_tabs
+        )
         self.key_page_ds.key_input.textChanged.connect(self._refresh_required_tabs)
         self.key_page_mimo.key_input.textChanged.connect(self._refresh_required_tabs)
         self.tts_page.enable_cb.toggled.connect(self._refresh_required_tabs)
@@ -373,10 +401,18 @@ class SetupWizard(QWidget):
         self._sync_llm_key_panel()
         self._refresh_required_tabs()
 
+    def _on_conversation_mode_changed(self, checked: bool = True) -> None:
+        if not checked:
+            return
+        self._sync_llm_key_panel()
+        self._refresh_required_tabs()
+
     def _sync_llm_key_panel(self) -> None:
+        direct_mode = self.backend_page.direct_radio.isChecked()
         backend = self.llm_page.get_backend()
-        self.key_page_ds.setVisible(backend == "deepseek")
-        self.key_page_mimo.setVisible(backend == "mimo")
+        self.llm_page.setVisible(direct_mode)
+        self.key_page_ds.setVisible(direct_mode and backend == "deepseek")
+        self.key_page_mimo.setVisible(direct_mode and backend == "mimo")
         if backend == "mimo":
             self.key_page = self.key_page_mimo
         elif backend == "deepseek":
@@ -389,6 +425,20 @@ class SetupWizard(QWidget):
             self.TAB_VOICE: [],
             self.TAB_VISION: [],
         }
+        if self.backend_page.agent_radio.isChecked():
+            if not self.backend_page.agent_base_url.text().strip():
+                issues[self.TAB_CHAT].append("Agent 地址")
+            if self.backend_page.control_enabled.isChecked():
+                listen = self.backend_page.control_listen_host.text().strip()
+                loopback = listen in {"127.0.0.1", "::1"}
+                cert = self.backend_page.control_cert_file.text().strip()
+                key = self.backend_page.control_key_file.text().strip()
+                if not loopback and not self.backend_page.control_allow_http.isChecked():
+                    if not cert or not key:
+                        issues[self.TAB_CHAT].append(
+                            "内网监听需 HTTPS 证书，或明确允许 HTTP"
+                        )
+            return issues
         llm_backend = self.llm_page.get_backend()
         llm_key = ""
         if llm_backend == "deepseek":
@@ -487,27 +537,8 @@ class SetupWizard(QWidget):
                 bool(display.get("reduced_motion", False))
             )
 
-        # AI 后端
-        backend = (llm.get("backend") or "ollama").lower()
-        self.llm_page.set_backend(backend)
-        if backend == "mimo":
-            self.key_page = self.key_page_mimo
-        elif backend == "deepseek":
-            self.key_page = self.key_page_ds
-
-        # API Key / Base
-        api_key = (llm.get("api_key") or "").strip()
-        api_base = (llm.get("api_base") or "").strip()
-        if backend == "mimo":
-            if api_key:
-                self.key_page_mimo.key_input.setText(api_key)
-            if api_base:
-                self.key_page_mimo.api_base.setText(api_base)
-        elif backend == "deepseek":
-            if api_key:
-                self.key_page_ds.key_input.setText(api_key)
-            if api_base:
-                self.key_page_ds.api_base.setText(api_base)
+        self.apply_conversation_config(cfg)
+        backend = self.llm_page.get_backend()
 
         # 语音页
         try:
@@ -554,6 +585,40 @@ class SetupWizard(QWidget):
             pass
         self._sync_llm_key_panel()
         self._refresh_required_tabs()
+
+    def apply_conversation_config(self, config: dict) -> None:
+        """恢复 direct/Agent 两侧配置；切换模式时不清空非活动侧。"""
+        from meapet.config.store import normalize_config
+
+        normalized = normalize_config(config or {})
+        llm = normalized.get("llm") or {}
+        direct = llm.get("direct") or {}
+        self.backend_page.apply_config(
+            llm,
+            normalized.get("agent_control") or {},
+        )
+        self.llm_page.apply_direct_profile(direct)
+
+        provider = self.llm_page.get_backend()
+        api_key = str(direct.get("api_key") or "")
+        endpoint = str(
+            direct.get("host")
+            if direct.get("protocol") == "ollama_chat"
+            else direct.get("api_base")
+            or ""
+        )
+        self.llm_page.direct_api_key_input.setText(api_key)
+        if provider == "mimo":
+            self.key_page = self.key_page_mimo
+            self.key_page_mimo.key_input.setText(api_key)
+            if endpoint:
+                self.key_page_mimo.api_base.setText(endpoint)
+        elif provider == "deepseek":
+            self.key_page = self.key_page_ds
+            self.key_page_ds.key_input.setText(api_key)
+            if endpoint:
+                self.key_page_ds.api_base.setText(endpoint)
+        self._sync_llm_key_panel()
 
     def _deep_merge(self, base: dict, override: dict) -> dict:
         """递归合并：override 覆盖 base，未涉及的旧字段保留。"""
@@ -811,7 +876,53 @@ class SetupWizard(QWidget):
                         self.tts_page.mimo_clone_ref_input.text().strip()
                     )
 
+        self._collect_conversation_fields(config)
         return config
+
+    def _collect_conversation_fields(self, config: dict) -> None:
+        """最后写入显式后端结构，并镜像旧字段供现有 direct runtime 使用。"""
+        from meapet.config.store import normalize_config
+
+        mode = self.backend_page.mode()
+        provider = self.llm_page.get_backend()
+        if provider == "deepseek":
+            api_key = self.key_page_ds.key_input.text().strip()
+        elif provider == "mimo":
+            api_key = self.key_page_mimo.key_input.text().strip()
+        else:
+            api_key = self.llm_page.direct_api_key_input.text().strip()
+
+        current_direct = self.llm_page.collect_direct_profile(api_key)
+        existing = getattr(self, "_existing_config", None) or {}
+        existing_normalized = normalize_config(existing) if existing else {}
+        existing_llm = existing_normalized.get("llm") or {}
+        if mode == "agent" and isinstance(existing_llm.get("direct"), dict):
+            direct = self._deep_merge({}, existing_llm["direct"])
+        else:
+            direct = current_direct
+
+        if mode == "direct" and isinstance(existing_llm.get("agent"), dict):
+            agent = self._deep_merge({}, existing_llm["agent"])
+        else:
+            agent = self.backend_page.collect_agent()
+
+        llm = config.setdefault("llm", {})
+        llm["mode"] = mode
+        llm["direct"] = direct
+        llm["agent"] = agent
+        llm["backend"] = (
+            str(agent.get("kind") or "hermes")
+            if mode == "agent"
+            else str(direct.get("provider") or "ollama")
+        )
+        # 兼容当前 ChatEngine；协议适配层完成后这些镜像字段可逐步淡出。
+        llm["host"] = str(direct.get("host") or "")
+        llm["api_base"] = str(direct.get("api_base") or "")
+        llm["model"] = str(direct.get("model") or "")
+        llm["api_key"] = str(direct.get("api_key") or "")
+        llm["temperature"] = direct.get("temperature", 0.7)
+        llm["max_tokens"] = direct.get("max_tokens", 512)
+        config["agent_control"] = self.backend_page.collect_control()
 
     def _save(self):
         try:

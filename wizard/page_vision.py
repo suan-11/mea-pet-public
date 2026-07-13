@@ -137,6 +137,63 @@ class VisionPage(QFrame):
         cloud_l.addWidget(self.api_base_input)
         self.advanced_layout.addWidget(self.cloud_box)
 
+        capture_label = QLabel("截图范围：")
+        capture_label.setObjectName("FieldLabel")
+        self.advanced_layout.addWidget(capture_label)
+        self.capture_scope_combo = QComboBox()
+        self.capture_scope_combo.setObjectName("ScreenCaptureScope")
+        self.capture_scope_combo.setAccessibleName("屏幕观察截图范围")
+        self.capture_scope_combo.addItem("全部屏幕（默认）", "full_screen")
+        self.capture_scope_combo.addItem("固定区域", "region")
+        self.capture_scope_combo.addItem("Windows 应用窗口", "application")
+        self.capture_scope_combo.currentIndexChanged.connect(
+            self._on_capture_scope_changed
+        )
+        self.advanced_layout.addWidget(self.capture_scope_combo)
+
+        self.capture_region_frame = QFrame()
+        self.capture_region_frame.setObjectName("SectionCard")
+        region_layout = QHBoxLayout(self.capture_region_frame)
+        region_layout.setContentsMargins(12, 10, 12, 10)
+        self.capture_x = QSpinBox()
+        self.capture_y = QSpinBox()
+        self.capture_width = QSpinBox()
+        self.capture_height = QSpinBox()
+        for label, widget, default, name in (
+            ("X", self.capture_x, 0, "截图区域 X"),
+            ("Y", self.capture_y, 0, "截图区域 Y"),
+            ("宽", self.capture_width, 1280, "截图区域宽度"),
+            ("高", self.capture_height, 720, "截图区域高度"),
+        ):
+            widget.setRange(
+                -100_000 if widget in (self.capture_x, self.capture_y) else 1,
+                100_000,
+            )
+            widget.setValue(default)
+            widget.setAccessibleName(name)
+            widget.setMinimumHeight(44)
+            region_layout.addWidget(QLabel(label))
+            region_layout.addWidget(widget)
+        self.advanced_layout.addWidget(self.capture_region_frame)
+
+        self.capture_application_frame = QFrame()
+        self.capture_application_frame.setObjectName("SectionCard")
+        application_layout = QVBoxLayout(self.capture_application_frame)
+        application_layout.setContentsMargins(12, 10, 12, 10)
+        application_hint = QLabel(
+            "填写可识别的窗口标题片段；仅 Windows 支持，最小化窗口无法采集。"
+        )
+        application_hint.setObjectName("HelperText")
+        application_hint.setWordWrap(True)
+        application_layout.addWidget(application_hint)
+        self.capture_application_input = QLineEdit()
+        self.capture_application_input.setObjectName("ScreenCaptureApplication")
+        self.capture_application_input.setStyleSheet(STYLE_INPUT)
+        self.capture_application_input.setPlaceholderText("例如 Visual Studio Code")
+        self.capture_application_input.setAccessibleName("截图应用窗口标题")
+        application_layout.addWidget(self.capture_application_input)
+        self.advanced_layout.addWidget(self.capture_application_frame)
+
         interval_label = QLabel("观察间隔（分钟，随机在最小~最大之间）：")
         interval_label.setObjectName("FieldLabel")
         self.advanced_layout.addWidget(interval_label)
@@ -172,6 +229,8 @@ class VisionPage(QFrame):
 
         layout.addStretch()
         self._on_backend_changed()
+
+        self._on_capture_scope_changed()
 
         self._sync_advanced_visibility()
 
@@ -216,6 +275,11 @@ class VisionPage(QFrame):
                 "跟随对话：对话是 MiMo 则云端识图；对话是 Ollama 则本地识图。",
             )
 
+    def _on_capture_scope_changed(self, *_args):
+        scope = self.capture_scope_combo.currentData() or "full_screen"
+        self.capture_region_frame.setVisible(scope == "region")
+        self.capture_application_frame.setVisible(scope == "application")
+
     def apply_config(self, vision_cfg: dict, watcher_cfg: dict):
         vision_cfg = vision_cfg or {}
         watcher_cfg = watcher_cfg or {}
@@ -256,6 +320,29 @@ class VisionPage(QFrame):
             self.max_min_input.setText(str(max(1, int(max_ms) // 60000)))
         except Exception:
             pass
+        capture = (
+            watcher_cfg.get("capture")
+            if isinstance(watcher_cfg.get("capture"), dict)
+            else {}
+        )
+        scope = str(capture.get("scope") or "full_screen").strip().lower()
+        index = self.capture_scope_combo.findData(scope)
+        self.capture_scope_combo.setCurrentIndex(index if index >= 0 else 0)
+        region = capture.get("region") if isinstance(capture.get("region"), dict) else {}
+        for key, widget, default in (
+            ("x", self.capture_x, 0),
+            ("y", self.capture_y, 0),
+            ("width", self.capture_width, 1280),
+            ("height", self.capture_height, 720),
+        ):
+            try:
+                widget.setValue(int(region.get(key, default)))
+            except (TypeError, ValueError):
+                widget.setValue(default)
+        self.capture_application_input.setText(
+            str(capture.get("application") or "")
+        )
+        self._on_capture_scope_changed()
         self._sync_advanced_visibility()
 
     def collect(self, llm_backend: str, llm_cfg: dict) -> dict:
@@ -310,6 +397,19 @@ class VisionPage(QFrame):
             if vision["model"] in ("mimo", ""):
                 vision["model"] = "qwen3.5:4b"
 
+        capture_scope = self.capture_scope_combo.currentData() or "full_screen"
+        capture_region = None
+        capture_application = ""
+        if capture_scope == "region":
+            capture_region = {
+                "x": self.capture_x.value(),
+                "y": self.capture_y.value(),
+                "width": self.capture_width.value(),
+                "height": self.capture_height.value(),
+            }
+        elif capture_scope == "application":
+            capture_application = self.capture_application_input.text().strip()
+
         watcher = {
             "enabled": self.enable_cb.isChecked(),
             "allow_cloud": self.allow_cloud_cb.isChecked(),
@@ -318,6 +418,11 @@ class VisionPage(QFrame):
             "interval": {
                 "min_ms": min_m * 60000,
                 "max_ms": max_m * 60000,
+            },
+            "capture": {
+                "scope": capture_scope,
+                "region": capture_region,
+                "application": capture_application,
             },
         }
         return {"vision": vision, "watcher": watcher}

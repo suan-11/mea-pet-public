@@ -518,6 +518,36 @@ def normalize_config(config: dict) -> dict:
         "confirm_once_session": False,
         "interval": interval_out,
     })
+    raw_capture = (
+        watcher_out.get("capture")
+        if isinstance(watcher_out.get("capture"), dict)
+        else {}
+    )
+    scope = str(raw_capture.get("scope") or "full_screen").strip().lower()
+    if scope not in {"full_screen", "region", "application"}:
+        scope = "full_screen"
+    region = raw_capture.get("region")
+    normalized_region = None
+    if isinstance(region, dict):
+        try:
+            candidate = {
+                key: int(region[key])
+                for key in ("x", "y", "width", "height")
+            }
+            if candidate["width"] > 0 and candidate["height"] > 0:
+                normalized_region = candidate
+        except (KeyError, TypeError, ValueError):
+            normalized_region = None
+    if scope == "region" and normalized_region is None:
+        scope = "full_screen"
+    application = str(raw_capture.get("application") or "").strip()[:256]
+    if scope == "application" and not application:
+        scope = "full_screen"
+    watcher_out["capture"] = {
+        "scope": scope,
+        "region": normalized_region if scope == "region" else None,
+        "application": application if scope == "application" else "",
+    }
     cfg["watcher"] = watcher_out
     # 保留旧 watcher_interval 和未知字段，避免规范化时删除用户配置。
     return cfg
@@ -535,11 +565,19 @@ def scrub_secrets(config: dict) -> dict:
     out = copy.deepcopy(config or {})
     if "llm" in out and isinstance(out["llm"], dict):
         out["llm"]["api_key"] = ""
+        direct = out["llm"].get("direct")
+        if isinstance(direct, dict):
+            direct["api_key"] = ""
+        agent = out["llm"].get("agent")
+        if isinstance(agent, dict):
+            agent["auth_token"] = ""
     if "tts" in out and isinstance(out["tts"], dict):
         out["tts"]["api_key"] = ""
         out["tts"]["translate_api_key"] = ""
     if "vision" in out and isinstance(out["vision"], dict):
         out["vision"]["api_key"] = ""
+    if "agent_control" in out and isinstance(out["agent_control"], dict):
+        out["agent_control"]["auth_token"] = ""
     return out
 
 

@@ -1,12 +1,46 @@
 {
   "llm": {
+    "mode": "direct",
     "backend": "ollama",
     "host": "http://127.0.0.1:11434",
     "model": "qwen3.5:4b",
     "api_key": "",
-    "api_base": "https://api.deepseek.com",
+    "api_base": "",
     "temperature": 0.7,
-    "bridge_url": "http://127.0.0.1:18888"
+    "max_tokens": 512,
+    "direct": {
+      "provider": "ollama",
+      "protocol": "ollama_chat",
+      "api_base": "",
+      "host": "http://127.0.0.1:11434",
+      "model": "qwen3.5:4b",
+      "api_key": "",
+      "temperature": 0.7,
+      "max_tokens": 512
+    },
+    "agent": {
+      "kind": "hermes",
+      "base_url": "http://127.0.0.1:8642",
+      "auth_token": "$HERMES_API_SERVER_KEY",
+      "session_id": "",
+      "session_key": "",
+      "history_turns": 5,
+      "tls": {
+        "verify": true,
+        "ca_file": ""
+      }
+    }
+  },
+  "agent_control": {
+    "enabled": false,
+    "listen_host": "127.0.0.1",
+    "port": 8765,
+    "allowed_agent_ip": "127.0.0.1",
+    "auth_token": "",
+    "allow_insecure_http": false,
+    "cert_file": "",
+    "key_file": "",
+    "ca_file": ""
   },
   "vision": {
     "enabled": false,
@@ -76,7 +110,12 @@
       "max_ms": 360000
     },
     "require_confirm": true,
-    "confirm_once_session": false
+    "confirm_once_session": false,
+    "capture": {
+      "scope": "full_screen",
+      "region": null,
+      "application": ""
+    }
   },
   "bubble_duration_ms": {
     "default": 5000,
