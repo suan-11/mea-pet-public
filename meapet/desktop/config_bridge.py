@@ -7,6 +7,7 @@ from meapet.config.store import (
     load_config as store_load_config,
     save_config as store_save_config,
     normalize_config,
+    resolve_writable_config_path,
 )
 from meapet.log import get_color_logger
 
@@ -15,6 +16,8 @@ log = get_color_logger("config_bridge")
 
 class PetConfigBridgeMixin:
     def _load_config(self, path: str) -> dict:
+        # 记住读取路径；保存时映射到可写 config.json（example → config.json）
+        self._config_path = resolve_writable_config_path(path)
         try:
             return store_load_config(path)
         except Exception:
@@ -27,7 +30,9 @@ class PetConfigBridgeMixin:
     def _save_config(self):
         try:
             self.config = normalize_config(self.config)
-            store_save_config(self.config)
+            target = getattr(self, "_config_path", None) or resolve_writable_config_path()
+            self._config_path = target
+            store_save_config(self.config, target)
         except Exception as e:
             log.error(f"[config] 保存失败: {e}")
 

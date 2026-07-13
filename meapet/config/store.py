@@ -74,6 +74,41 @@ def resolve_startup_config_path(
     return str(base / "config.example.json")
 
 
+def resolve_writable_config_path(
+    path: Optional[Union[str, os.PathLike[str]]] = None,
+    root: Optional[Union[str, os.PathLike[str]]] = None,
+) -> str:
+    """把启动/读取路径映射为可写的 config.json。
+
+    从 config.example.json 启动时，首次保存必须落到同目录 config.json，
+    避免改写仓库模板。
+    """
+    base = Path(root) if root is not None else Path(project_root())
+    if path is None or str(path).strip() == "":
+        return str(base / "config.json")
+    candidate = Path(path)
+    if candidate.name == "config.example.json":
+        return str(candidate.with_name("config.json"))
+    return str(candidate)
+
+
+def resolve_resource_path(
+    path: Union[str, os.PathLike[str]] = "",
+    root: Optional[Union[str, os.PathLike[str]]] = None,
+) -> str:
+    """把相对资源路径锚定到项目根，避免依赖进程 cwd。
+
+    绝对路径原样规范化；空字符串返回空字符串。
+    """
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+    p = Path(raw)
+    if p.is_absolute():
+        return str(p)
+    base = Path(root) if root is not None else Path(project_root())
+    return str((base / p).resolve())
+
 
 def _first_env(names: Tuple[str, ...]) -> str:
     for n in names:
@@ -136,6 +171,11 @@ def resolve_secret(file_value: str = "", env_names: Tuple[str, ...] = ()) -> str
 
 
 def save_config(config: dict, path: Optional[str] = None) -> None:
+    """PATCH 式写入：与磁盘已有字段 deep-merge 后再 normalize。
+
+    调用方应传入完整运行时 config；磁盘上仅存在于文件、未加载进内存的字段
+    也会被保留（避免向导/局部更新冲掉其它键）。
+    """
     cpath = path or config_path()
     existing = load_json(cpath, {})
     merged = _deep_merge(existing, config)

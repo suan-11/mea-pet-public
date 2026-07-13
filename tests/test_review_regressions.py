@@ -300,6 +300,114 @@ class TestConfigSafety(unittest.TestCase):
         splash.close.assert_called_once_with()
         app.quit.assert_called_once_with()
 
+    def test_resolve_resource_path_is_independent_of_cwd(self):
+        from meapet.config.store import resolve_resource_path
+
+        with tempfile.TemporaryDirectory() as project, tempfile.TemporaryDirectory() as cwd:
+            project_path = Path(project)
+            model = project_path / "live2d" / "model" / "mea"
+            model.mkdir(parents=True)
+            (model / "mea.model3.json").write_text("{}", encoding="utf-8")
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(cwd)
+                resolved = resolve_resource_path(
+                    "./live2d/model/mea",
+                    root=project_path,
+                )
+                self.assertTrue(os.path.isdir(resolved))
+                self.assertEqual(
+                    Path(resolved).resolve(),
+                    model.resolve(),
+                )
+            finally:
+                os.chdir(old_cwd)
+
+    def test_writable_config_path_maps_example_to_config_json(self):
+        from meapet.config.store import resolve_writable_config_path
+
+        with tempfile.TemporaryDirectory() as project:
+            project_path = Path(project)
+            example = project_path / "config.example.json"
+            self.assertEqual(
+                resolve_writable_config_path(str(example), root=project_path),
+                str(project_path / "config.json"),
+            )
+            self.assertEqual(
+                resolve_writable_config_path(None, root=project_path),
+                str(project_path / "config.json"),
+            )
+
+    def test_save_config_merges_with_existing_disk_fields(self):
+        from meapet.config.store import save_config
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "llm": {
+                            "backend": "ollama",
+                            "api_key": "disk-key",
+                            "model": "keep-me",
+                        },
+                        "custom_top": {"nested": True},
+                        "display": {"size_factor": 2.0},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            save_config(
+                {
+                    "llm": {"backend": "deepseek", "api_key": "new-key"},
+                    "display": {"size_factor": 1.25},
+                },
+                str(path),
+            )
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["llm"]["backend"], "deepseek")
+            self.assertEqual(saved["llm"]["api_key"], "new-key")
+            self.assertEqual(saved["llm"]["model"], "keep-me")
+            self.assertEqual(saved["custom_top"], {"nested": True})
+            self.assertEqual(saved["display"]["size_factor"], 1.25)
+
+    def test_config_bridge_saves_to_remembered_writable_path(self):
+        from meapet.desktop.config_bridge import PetConfigBridgeMixin
+
+        class Host(PetConfigBridgeMixin):
+            pass
+
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            example = project / "config.example.json"
+            example.write_text(
+                json.dumps(
+                    {
+                        "llm": {"backend": "ollama", "api_key": "from-example"},
+                        "live2d": {
+                            "enabled": True,
+                            "model_dir": "./live2d/model/mea",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            host = Host()
+            host.config = host._load_config(str(example))
+            host.config.setdefault("ui", {})["first_run_hint_shown"] = True
+            host._save_config()
+
+            written = project / "config.json"
+            self.assertTrue(written.is_file())
+            saved = json.loads(written.read_text(encoding="utf-8"))
+            self.assertTrue(saved["ui"]["first_run_hint_shown"])
+            self.assertEqual(saved["llm"]["api_key"], "from-example")
+            # example template must not be rewritten
+            example_data = json.loads(example.read_text(encoding="utf-8"))
+            self.assertNotIn("ui", example_data)
+
 
 class TestRepositoryIgnoreRules(unittest.TestCase):
     def test_sensitive_runtime_artifacts_are_ignored(self):
