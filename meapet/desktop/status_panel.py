@@ -1,7 +1,6 @@
 """
 梅尔桌宠 - 养成状态面板
 半透明 overlay，显示好感度、心情、统计等信息
-背景：ev312b.png（梅尔 CG 图）
 """
 import os
 from PyQt5.QtWidgets import (

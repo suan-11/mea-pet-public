@@ -682,7 +682,7 @@ class PetRenderHostMixin:
             self._safe_set_expression("011")
             self._show_bubble(status_language.standby_on(), 0)
             self._position_bubble()
-            self._set_standby_region()
+            self._apply_hit_region()
         else:
             self._safe_set_expression("001")
             clear_bubbles = getattr(self, "_clear_bubbles", None)
@@ -697,27 +697,6 @@ class PetRenderHostMixin:
         refresh_tray = getattr(self, "_refresh_tray_state", None)
         if callable(refresh_tray):
             refresh_tray()
-
-    def _set_standby_region(self):
-        if sys.platform == "win32":
-            try:
-                import win32gui
-                w, h = self.width(), self.height()
-                margin_x = w // 4
-                margin_y = h // 4
-                rgn = win32gui.CreateRectRgn(
-                    margin_x, margin_y, w - margin_x, h - margin_y
-                )
-                win32gui.SetWindowRgn(int(self.winId()), rgn, True)
-                return
-            except Exception as e:
-                safe_print(f"[WARN] Standby region failed: {e}")
-        from PyQt5.QtCore import QRect
-        w, h = self.width(), self.height()
-        margin_x = w // 4
-        margin_y = h // 4
-        region = QRegion(QRect(margin_x, margin_y, w - 2 * margin_x, h - 2 * margin_y))
-        self.setMask(region)
 
     def _toggle_render_mode(self):
         self._clear_window_region()

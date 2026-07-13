@@ -54,6 +54,7 @@ PRUNE_IMPORTANCE_FLOOR = 1
 SUMMARIZE_EVERY_N = 20
 SUMMARY_CHAT_LIMIT = 20
 MIN_SEARCH_SCORE = 0.001
+EXCHANGE_TRUNCATE = 150
 
 
 def _trigram_hash(tri: str) -> int:
@@ -957,6 +958,28 @@ class MeaMemory:
         self.reset_summarization_counter()
         log.debug(f"[DB] 存储摘要 memory_id={mem_id} source_ids={source_ids}")
 
+    def store_chat_exchange(self, user_msg: str, mea_reply: str):
+        if len(user_msg) + len(mea_reply) < 20:
+            return
+        self.create_memory(
+            content=f"主人：{user_msg[:EXCHANGE_TRUNCATE]}\n梅尔：{mea_reply[:EXCHANGE_TRUNCATE]}",
+            importance=2,
+            memory_type="exchange",
+            tags=["conversation"],
+            decay_factor=0.8,
+        )
+        log.debug(f"[DB] 存储对话压缩记录 user={len(user_msg)} reply={len(mea_reply)}")
+
+    def get_recent_exchanges(self, limit: int = 10) -> List[str]:
+        with self._lock:
+            c = self.conn.cursor()
+            c.execute(
+                "SELECT content FROM memories WHERE memory_type = ? ORDER BY id DESC LIMIT ?",
+                ("exchange", limit),
+            )
+            rows = c.fetchall()
+        return [r["content"] for r in reversed(rows)]
+
     # ========================
     # JSON 导入导出
     # ========================
@@ -1081,11 +1104,19 @@ class MeaMemory:
                 mtype = m.get("memory_type", "fact")
                 tags = m.get("tags") or []
                 tag_str = f"[{', '.join(tags)}] " if tags else ""
-                prefix = {"summary": "📖 ", "fact": "  "}.get(mtype, "  ")
+                prefix = {"summary": "📖 ", "fact": "  ", "exchange": "  "}.get(mtype, "  ")
                 lines.append(f"- {prefix}{tag_str}{m['content']}")
 
+        # 近期对话压缩记录（自动累积的历史上下文）
+        exchanges = self.get_recent_exchanges(limit=10)
+        if exchanges:
+            lines.append("")
+            lines.append("## 近期对话记录")
+            for ex in exchanges:
+                lines.append(f"  {ex}")
+
         # 最近未摘要对话
-        recent = self.get_recent_chats(4, exclude_summarized=True)
+        recent = self.get_recent_chats(8, exclude_summarized=True)
         if recent:
             lines.append("")
             lines.append("## 最近对话（参考语境）")

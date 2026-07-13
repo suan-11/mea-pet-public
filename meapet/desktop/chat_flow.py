@@ -177,6 +177,7 @@ class PetChatFlowMixin:
                 engine.memory.increment_message_counter()
                 engine._extract_memories(user_msg, reply)
                 engine._summarize_if_needed()
+                engine.memory.store_chat_exchange(user_msg, reply)
             except Exception as e:
                 log.error(f"[memory] 操作失败: {e}")
 
