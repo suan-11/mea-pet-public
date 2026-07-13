@@ -63,6 +63,26 @@ DIALOGUE_ENTRY_OFFSET = 26
 DIALOGUE_FADE_DURATION_MS = 1600
 DIALOGUE_FADE_FRAME_MS = 25
 
+# 情绪只影响描边色，必须配合角色表情/文案，不作为唯一语义。
+MOOD_BORDER_COLORS = {
+    "happy": "#FFB36B",
+    "annoyed": "#FF8892",
+    "sad": "#8FA4D6",
+    "shy": "#FF91B4",
+    "curious": "#A69BFF",
+    "surprised": "#F4CC75",
+    "melancholy": "#9FA3BC",
+    "talking": "#FF91B4",
+    "neutral": "#FF91B4",
+}
+
+
+def _reduced_motion_enabled() -> bool:
+    return os.environ.get(
+        "MEAPET_REDUCED_MOTION",
+        "",
+    ).strip().lower() in {"1", "true", "yes"}
+
 
 def wrap_text(text: str, width: int = 10) -> str:
     """中文按字符换行"""
@@ -105,6 +125,12 @@ class SpeechBubbleFrame(QFrame):
         self.setAccessibleName("回复气泡")
         self.tail_side = "bottom"
         self.tail_anchor: int | None = None
+        self.mood = "neutral"
+
+    def set_mood(self, mood: str | None) -> None:
+        key = str(mood or "neutral").strip().lower() or "neutral"
+        self.mood = key if key in MOOD_BORDER_COLORS else "neutral"
+        self.update()
 
     def set_tail(self, side: str, anchor: int | None = None) -> None:
         if side not in self.VALID_TAIL_SIDES:
@@ -302,8 +328,9 @@ class SpeechBubbleFrame(QFrame):
         gradient = QLinearGradient(body.topLeft(), body.bottomRight())
         gradient.setColorAt(0.0, QColor(PALETTE["surface_elevated"]).lighter(108))
         gradient.setColorAt(1.0, QColor(PALETTE["surface"]))
-        border = QColor(PALETTE["primary"])
-        border.setAlpha(190)
+        accent = MOOD_BORDER_COLORS.get(getattr(self, "mood", "neutral"), PALETTE["primary"])
+        border = QColor(accent)
+        border.setAlpha(210)
         painter.setPen(QPen(border, 1.5))
         painter.setBrush(gradient)
         painter.drawPath(path)
@@ -418,15 +445,23 @@ class DialogueBox(QWidget):
     def set_tail(self, side: str, anchor: int | None = None) -> None:
         self._container.set_tail(side, anchor)
 
+    def set_mood(self, mood: str | None = None) -> None:
+        self._container.set_mood(mood)
+        mood_key = getattr(self._container, "mood", "neutral")
+        self.setAccessibleDescription(f"情绪 {mood_key}")
+
     def show_text(
         self,
         text: str,
         duration_ms: int = 6000,
         *,
         initial_opacity: float = 1.0,
+        mood: str | None = None,
     ):
         import re
         clean_text = re.sub(r'【.*?】', '', text).strip()
+        if mood is not None:
+            self.set_mood(mood)
         self._hide_timer.stop()
 
         # 1. 设置文本
@@ -533,13 +568,8 @@ class DialogueBox(QWidget):
         """保持空间连续性地移动到层级位置，并同步层级透明度。"""
         target_position = QPoint(position)
         target_opacity = min(max(float(opacity), 0.0), 1.0)
-        reduced_motion = os.environ.get(
-            "MEAPET_REDUCED_MOTION",
-            "",
-        ).strip().lower() in {"1", "true", "yes"}
-
         self._position_animation.stop()
-        if not animate or reduced_motion:
+        if not animate or _reduced_motion_enabled():
             self.move(target_position)
             if not self._fading:
                 self._opacity_animation.stop()
@@ -609,6 +639,17 @@ class DialogueBox(QWidget):
             return
         self._hide_timer.stop()
         self._opacity_animation.stop()
+        if _reduced_motion_enabled():
+            self._anim_timer.stop()
+            self._position_animation.stop()
+            self._fading = False
+            self._fade_out = False
+            self._set_visual_opacity(0.0)
+            self.hide()
+            if not self._dismissed_emitted:
+                self._dismissed_emitted = True
+                self.dismissed.emit()
+            return
         self._fading = True
         self._fade_out = True
         fade_steps = max(
@@ -651,7 +692,13 @@ class DialogueBubbleStack(QObject):
     def latest(self) -> DialogueBox | None:
         return self._bubbles[-1] if self._bubbles else None
 
-    def show_message(self, text: str, duration_ms: int = 6000) -> DialogueBox:
+    def show_message(
+        self,
+        text: str,
+        duration_ms: int = 6000,
+        *,
+        mood: str | None = None,
+    ) -> DialogueBox:
         for bubble in self._bubbles:
             bubble.fade_after(self.stale_duration_ms)
 
@@ -669,7 +716,7 @@ class DialogueBubbleStack(QObject):
                 pass
             oldest.close()
 
-        bubble.show_text(text, duration_ms, initial_opacity=0.0)
+        bubble.show_text(text, duration_ms, initial_opacity=0.0, mood=mood)
         bubble.mark_stack_entry()
         self.changed.emit()
         return bubble

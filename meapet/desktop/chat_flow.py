@@ -7,10 +7,11 @@ import threading
 
 from PyQt5.QtCore import QTimer
 
-from meapet.utils import debug_enabled
+from meapet.utils import debug_enabled, log_error, redact_text
 from meapet.chat.engine import SYSTEM_PROMPT
+from meapet.desktop import status_language
 from meapet.desktop.workers import ChatWorker, TTSWorker
-from meapet.desktop.chat_input import ChatInputBox
+from meapet.desktop.chat_input import ChatInputBox, set_awaiting_reply_state
 from meapet.log import get_color_logger
 
 log = get_color_logger("chat_flow")
@@ -45,6 +46,8 @@ class PetChatFlowMixin:
                     pass
 
         self._chat_input = ChatInputBox(None)
+        if getattr(self, "_awaiting_reply", False):
+            self._chat_input.set_busy(True, status_language.thinking_busy())
 
         # 以编辑器实际尺寸居中，避免 UI 调整后仍依赖旧的硬编码宽度。
         input_x = self.pos().x() + (self.width() - self._chat_input.width()) // 2
@@ -58,6 +61,11 @@ class PetChatFlowMixin:
 
     def _on_input_submit(self, text: str):
         """用户提交了输入"""
+        if getattr(self, "_awaiting_reply", False):
+            log.warning("[chat] 对话被拒绝：正在等待回复中")
+            self._show_bubble(status_language.thinking_busy(), 2500)
+            self._position_bubble()
+            return
         self._record_interaction()
         _log_private_text("[input] 收到用户输入", text)
         log.info("[input] 提交消息，准备回复")
@@ -68,15 +76,24 @@ class PetChatFlowMixin:
     def _do_chat(self, message: str):
         """执行 LLM 对话（后台线程）"""
         if self._awaiting_reply:
-            log.warn("[chat] 对话被拒绝：正在等待回复中")
+            log.warning("[chat] 对话被拒绝：正在等待回复中")
+            self._show_bubble(status_language.thinking_busy(), 2500)
+            self._position_bubble()
             return
-        self._awaiting_reply = True
+        set_awaiting_reply_state(
+            self,
+            True,
+            status_language.thinking_busy(),
+        )
         self._safe_set_mood("talking")
         self._last_user_msg = message
         _log_private_text("[chat] 发送给 LLM", message)
 
         # 显示思考中提示
-        self._show_bubble("💭 梅尔正在思考……", self.config["bubble_duration_ms"]["thinking"])  # 0 = 持久显示
+        self._show_bubble(
+            status_language.thinking(),
+            self.config["bubble_duration_ms"]["thinking"],
+        )  # 0 = 持久显示
         self._position_bubble()
 
         # 停止旧 worker（防止泄漏）
@@ -123,8 +140,8 @@ class PetChatFlowMixin:
             self._on_chat_done(reply, mood)
         else:
             # result 和 error 都为空（异常路径未捕获到）→ 释放锁，防止死锁
-            log.warn("[chat] _poll_chat: 空结果，释放对话锁")
-            self._awaiting_reply = False
+            log.warning("[chat] _poll_chat: 空结果，释放对话锁")
+            set_awaiting_reply_state(self, False)
             if hasattr(self, '_chat_timeout') and self._chat_timeout:
                 self._chat_timeout.stop()
 
@@ -160,6 +177,7 @@ class PetChatFlowMixin:
                 engine.memory.increment_message_counter()
                 engine._extract_memories(user_msg, reply)
                 engine._summarize_if_needed()
+                engine.memory.store_chat_exchange(user_msg, reply)
             except Exception as e:
                 log.error(f"[memory] 操作失败: {e}")
 
@@ -187,21 +205,39 @@ class PetChatFlowMixin:
                 tts_style = (eng.take_tts_style() or "").strip()
         except Exception as e:
             log.error(f"[tts] 取 TTS 风格失败: {e}")
-        self.show_reply(reply, detected)
-        self._awaiting_reply = False
-        # 后台 TTS 合成
-        self._tts_worker = TTSWorker(
-            self.tts,
-            voice_text,
-            mood=detected,
-            style=tts_style,
-        )
-        self._tts_worker.start()
-        self._ensure_tts_poll()
-        # 记忆系统操作（延后执行，不阻塞气泡）
-        from PyQt5.QtCore import QTimer
+        # 捕获本轮用户消息，记忆操作与 TTS 并行且由上游串行锁保护。
         user_msg = getattr(self, '_last_user_msg', '') or ''
-        QTimer.singleShot(0, lambda: self._do_memory_ops(reply, detected, user_msg))
+        QTimer.singleShot(
+            0,
+            lambda: self._do_memory_ops(reply, detected, user_msg),
+        )
+
+        # 最终回复必须等音频文件真正生成后再显示；否则文字和声音会明显错位。
+        # TTS 关闭或启动失败时仍立即显示文字，不能让回复永久卡住。
+        self._pending_chat_reply = (reply, detected)
+        tts = getattr(self, "tts", None)
+        if tts is None or not bool(getattr(tts, "enabled", True)):
+            self._complete_pending_chat_reply()
+            return
+
+        set_awaiting_reply_state(
+            self,
+            True,
+            status_language.thinking_busy(),
+        )
+        try:
+            self._tts_worker = TTSWorker(
+                tts,
+                voice_text,
+                mood=detected,
+                style=tts_style,
+            )
+            self._tts_worker.start()
+            self._ensure_tts_poll()
+        except Exception as e:
+            log.error(f"[tts] 语音合成启动失败，回退文字: {type(e).__name__}: {e}")
+            self._tts_worker = None
+            self._complete_pending_chat_reply()
 
     def _ensure_tts_poll(self):
         """确保 TTS 轮询 timer 在运行"""
@@ -213,10 +249,14 @@ class PetChatFlowMixin:
     def _poll_tts(self):
         """轮询所有 TTSWorker 完成状态"""
         if hasattr(self, '_tts_worker') and self._tts_worker and self._tts_worker.done:
-            result = self._tts_worker.get_result()
+            try:
+                result = self._tts_worker.get_result()
+            except Exception as e:
+                log.error(f"[tts] 读取合成结果失败: {type(e).__name__}: {e}")
+                result = None
             self._tts_worker = None
-            if result:
-                self._on_tts_audio(result)
+            # 空结果同样必须进入完成处理，以显示等待中的文字回复。
+            self._on_tts_audio(result)
         if hasattr(self, '_speak_worker') and self._speak_worker and self._speak_worker.done:
             result = self._speak_worker.get_result()
             self._speak_worker = None
@@ -264,43 +304,84 @@ class PetChatFlowMixin:
             return "shy"
         return "neutral"
 
-    def _on_tts_audio(self, raw: str):
-        """TTS 合成完成 → 播放语音（文字已显示）"""
-        wav_path = raw.rsplit("|", 1)[0] if "|" in raw else raw
+    def _complete_pending_chat_reply(self, wav_path: str = "") -> None:
+        """显示等待中的聊天回复，并在同一事件循环节拍开始播放音频。"""
+        pending = getattr(self, "_pending_chat_reply", None)
+        if pending is None:
+            # 兼容旧调用：没有等待文字时，仍允许单独播放有效音频。
+            if wav_path:
+                self._play_audio(wav_path)
+            return
+
+        try:
+            del self._pending_chat_reply
+        except AttributeError:
+            pass
+
+        reply, mood = pending
+        duration_ms = None
+        config = getattr(self, "config", {}) or {}
+        tts_config = config.get("tts") or {}
+        bubble_config = config.get("bubble_duration_ms") or {}
+        if wav_path and tts_config.get("sync_with_audio"):
+            audio_ms = self._get_wav_duration_ms(wav_path)
+            if audio_ms > 0:
+                duration_ms = max(
+                    audio_ms + 500,
+                    int(bubble_config.get("reply", 3000)),
+                )
+
+        try:
+            if duration_ms is None:
+                self.show_reply(reply, mood)
+            else:
+                self.show_reply(reply, mood, duration_ms=duration_ms)
+        except Exception as e:
+            log.error(f"[chat] 显示等待回复失败: {type(e).__name__}: {e}")
+        finally:
+            set_awaiting_reply_state(self, False)
+
+        if wav_path:
+            self._play_audio(wav_path)
+
+    def _on_tts_audio(self, raw: str | None):
+        """TTS 完成后再显示最终气泡；失败时显示无声文字兜底。"""
+        value = str(raw or "")
+        wav_path = value.rsplit("|", 1)[0] if "|" in value else value
         if not wav_path or not os.path.exists(wav_path):
-            log.warn(f"[audio] TTS 完成但文件无效: chars={len(raw or '')}")
+            log.warning(f"[audio] TTS 未生成有效文件，回退文字: chars={len(value)}")
             if debug_enabled():
                 log.debug(f"[audio] 无效 TTS 返回: {raw!r}")
+            self._complete_pending_chat_reply()
             return
-        # 可选：气泡时长对齐音频
-        audio_ms = self._get_wav_duration_ms(wav_path)
-        if self.config.get("tts", {}).get("sync_with_audio") and audio_ms > 0:
-            try:
-                self.bubble.show_text(
-                    self.bubble.text_label.text(),
-                    duration_ms=max(
-                        audio_ms + 500,
-                        self.config["bubble_duration_ms"]["reply"],
-                    ),
-                )
-            except Exception:
-                pass
-        # 无论是否 sync，都必须播放（此前误把 play 放进 sync 分支，默认永不播）
-        self._play_audio(wav_path)
+        self._complete_pending_chat_reply(wav_path)
 
     def _on_chat_error(self, err: str):
         _log_private_text("[chat] 错误", err)
-        log.error(f"[chat] 对话错误: {err[:200] if not debug_enabled() else err}")
+        error_summary = (
+            redact_text(err)
+            if debug_enabled()
+            else f"error_chars={len(err or '')}"
+        )
+        log.error(f"[chat] 对话错误: {error_summary}")
         if hasattr(self, '_chat_timeout'):
             self._chat_timeout.stop()
-        self.show_reply(f"出错啦：{err}", "annoyed", duration_ms=10000)
-        self._awaiting_reply = False
+        log_error(
+            "pet_chat",
+            error_summary,
+        )
+        self.show_reply(
+            f"{status_language.chat_error_prefix()}{err}",
+            "annoyed",
+            duration_ms=10000,
+        )
+        set_awaiting_reply_state(self, False)
 
     def _on_chat_timeout(self):
         """ChatWorker 超时 — 强制终止线程并释放锁"""
-        log.warn("[chat] ChatWorker 超时，释放锁")
-        self._awaiting_reply = False
-        self._show_bubble("唔…好像没响应喵。再试一次？", 3000)
+        log.warning("[chat] ChatWorker 超时，释放锁")
+        set_awaiting_reply_state(self, False)
+        self._show_bubble(status_language.chat_timeout(), 3000)
         self._position_bubble()
         if hasattr(self, '_chat_worker') and self._chat_worker:
             if self._chat_worker.isRunning():
@@ -366,5 +447,5 @@ class PetChatFlowMixin:
         if duration_ms is None:
             duration_ms = self.config["bubble_duration_ms"]["reply"]
         self._safe_set_mood(mood)
-        self._show_bubble(text, max(duration_ms, 3000))
+        self._show_bubble(text, max(duration_ms, 3000), mood=mood)
         self._position_bubble()

@@ -65,3 +65,9 @@
 - [ ] 小窗口或高 DPI 下可滚动、可缩放，不裁切主要操作。
 - [ ] 加载、成功、警告、错误均有文字反馈。
 - [ ] 配置保存行为与全部既有配置键保持不变。
+
+## Page overrides
+
+- Desktop pet: `design-system/pages/desktop.md`
+- Wizard: `design-system/pages/wizard.md`
+- Status copy source: `meapet/desktop/status_language.py`

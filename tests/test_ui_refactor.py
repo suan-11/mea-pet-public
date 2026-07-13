@@ -1234,5 +1234,324 @@ class UiRefactorTests(unittest.TestCase):
         self.assertEqual(confirm.call_args.kwargs["timeout_seconds"], 5)
 
 
+
+    def test_status_language_covers_core_states(self) -> None:
+        from meapet.desktop import status_language
+
+        self.assertIn("思考", status_language.thinking())
+        self.assertIn("稍等", status_language.thinking_busy())
+        self.assertIn("截屏", status_language.menu_watch_enable())
+        self.assertIn("Live2D", status_language.menu_render_to_live2d())
+        self.assertIn("回忆", status_language.empty_memories())
+
+    def test_chat_input_set_busy_disables_send(self) -> None:
+        from meapet.desktop.chat_input import ChatInputBox
+
+        composer = self._track(ChatInputBox())
+        composer.set_busy(True, "还在想上一条…稍等喵")
+        self.assertFalse(composer.send_button.isEnabled())
+        self.assertTrue(composer.input.isReadOnly())
+        self.assertIn("还在想", composer.feedback_label.text())
+        composer.set_busy(False)
+        self.assertTrue(composer.send_button.isEnabled())
+        self.assertFalse(composer.input.isReadOnly())
+
+    def test_chat_completion_keeps_input_busy_until_tts_finishes(self) -> None:
+        from meapet.desktop.chat_flow import PetChatFlowMixin
+        from meapet.desktop.chat_input import ChatInputBox
+
+        class Engine:
+            _MOOD_TAGS = {"neutral"}
+
+            @staticmethod
+            def take_voice_text():
+                return ""
+
+            @staticmethod
+            def take_tts_style():
+                return ""
+
+        class Worker:
+            done = True
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def get_result(self):
+                return None
+
+        class Voice:
+            enabled = True
+
+        class Host(PetChatFlowMixin):
+            chat_engine = Engine()
+            tts = Voice()
+            _awaiting_reply = True
+
+            def show_reply(self, *_args, **_kwargs):
+                pass
+
+            def _detect_mood(self, _text):
+                return "neutral"
+
+            def _ensure_tts_poll(self):
+                pass
+
+            def _do_memory_ops(self, *_args):
+                pass
+
+        host = Host()
+        host._chat_input = self._track(ChatInputBox())
+        host._chat_input.set_busy(True, "还在想上一条…稍等喵")
+
+        with patch("meapet.desktop.chat_flow.TTSWorker", Worker), patch(
+            "meapet.desktop.chat_flow.QTimer.singleShot"
+        ):
+            host._on_chat_done("回复完成", "neutral")
+
+        self.assertTrue(host._awaiting_reply)
+        self.assertTrue(host._chat_input.input.isReadOnly())
+        self.assertFalse(host._chat_input.send_button.isEnabled())
+
+        host._poll_tts()
+
+        self.assertFalse(host._awaiting_reply)
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+    def test_chat_failure_paths_release_visible_busy_input(self) -> None:
+        from meapet.desktop.chat_flow import PetChatFlowMixin
+        from meapet.desktop.chat_input import ChatInputBox
+
+        class Host(PetChatFlowMixin):
+            _awaiting_reply = True
+            _chat_worker = None
+
+            def show_reply(self, *_args, **_kwargs):
+                pass
+
+            def _show_bubble(self, *_args, **_kwargs):
+                pass
+
+            def _position_bubble(self):
+                pass
+
+        host = Host()
+        host._chat_input = self._track(ChatInputBox())
+        host._chat_input.set_busy(True, "等待失败结果")
+
+        with patch("meapet.desktop.chat_flow.log_error"):
+            host._on_chat_error("测试错误")
+
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+        host._awaiting_reply = True
+        host._chat_input.set_busy(True, "等待超时结果")
+        host._on_chat_timeout()
+
+        self.assertFalse(host._awaiting_reply)
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+    def test_awaiting_state_ignores_stale_or_incompatible_composer(self) -> None:
+        from meapet.desktop.chat_input import set_awaiting_reply_state
+
+        class Host:
+            _awaiting_reply = True
+
+        host = Host()
+        host._chat_input = object()
+        set_awaiting_reply_state(host, False)
+        self.assertFalse(host._awaiting_reply)
+
+        class DeletedComposer:
+            @staticmethod
+            def set_busy(_busy, _message):
+                raise RuntimeError("wrapped C/C++ object has been deleted")
+
+        deleted = DeletedComposer()
+        host._chat_input = deleted
+        set_awaiting_reply_state(host, False)
+        self.assertIsNone(host._chat_input)
+
+    def test_watcher_completion_releases_visible_busy_input(self) -> None:
+        from meapet.desktop.chat_flow import PetChatFlowMixin
+        from meapet.desktop.chat_input import ChatInputBox
+        from meapet.desktop.watch_ctrl import PetWatcherMixin
+
+        class Host(PetWatcherMixin, PetChatFlowMixin):
+            _awaiting_reply = True
+            config = {"bubble_duration_ms": {"default": 5000}}
+
+            def _show_bubble(self, *_args, **_kwargs):
+                pass
+
+            def _start_watcher_timer(self):
+                pass
+
+        host = Host()
+        host._chat_input = self._track(ChatInputBox())
+        host._chat_input.set_busy(True, "还在识图…稍等喵")
+
+        host._on_watch_silent()
+
+        self.assertFalse(host._awaiting_reply)
+        self.assertFalse(host._chat_input.input.isReadOnly())
+        self.assertTrue(host._chat_input.send_button.isEnabled())
+
+
+    def test_bubble_mood_accent_changes_border_color(self) -> None:
+        from meapet.desktop.widgets import DialogueBox, MOOD_BORDER_COLORS
+
+        bubble = self._track(DialogueBox())
+        bubble.show_text("今天也要加油喵", duration_ms=0, mood="happy")
+        self.assertEqual(bubble._container.mood, "happy")
+        self.assertEqual(
+            MOOD_BORDER_COLORS["happy"].lower(),
+            "#ffb36b",
+        )
+        bubble.set_mood("annoyed")
+        self.assertEqual(bubble._container.mood, "annoyed")
+
+    def test_normalize_config_includes_motion_and_first_run_flags(self) -> None:
+        from meapet.config.store import normalize_config
+
+        cfg = normalize_config({"display": {"font_scale": 1.2}})
+        self.assertIn("reduced_motion", cfg["display"])
+        self.assertFalse(cfg["display"]["reduced_motion"])
+        self.assertIn("first_run_hint_shown", cfg["ui"])
+        self.assertFalse(cfg["ui"]["first_run_hint_shown"])
+
+
+    def test_standard_icons_resolve_for_core_roles(self) -> None:
+        from meapet.desktop.icons import standard_icon
+
+        for role in ("status", "watch", "settings", "quit", "wake", "standby"):
+            icon = standard_icon(role)
+            self.assertFalse(icon.isNull(), msg=role)
+
+    def test_resolve_reduced_motion_respects_config_true(self) -> None:
+        from meapet.ui_theme import resolve_reduced_motion
+        import os
+
+        os.environ.pop("MEAPET_REDUCED_MOTION", None)
+        self.assertTrue(resolve_reduced_motion(True))
+        self.assertFalse(resolve_reduced_motion(False) and os.environ.get("MEAPET_REDUCED_MOTION") == "force")
+
+    def test_reduced_motion_dismisses_bubble_without_fade_timer(self) -> None:
+        from meapet.desktop.widgets import DialogueBox
+
+        dismissed = []
+        with patch.dict(os.environ, {"MEAPET_REDUCED_MOTION": "1"}):
+            bubble = self._track(DialogueBox())
+            bubble.dismissed.connect(lambda: dismissed.append(True))
+            bubble.show_text("立即消失", duration_ms=0)
+            bubble._start_fadeout()
+
+        self.assertFalse(bubble._anim_timer.isActive())
+        self.assertFalse(bubble.isVisible())
+        self.assertEqual(dismissed, [True])
+
+    def test_loading_disabled_vision_config_keeps_advanced_options_collapsed(self) -> None:
+        from wizard.page_vision import VisionPage
+
+        page = self._track(VisionPage())
+        page.show()
+        QApplication.processEvents()
+        page.apply_config({}, {"enabled": False})
+        QApplication.processEvents()
+
+        self.assertFalse(page.advanced_toggle.isChecked())
+        self.assertTrue(page.advanced_frame.isHidden())
+        for widget in (
+            page.model_label,
+            page.model_combo,
+            page.cloud_box,
+            page.min_min_input,
+            page.max_min_input,
+        ):
+            with self.subTest(widget=widget.objectName()):
+                self.assertFalse(widget.isVisibleTo(page))
+
+    def test_tts_engine_details_are_collapsible(self) -> None:
+        from wizard.page_tts import TTSPage
+
+        page = self._track(TTSPage())
+        page.enable_cb.setChecked(True)
+        page.engine_details_toggle.setChecked(False)
+        page._sync_engine_details_visibility()
+        # 未 show 的窗口上 isVisible() 恒为 False，用 isHidden() 验证显式折叠
+        self.assertTrue(page.backend_combo.isHidden())
+        page.engine_details_toggle.setChecked(True)
+        page._sync_engine_details_visibility()
+        self.assertFalse(page.backend_combo.isHidden())
+
+    def test_gsv_reference_audio_path_and_language_are_restored_and_saved(self) -> None:
+        from wizard.app import SetupWizard
+
+        wizard = self._track(SetupWizard())
+        wizard._load_timer.stop()
+        for timer in wizard.tts_page._startup_timers:
+            timer.stop()
+        wizard._existing_config = {}
+
+        wizard.tts_page.apply_config(
+            {
+                "engine": "gpt_sovits",
+                "enabled": True,
+                "gsv_ref_wav": "./refs/custom.wav",
+                "gsv_ref_lang": "zh",
+            }
+        )
+
+        path_input = wizard.tts_page.gsv_ref_wav_input
+        lang_combo = wizard.tts_page.gsv_ref_lang_combo
+        self.assertEqual(path_input.text(), "./refs/custom.wav")
+        self.assertEqual(lang_combo.currentData(), "zh")
+        self.assertTrue(path_input.accessibleName())
+        self.assertTrue(lang_combo.accessibleName())
+
+        tts_config = wizard.collect_config()["tts"]
+        self.assertEqual(tts_config["gsv_ref_wav"], "./refs/custom.wav")
+        self.assertEqual(tts_config["gsv_ref_lang"], "zh")
+
+    def test_tray_menu_offers_standby_recovery(self) -> None:
+        from meapet.desktop.window_chrome import PetWindowChromeMixin
+        from meapet.desktop import status_language
+
+        class Host(QWidget, PetWindowChromeMixin):
+            def __init__(self):
+                super().__init__()
+                self._standby = True
+                self._toggled = False
+
+            def _toggle_standby(self):
+                self._toggled = True
+                self._standby = False
+
+            def _is_auto_start(self):
+                return False
+
+            def _toggle_auto_start(self):
+                pass
+
+            def _quit(self):
+                pass
+
+            def _do_screen_watch(self, force=False):
+                pass
+
+            def _toggle_visibility(self):
+                pass
+
+        host = self._track(Host())
+        menu = self._track(host._build_tray_menu())
+        labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+        self.assertIn(status_language.tray_recover_standby(), labels)
+
 if __name__ == "__main__":
     unittest.main()

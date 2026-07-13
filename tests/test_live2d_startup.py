@@ -13,7 +13,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, Qt  # noqa: E402
-from PyQt5.QtGui import QMouseEvent, QPixmap  # noqa: E402
+from PyQt5.QtGui import QColor, QMouseEvent, QPixmap, QRegion  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from meapet.desktop.chat_flow import PetChatFlowMixin  # noqa: E402
@@ -56,6 +56,9 @@ class _Live2DModelStub:
     def create_widget(self, parent=None):
         self.widget = _Live2DWidgetStub(parent)
         return self.widget
+
+    def get_suggested_size(self):
+        return (525, 735)
 
 
 class _InteractiveLive2DModelStub:
@@ -260,6 +263,134 @@ class Live2DStartupTests(unittest.TestCase):
             self.assertFalse(host._use_live2d)
             self.assertTrue(host._renderer_ready)
             self.assertEqual(host.windowOpacity(), 1.0)
+
+    def test_png_frames_are_cached_and_reused_across_blinks(self) -> None:
+        from meapet.desktop.renderer import SpriteRenderer
+
+        loaded_frames = []
+
+        def load_pixmap(path):
+            frame = object()
+            loaded_frames.append((path, frame))
+            return frame
+
+        with (
+            mock.patch(
+                "meapet.desktop.renderer.os.path.exists",
+                return_value=True,
+            ),
+            mock.patch(
+                "meapet.desktop.renderer.QPixmap",
+                side_effect=load_pixmap,
+            ),
+        ):
+            renderer = SpriteRenderer("/sprites")
+            open_frame = renderer.get_current_pixmap()
+            self.assertIs(renderer.get_current_pixmap(), open_frame)
+
+            renderer._is_blinking = True
+            closed_frame = renderer.get_current_pixmap()
+            self.assertIs(renderer.get_current_pixmap(), closed_frame)
+
+        self.assertIsNot(open_frame, closed_frame)
+        self.assertEqual(len(loaded_frames), 2)
+
+    def test_png_canvas_replaces_the_complete_frame_atomically(self) -> None:
+        from meapet.desktop.renderer import SpriteCanvas
+
+        canvas = SpriteCanvas()
+        self._hosts.append(canvas)
+        canvas.resize(24, 16)
+        canvas.show()
+
+        open_frame = QPixmap(canvas.size())
+        open_frame.fill(QColor("#E7B9AD"))
+        closed_frame = QPixmap(canvas.size())
+        closed_frame.fill(QColor("#20233D"))
+
+        canvas.set_frame(open_frame)
+        QApplication.processEvents()
+        canvas.set_frame(closed_frame)
+        QApplication.processEvents()
+
+        rendered = canvas.grab().toImage()
+        expected = QColor("#20233D").rgba()
+        self.assertTrue(
+            all(
+                rendered.pixel(x, y) == expected
+                for y in range(rendered.height())
+                for x in range(rendered.width())
+            )
+        )
+
+    def test_live2d_uses_the_model_suggested_aspect_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as model_dir:
+            host = self._host(model_dir)
+            sprite_patch, model_patch, init_patch = self._patch_renderers()
+            with sprite_patch, model_patch, init_patch:
+                host.init_renderer()
+
+            self.assertEqual((host.width(), host.height()), (525, 735))
+            self.assertEqual(
+                (host.sprite_label.width(), host.sprite_label.height()),
+                (525, 735),
+            )
+
+            host._size_factor_preview(1.2)
+
+            self.assertEqual((host.width(), host.height()), (630, 882))
+            self.assertEqual(
+                (host.sprite_label.width(), host.sprite_label.height()),
+                (630, 882),
+            )
+
+    def test_live2d_hit_region_never_masks_visible_content(self) -> None:
+        host = self._host("")
+        host._use_live2d = True
+        host._size_factor = 1.12
+        host.resize(448, 739)
+        host.setMask(QRegion(74, 82, 300, 441))
+        self.assertFalse(host.mask().isEmpty())
+
+        PetRenderHostMixin._apply_hit_region(host)
+
+        self.assertTrue(host.mask().isEmpty())
+
+    def test_windows_window_region_is_removed_instead_of_cropping(self) -> None:
+        host = self._host("")
+        set_window_region = mock.Mock()
+        win32gui = SimpleNamespace(SetWindowRgn=set_window_region)
+
+        with (
+            mock.patch("meapet.desktop.render_host.sys.platform", "win32"),
+            mock.patch.dict("sys.modules", {"win32gui": win32gui}),
+        ):
+            host._clear_window_region()
+
+        set_window_region.assert_called_once_with(int(host.winId()), 0, True)
+
+    def test_png_to_live2d_clears_the_previous_window_mask_first(self) -> None:
+        with tempfile.TemporaryDirectory() as model_dir:
+            host = self._host(model_dir)
+            host._use_live2d = False
+            host._l2d_pending = False
+            host._renderer_ready = True
+            host._renderer_ready_callbacks = []
+            host._scale = 0.5
+            host._size_factor = 1.0
+            host.renderer = _SpriteRendererStub()
+            host.sprite_label = QWidget(host)
+            host.resize(80, 120)
+            host.setMask(QRegion(0, 0, 40, 60))
+            host._save_config = mock.Mock()
+
+            sprite_patch, model_patch, init_patch = self._patch_renderers()
+            with sprite_patch, model_patch, init_patch:
+                host._toggle_render_mode()
+
+            self.assertTrue(host.mask().isEmpty())
+            self.assertTrue(host._use_live2d)
+            self.assertTrue(host._l2d_pending)
 
     def test_widget_reports_first_frame_and_initialization_failure(self) -> None:
         from meapet.desktop.live2d_widget import Live2DWidget

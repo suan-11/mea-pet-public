@@ -394,10 +394,10 @@ class ChatEngine:
                 self.history[0] = {"role": "system", "content": full_system}
                 log.debug(f"[Chat] 注入记忆上下文，prompt 长度={len(full_system)}")
 
-            # 保持历史不超 8 条（减少上下文长度，加速推理）
-            if len(self.history) > 8:
+            # 保持历史不超 16 条
+            if len(self.history) > 16:
                 saved_system = self.history[0]
-                self.history = [saved_system] + self.history[-6:]
+                self.history = [saved_system] + self.history[-14:]
 
             if not self.available:
                 self.history.pop()
@@ -443,6 +443,7 @@ class ChatEngine:
                 self.memory.increment_message_counter()
                 self._extract_memories(message, reply)
                 self._summarize_if_needed()
+                self.memory.store_chat_exchange(message, reply)
 
             return reply, mood
 
@@ -769,9 +770,9 @@ class ChatEngine:
                 self.history[0] = {"role": "system", "content": full_system}
                 log.debug(f"[Chat] 注入记忆上下文，prompt 长度={len(full_system)}")
 
-            if len(self.history) > 8:
+            if len(self.history) > 16:
                 saved_system = self.history[0]
-                self.history = [saved_system] + self.history[-6:]
+                self.history = [saved_system] + self.history[-14:]
             if not self.available:
                 self.history.pop()
                 return self._fallback_reply(), "neutral"
@@ -897,7 +898,7 @@ class ChatEngine:
 
         elif self.backend in ("deepseek", "mimo"):
             extract_messages = [
-                {"role": "system", "content": "你是一个信息提取助手。从对话中提取值得长期记住的事实，每行一条用「- 」开头。如果没有值得记的内容回复「无」。仅提取非敏感事实。"},
+                {"role": "system", "content": "你是一个信息提取助手。从对话中提取值得长期记住的事实，每行一条用「- 」开头。如果没有值得记的内容回复「无」。"},
                 {"role": "user", "content": prompt},
             ]
             resp = _arun(

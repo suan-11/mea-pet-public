@@ -42,11 +42,11 @@ MENU_STYLE = f"""
         font-size: 14px;
     }}
     QMenu::item {{
-        min-height: 28px;
-        padding: 5px 26px 5px 12px;
+        min-height: 32px;
+        padding: 6px 26px 6px 12px;
         border: 1px solid transparent;
         border-radius: 6px;
-        margin: 0;
+        margin: 1px 0;
     }}
     QMenu::item:selected {{
         background: {rgba(COLOR_FOCUS, 35)};

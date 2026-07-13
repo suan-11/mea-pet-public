@@ -9,7 +9,7 @@ import traceback
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QMessageBox, QFrame, QScrollArea, QSizeGrip, QSizePolicy, QTabWidget,
-    QSlider,
+    QSlider, QCheckBox,
 )
 from PyQt5.QtCore import QSize, Qt, QTimer
 from PyQt5.QtGui import QColor, QIcon, QKeySequence, QPainter, QPalette, QPixmap
@@ -191,7 +191,7 @@ class SetupWizard(QWidget):
         btns.setContentsMargins(24, 12, 18, 18)
         btns.setSpacing(12)
 
-        footer_hint = QLabel("设置仅保存在本机，可随时再次打开配置页修改")
+        footer_hint = QLabel("先完成「环境」和「对话」即可开玩；语音与屏幕识图可稍后设置。设置仅保存在本机。")
         footer_hint.setObjectName("HelperText")
         footer_hint.setWordWrap(True)
         btns.addWidget(footer_hint, 1)
@@ -286,6 +286,15 @@ class SetupWizard(QWidget):
         hint.setObjectName("HelperText")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+        self.reduced_motion_cb = QCheckBox("减少动画（气泡与输入框淡入淡出）")
+        self.reduced_motion_cb.setObjectName("ReducedMotionToggle")
+        self.reduced_motion_cb.setAccessibleName("减少动画")
+        self.reduced_motion_cb.setAccessibleDescription(
+            "开启后桌宠界面动画会尽量瞬切，适合晕动或低性能设备"
+        )
+        self.reduced_motion_cb.setChecked(False)
+        layout.addWidget(self.reduced_motion_cb)
 
         self.font_scale_slider.valueChanged.connect(
             self._on_font_scale_changed
@@ -471,11 +480,12 @@ class SetupWizard(QWidget):
         )
 
         self.font_scale_slider.setValue(
-            round(
-                normalize_ui_font_scale(display.get("font_scale", 1.0))
-                * 100
-            )
+            round(normalize_ui_font_scale(display.get("font_scale", 1.0)) * 100)
         )
+        if hasattr(self, "reduced_motion_cb"):
+            self.reduced_motion_cb.setChecked(
+                bool(display.get("reduced_motion", False))
+            )
 
         # AI 后端
         backend = (llm.get("backend") or "ollama").lower()
@@ -576,6 +586,16 @@ class SetupWizard(QWidget):
                 "gpt_model": "mea_pro-e50.ckpt",
                 "sovits_model": "mea_pro_e24_s13704.pth",
                 "ref_dir": "./GPT-Sovits",
+                "gsv_ref_wav": (
+                    self.tts_page.gsv_ref_wav_input.text().strip()
+                    if hasattr(self.tts_page, "gsv_ref_wav_input")
+                    else ""
+                ),
+                "gsv_ref_lang": (
+                    self.tts_page.gsv_ref_lang_combo.currentData() or "jp"
+                    if hasattr(self.tts_page, "gsv_ref_lang_combo")
+                    else "jp"
+                ),
                 "top_k": 15, "top_p": 0.8,
                 "temperature": 0.6, "speed": 1.0,
                 "translate_to_jp": (
@@ -615,6 +635,10 @@ class SetupWizard(QWidget):
                 "scale": 0.5,
                 "fps": 30,
                 "font_scale": self.font_scale_slider.value() / 100.0,
+                "reduced_motion": bool(
+                    getattr(self, "reduced_motion_cb", None)
+                    and self.reduced_motion_cb.isChecked()
+                ),
             },
             "character": {"name": "梅尔", "default_outfit": "01", "default_direction": "A"},
             "sprite_dir": "./sprites",

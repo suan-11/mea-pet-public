@@ -32,6 +32,28 @@ class TtsPageGsvMixin:
             self.gsv_dir_input.setText(folder)
             self._check_gsv()
 
+    def _browse_gsv_ref_wav(self):
+        """选择固定 GPT-SoVITS 参考音频。"""
+        current = ""
+        if hasattr(self, "gsv_ref_wav_input"):
+            current = self.gsv_ref_wav_input.text().strip()
+        if current and os.path.isfile(current):
+            start_dir = os.path.dirname(current)
+        else:
+            start_dir = os.path.join(
+                os.path.dirname(CONFIG_PATH),
+                "GPT-Sovits",
+                "normal",
+            )
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 GPT-SoVITS 参考音频",
+            start_dir,
+            "WAV Audio (*.wav);;All (*.*)",
+        )
+        if path and hasattr(self, "gsv_ref_wav_input"):
+            self.gsv_ref_wav_input.setText(path)
+
     def _find_python_exe(self, base_dir):
         r"""在整合包目录中查找 runtime\python.exe"""
         candidate = os.path.join(base_dir, "runtime", "python.exe")

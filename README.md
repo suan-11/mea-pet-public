@@ -43,39 +43,6 @@
 
 > 不想用图形界面？复制 `config.example.json` 为 `config.json` 后手动编辑也一样。
 
-### 一键生成分享包
-
-维护者需要快速分享当前版本时，可以在 Windows 下直接双击：
-
-```text
-打包发布.bat
-```
-
-也可以跨平台从命令行运行：
-
-```bash
-python scripts/package_release.py
-```
-
-文件会输出到 `dist/`，其中包含 ZIP 和对应的 SHA-256 校验文件。默认分享包会
-包含运行代码、启动脚本、配置模板、Live2D、立绘、字体和项目自带参考音频，
-但不会包含 `config.json`、密钥、数据库、日志、截图、缓存、虚拟环境、离线字典
-或模型权重。Git LFS 指针只会写入包内清单，不会触发下载，也不会作为无效模型
-放进 ZIP。
-
-需要显式加入本机已有的字典和真实模型权重时，可以运行：
-
-```bash
-python scripts/package_release.py --include-optional-assets
-```
-
-打包器只从 Git 已跟踪文件中选择候选文件，并在压缩前执行高置信度密钥扫描；
-检测到私人内容、缺少启动文件或文件越过项目目录时会直接终止。若只想预览范围：
-
-```bash
-python scripts/package_release.py --dry-run
-```
-
 ### 配置向导随时可以重开
 
 桌宠右键菜单 → **`⚙ 再次配置`** → 即可重新弹出配置向导，改后端、改语音、重新检测环境。
@@ -388,6 +355,8 @@ uv pip install -r linux_requirements.txt --python .venv\Scripts\python.exe
 
 - 通过子进程调用独立整合包，不污染主进程依赖
 - 支持多参考音频目录（`clam`/`normal`/`soft`）
+- 可用 `tts.gsv_ref_wav` 指定固定 WAV，并用 `tts.gsv_ref_lang` 标明参考语言（`jp` / `zh` / `en`）；留空路径时仍按情绪自动选择
+- 固定 WAV 旁的同名 `.txt` 会作为参考文本，例如 `custom.wav` 搭配 `custom.txt`
 - 高还原力，适合需要丰富情感的语音场景
 
 ### 国内加速

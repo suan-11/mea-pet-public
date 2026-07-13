@@ -1,6 +1,7 @@
 """拆分后的回归单测：模块可导入、worker、配置读写、向导入口"""
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -886,6 +887,53 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
             self.assertEqual(text, "你好")
             self.assertEqual(lang, "中文")
 
+    def test_gsv_explicit_reference_audio_overrides_mood_directory(self):
+        from meapet.tts.engines.gsv import TtsGsvMixin
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "custom_reference.wav"
+            reference.write_bytes(b"RIFF" + b"\x00" * 100)
+            reference.with_suffix(".txt").write_text(
+                "这是参考音频的文字",
+                encoding="utf-8",
+            )
+
+            class Host(TtsGsvMixin):
+                ref_dir = str(root / "automatic-references")
+                voice_lang = "jp"
+                gsv_ref_wav = str(reference)
+                gsv_ref_lang = "zh"
+
+            wav, text, lang = Host()._get_ref_paths("sad")
+
+        self.assertEqual(wav, str(reference))
+        self.assertEqual(text, "这是参考音频的文字")
+        self.assertEqual(lang, "中文")
+
+    def test_gsv_missing_explicit_reference_falls_back_to_mood_reference(self):
+        from meapet.tts.engines.gsv import TtsGsvMixin
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            folder = root / "normal"
+            folder.mkdir()
+            fallback = folder / "jp_normal.wav"
+            fallback.write_bytes(b"RIFF" + b"\x00" * 100)
+            (folder / "jp_normal.txt").write_text("こんにちは", encoding="utf-8")
+
+            class Host(TtsGsvMixin):
+                ref_dir = str(root)
+                voice_lang = "jp"
+                gsv_ref_wav = str(root / "missing.wav")
+                gsv_ref_lang = "zh"
+
+            wav, text, lang = Host()._get_ref_paths("neutral")
+
+        self.assertEqual(wav, str(fallback))
+        self.assertEqual(text, "こんにちは")
+        self.assertEqual(lang, "日文")
+
     def test_wizard_clone_picker_starts_in_project_cache(self):
         from wizard.page_tts_mimo import QFileDialog, TtsPageMimoMixin
 
@@ -906,18 +954,27 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
         self.assertEqual(seen["filter"], "Audio (*.wav *.mp3);;All (*.*)")
 
     def test_tts_log_and_status_background_stay_project_relative(self):
-        import meapet.tts.common as common
+        import meapet.log as meapet_log
         from meapet.desktop.status_panel import BG_PATH
 
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            with (
-                mock.patch("meapet.paths.PROJECT_ROOT", root),
-                mock.patch("builtins.print"),
-            ):
-                common._safe_print("path regression probe")
-            log_path = root / "tts_debug.log"
-            self.assertIn("path regression probe", log_path.read_text(encoding="utf-8"))
+            previous_cwd = os.getcwd()
+            logger = None
+            try:
+                os.chdir(td)
+                with mock.patch(
+                    "meapet.log.logging.handlers.TimedRotatingFileHandler"
+                ) as handler_factory:
+                    logger = meapet_log.get_color_logger("tts-path-regression")
+                log_path = Path(
+                    handler_factory.call_args.kwargs["filename"]
+                ).resolve()
+            finally:
+                os.chdir(previous_cwd)
+                if logger is not None:
+                    logger.handlers.clear()
+
+            self.assertEqual(log_path.parent, (ROOT / "logs").resolve())
 
         self.assertEqual(Path(BG_PATH).resolve(), (ROOT / "ev312b.png").resolve())
 
@@ -985,6 +1042,94 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
 
         self.assertEqual(result, ("out.wav", "jp"))
         self.assertEqual(Path(calls[0][1]["cwd"]).resolve(), ROOT.resolve())
+
+    def test_gsv_payload_separates_reference_and_synthesis_languages(self):
+        from meapet.tts.engines.gsv import TtsGsvMixin
+
+        calls = []
+
+        class Result:
+            returncode = 0
+            stdout = json.dumps({"ok": True, "duration": 1.0}).encode("utf-8")
+            stderr = b""
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return Result()
+
+        host = type(
+            "Host",
+            (),
+            {
+                "python_exe": sys.executable,
+                "infer_script": str(ROOT / "meapet" / "tools" / "gsv_infer.py"),
+                "gpt_path": "gpt.ckpt",
+                "sovits_path": "sovits.pth",
+                "top_k": 15,
+                "top_p": 0.8,
+                "temperature": 0.6,
+                "speed": 1.0,
+                "sample_steps": 8,
+                "timeout": 1,
+            },
+        )()
+        with mock.patch("meapet.tts.engines.gsv.subprocess.run", side_effect=fake_run):
+            result = TtsGsvMixin._speak_gsv(
+                host,
+                "你好",
+                "out.wav",
+                "neutral",
+                "ref.wav",
+                "参考文本",
+                "日文",
+                text_lang="中文",
+            )
+
+        payload = json.loads(calls[0][1]["input"].decode("utf-8"))
+        self.assertEqual(payload["prompt_language"], "日文")
+        self.assertEqual(payload["text_language"], "中文")
+        self.assertEqual(result, ("out.wav", "zh"))
+
+    def test_gsv_reference_config_normalizes_path_and_language(self):
+        from meapet.config.store import normalize_config
+
+        config = normalize_config(
+            {
+                "tts": {
+                    "gsv_ref_wav": "  ./refs/custom.wav  ",
+                    "gsv_ref_lang": "中文",
+                }
+            }
+        )
+
+        self.assertEqual(config["tts"]["gsv_ref_wav"], "./refs/custom.wav")
+        self.assertEqual(config["tts"]["gsv_ref_lang"], "zh")
+
+    def test_wizard_tts_import_survives_stale_config_store_module(self):
+        """更新代码后，运行中的桌宠仍可能缓存旧版配置模块。"""
+        code = """
+import os
+import sys
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import meapet.config.store as store
+
+del store.normalize_gsv_ref_language
+sys.modules.pop("wizard.page_tts", None)
+
+from wizard.page_tts import TTSPage
+print(TTSPage.__name__)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TTSPage", result.stdout)
 
     def test_redaction_masks_hyphenated_secrets(self):
         from meapet.utils import redact_text

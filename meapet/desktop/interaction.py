@@ -148,15 +148,15 @@ class PetInteractionMixin:
             except RuntimeError:
                 pass
 
-    def _show_bubble(self, text: str, duration_ms: int = None):
+    def _show_bubble(self, text: str, duration_ms: int = None, mood: str | None = None):
         try:
             if duration_ms is None:
                 duration_ms = (self.config.get("bubble_duration_ms") or {}).get("default", 5000)
             stack = getattr(self, "_bubble_stack", None)
             if stack is not None:
-                self.bubble = stack.show_message(text, duration_ms)
+                self.bubble = stack.show_message(text, duration_ms, mood=mood)
             elif getattr(self, "bubble", None) is not None:
-                self.bubble.show_text(text, duration_ms)
+                self.bubble.show_text(text, duration_ms, mood=mood)
                 if hasattr(self, "_position_bubble"):
                     self._position_bubble()
         except Exception as e:

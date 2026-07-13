@@ -181,7 +181,7 @@ class TestModelArtifactValidation(unittest.TestCase):
     def test_gsv_health_rejects_lfs_pointer(self):
         with tempfile.TemporaryDirectory() as td:
             tts, _ = self._make_gsv_health_stub(Path(td), pointer=True)
-            with mock.patch("meapet.tts.service._safe_print"), mock.patch(
+            with mock.patch("meapet.tts.service.log.warning"), mock.patch(
                 "meapet.tts.service.auto_install_gsv_deps", return_value=True
             ) as install:
                 self.assertFalse(tts.health_check())
@@ -190,7 +190,7 @@ class TestModelArtifactValidation(unittest.TestCase):
     def test_gsv_health_requires_dependencies(self):
         with tempfile.TemporaryDirectory() as td:
             tts, _ = self._make_gsv_health_stub(Path(td), pointer=False)
-            with mock.patch("meapet.tts.service._safe_print"), mock.patch(
+            with mock.patch("meapet.tts.service.log.warning"), mock.patch(
                 "meapet.tts.service.auto_install_gsv_deps", return_value=False
             ):
                 self.assertFalse(tts.health_check())

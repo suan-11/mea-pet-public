@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -54,8 +55,8 @@ class _FakeBubble:
     def __init__(self):
         self.texts = []
 
-    def show_text(self, text, duration_ms=0):
-        self.texts.append((text, duration_ms))
+    def show_text(self, text, duration_ms=0, mood=None, **kwargs):
+        self.texts.append((text, duration_ms, mood))
 
 
 class _FakeTTS:
@@ -112,9 +113,9 @@ class _Composite:
         from meapet.desktop.chat_flow import PetChatFlowMixin
         return PetChatFlowMixin.show_reply(self, text, mood, duration_ms)
 
-    def _show_bubble(self, text, duration_ms=None):
+    def _show_bubble(self, text, duration_ms=None, mood=None):
         from meapet.desktop.interaction import PetInteractionMixin
-        return PetInteractionMixin._show_bubble(self, text, duration_ms)
+        return PetInteractionMixin._show_bubble(self, text, duration_ms, mood=mood)
 
     def _speak_and_show(self, text, duration_ms, mood="neutral"):
         from meapet.desktop.chat_flow import PetChatFlowMixin
@@ -196,12 +197,12 @@ class TestCrossMixinCallChain(unittest.TestCase):
 
 
 class TestFormattedChatToTtsFlow(unittest.TestCase):
-    def test_chat_completion_passes_model_mood_and_style_to_tts(self):
+    def test_chat_reply_waits_for_audio_before_showing_bubble(self):
         from PyQt5.QtCore import QTimer
 
         import meapet.desktop.chat_flow as chat_flow
 
-        captured = {}
+        captured = {"events": []}
 
         class Engine:
             _MOOD_TAGS = {"neutral", "shy"}
@@ -222,18 +223,39 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
             def start(self):
                 captured["started"] = True
 
-        class Host:
+        class FakeTTS:
+            enabled = True
+
+        class Host(chat_flow.PetChatFlowMixin):
             chat_engine = Engine()
-            tts = object()
+            tts = FakeTTS()
             _awaiting_reply = True
+            config = {
+                "bubble_duration_ms": {"reply": 1000},
+                "tts": {"sync_with_audio": True},
+            }
 
             @staticmethod
             def _detect_mood(_text):
                 raise AssertionError("模型 mood 有效时不应重新猜测")
 
             @staticmethod
-            def show_reply(text, mood):
-                captured.update(display=text, display_mood=mood)
+            def show_reply(text, mood, duration_ms=None):
+                captured.update(
+                    display=text,
+                    display_mood=mood,
+                    display_duration_ms=duration_ms,
+                )
+                captured["events"].append("bubble")
+
+            @staticmethod
+            def _get_wav_duration_ms(_path):
+                return 1200
+
+            @staticmethod
+            def _play_audio(path):
+                captured["played"] = path
+                captured["events"].append("audio")
 
             @staticmethod
             def _ensure_tts_poll():
@@ -254,13 +276,178 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
                 "shy",
             )
 
-        self.assertEqual(captured["display"], "才没有等你回来喵")
-        self.assertEqual(captured["display_mood"], "shy")
+        self.assertNotIn("display", captured)
+        self.assertTrue(host._awaiting_reply)
         self.assertEqual(captured["text"], "べ、別に待ってないにゃ")
         self.assertEqual(captured["mood"], "shy")
         self.assertEqual(captured["style"], "保持参考音色。情绪：害羞。")
         self.assertTrue(captured["started"])
         self.assertTrue(captured["polling"])
+
+        with tempfile.TemporaryDirectory() as td:
+            wav_path = Path(td) / "reply.wav"
+            wav_path.write_bytes(b"RIFF" + b"\x00" * 40)
+            chat_flow.PetChatFlowMixin._on_tts_audio(
+                host,
+                f"{wav_path}|jp",
+            )
+
+        self.assertEqual(captured["display"], "才没有等你回来喵")
+        self.assertEqual(captured["display_mood"], "shy")
+        self.assertEqual(captured["display_duration_ms"], 1700)
+        self.assertEqual(captured["events"], ["bubble", "audio"])
+        self.assertFalse(host._awaiting_reply)
+
+    def test_chat_reply_falls_back_to_text_when_tts_returns_no_audio(self):
+        import meapet.desktop.chat_flow as chat_flow
+
+        displayed = []
+
+        class DoneWorker:
+            done = True
+
+            @staticmethod
+            def get_result():
+                return None
+
+        class Host(chat_flow.PetChatFlowMixin):
+            _awaiting_reply = True
+            _pending_chat_reply = ("语音失败也要显示喵", "neutral")
+            _tts_worker = DoneWorker()
+            config = {
+                "bubble_duration_ms": {"reply": 3000},
+                "tts": {"sync_with_audio": False},
+            }
+
+            @staticmethod
+            def show_reply(text, mood, duration_ms=None):
+                displayed.append((text, mood, duration_ms))
+
+        host = Host()
+        chat_flow.PetChatFlowMixin._poll_tts(host)
+
+        self.assertEqual(displayed, [("语音失败也要显示喵", "neutral", None)])
+        self.assertFalse(host._awaiting_reply)
+
+    def test_chat_reply_shows_immediately_when_tts_is_disabled(self):
+        from PyQt5.QtCore import QTimer
+
+        import meapet.desktop.chat_flow as chat_flow
+
+        displayed = []
+
+        class Engine:
+            _MOOD_TAGS = {"neutral"}
+
+            @staticmethod
+            def take_voice_text():
+                return ""
+
+            @staticmethod
+            def take_tts_style():
+                return ""
+
+        class DisabledTTS:
+            enabled = False
+
+        class Host(chat_flow.PetChatFlowMixin):
+            chat_engine = Engine()
+            tts = DisabledTTS()
+            _awaiting_reply = True
+
+            @staticmethod
+            def show_reply(text, mood, duration_ms=None):
+                displayed.append((text, mood, duration_ms))
+
+            @staticmethod
+            def _detect_mood(_text):
+                return "neutral"
+
+            @staticmethod
+            def _do_memory_ops(_reply, _mood):
+                pass
+
+        host = Host()
+        with (
+            mock.patch.object(
+                chat_flow,
+                "TTSWorker",
+                side_effect=AssertionError("TTS 关闭时不应创建 worker"),
+            ),
+            mock.patch.object(QTimer, "singleShot"),
+        ):
+            chat_flow.PetChatFlowMixin._on_chat_done(
+                host,
+                "这次只显示文字喵",
+                "neutral",
+            )
+
+        self.assertEqual(displayed, [("这次只显示文字喵", "neutral", None)])
+        self.assertFalse(host._awaiting_reply)
+
+    def test_chat_reply_falls_back_when_tts_worker_cannot_start(self):
+        from PyQt5.QtCore import QTimer
+
+        import meapet.desktop.chat_flow as chat_flow
+
+        displayed = []
+
+        class Engine:
+            _MOOD_TAGS = {"neutral"}
+
+            @staticmethod
+            def take_voice_text():
+                return ""
+
+            @staticmethod
+            def take_tts_style():
+                return ""
+
+        class EnabledTTS:
+            enabled = True
+
+        class BrokenWorker:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            @staticmethod
+            def start():
+                raise RuntimeError("worker start failed")
+
+        class Host(chat_flow.PetChatFlowMixin):
+            chat_engine = Engine()
+            tts = EnabledTTS()
+            _awaiting_reply = True
+
+            @staticmethod
+            def show_reply(text, mood, duration_ms=None):
+                displayed.append((text, mood, duration_ms))
+
+            @staticmethod
+            def _detect_mood(_text):
+                return "neutral"
+
+            @staticmethod
+            def _ensure_tts_poll():
+                raise AssertionError("启动失败时不应轮询")
+
+            @staticmethod
+            def _do_memory_ops(_reply, _mood):
+                pass
+
+        host = Host()
+        with (
+            mock.patch.object(chat_flow, "TTSWorker", BrokenWorker),
+            mock.patch.object(QTimer, "singleShot"),
+        ):
+            chat_flow.PetChatFlowMixin._on_chat_done(
+                host,
+                "启动失败也要显示喵",
+                "neutral",
+            )
+
+        self.assertEqual(displayed, [("启动失败也要显示喵", "neutral", None)])
+        self.assertFalse(host._awaiting_reply)
 
 
 class TestRequiredSurfaceOnMeaPetSource(unittest.TestCase):

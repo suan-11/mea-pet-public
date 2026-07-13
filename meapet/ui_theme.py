@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import math
 import re
 import sys
@@ -249,3 +251,63 @@ def _relative_luminance(color: str) -> float:
         for channel in channels
     ]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def resolve_reduced_motion(config_value: object | None = None) -> bool:
+    """合并配置项、显式环境变量与常见系统减少动画启发式。
+
+    优先级：
+    1. ``config_value`` 若为 True → 开启
+    2. 环境变量 ``MEAPET_REDUCED_MOTION``
+    3. Linux: ``gsettings`` / ``org.gnome.desktop.interface enable-animations``
+    4. 默认 False
+    """
+    if config_value is True or str(config_value).strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    if config_value is False:
+        # 用户在配置中明确关闭时，仍允许环境变量强制开启
+        env = os.environ.get("MEAPET_REDUCED_MOTION", "").strip().lower()
+        if env in {"1", "true", "yes", "on"}:
+            return True
+        if env in {"0", "false", "no", "off"}:
+            return False
+    else:
+        env = os.environ.get("MEAPET_REDUCED_MOTION", "").strip().lower()
+        if env in {"1", "true", "yes", "on"}:
+            return True
+        if env in {"0", "false", "no", "off"}:
+            return False
+
+    # 系统启发式（失败则忽略）
+    try:
+        import subprocess
+        import shutil
+
+        if shutil.which("gsettings"):
+            out = subprocess.run(
+                [
+                    "gsettings",
+                    "get",
+                    "org.gnome.desktop.interface",
+                    "enable-animations",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=0.4,
+                check=False,
+            )
+            val = (out.stdout or "").strip().lower()
+            if val in {"false", "0"}:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def apply_reduced_motion_env(enabled: bool) -> None:
+    """把减少动画偏好写入进程环境，供气泡/输入等模块读取。"""
+    if enabled:
+        os.environ["MEAPET_REDUCED_MOTION"] = "1"
+    else:
+        # 仅在我们写入 1 时清理；若用户外部强制 0/1 也统一落到当前偏好
+        os.environ.pop("MEAPET_REDUCED_MOTION", None)

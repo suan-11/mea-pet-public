@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
+from meapet.desktop import status_language
+from meapet.desktop.icons import standard_icon
 from meapet.desktop.theme import COLOR_ACCENT, COLOR_ACCENT_2, COLOR_TEXT, MENU_STYLE
 from meapet.paths import PROJECT_ROOT
 from meapet.ui_theme import set_scaled_stylesheet
@@ -57,29 +59,11 @@ class PetWindowChromeMixin:
             icon = QIcon(pm)
 
         self.tray = QSystemTrayIcon(icon, self)
-        self.tray.setToolTip("梅尔桌宠 · MeaPet")
+        self.tray.setToolTip(status_language.tray_running_tooltip())
 
-        menu = QMenu()
-        set_scaled_stylesheet(menu, MENU_STYLE)
-        show_action = QAction("显示 / 隐藏", self)
-        show_action.triggered.connect(self._toggle_visibility)
-        menu.addAction(show_action)
-        snap_tray = QAction("看看我在干嘛", self)
-        snap_tray.triggered.connect(lambda: self._do_screen_watch(force=True))
-        menu.addAction(snap_tray)
-        menu.addSeparator()
-        auto_started = self._is_auto_start()
-        auto_tray_action = QAction("开机自启", self)
-        auto_tray_action.setCheckable(True)
-        auto_tray_action.setChecked(auto_started)
-        auto_tray_action.triggered.connect(self._toggle_auto_start)
-        menu.addAction(auto_tray_action)
-        menu.addSeparator()
-        quit_action = QAction("退出", self)
-        quit_action.triggered.connect(self._quit)
-        menu.addAction(quit_action)
-
+        menu = self._build_tray_menu()
         self.tray.setContextMenu(menu)
+        self._refresh_tray_state()
         try:
             self.tray.activated.connect(self._on_tray_activated)
         except Exception:
@@ -97,16 +81,19 @@ class PetWindowChromeMixin:
             pass
 
     def _on_tray_activated(self, reason):
-        # 单击/双击托盘：显示桌宠
+        # 单击/双击托盘：显示桌宠；待机时顺带唤醒
         try:
             if reason in (
                 QSystemTrayIcon.Trigger,
                 QSystemTrayIcon.DoubleClick,
                 QSystemTrayIcon.MiddleClick,
             ):
+                if getattr(self, "_standby", False):
+                    self._toggle_standby()
                 self.show()
                 self.raise_()
                 self.activateWindow()
+                self._refresh_tray_state()
         except Exception:
             pass
 
@@ -225,6 +212,66 @@ class PetWindowChromeMixin:
             winreg.CloseKey(key)
             self._show_bubble("已开启开机自启喵 🖥️", 2000)
 
+
+    def _build_tray_menu(self) -> QMenu:
+        """托盘菜单：提供待机恢复与基础控制。"""
+        menu = QMenu()
+        set_scaled_stylesheet(menu, MENU_STYLE)
+        menu.setAccessibleName("MeaPet 托盘菜单")
+
+        show_action = QAction("显示 / 隐藏", self)
+        show_action.setIcon(standard_icon("show"))
+        show_action.triggered.connect(self._toggle_visibility)
+        menu.addAction(show_action)
+
+        if getattr(self, "_standby", False):
+            wake = QAction(status_language.tray_recover_standby(), self)
+            wake.setIcon(standard_icon("wake"))
+            wake.triggered.connect(self._recover_from_standby)
+            menu.addAction(wake)
+        else:
+            snap_tray = QAction("看看我在干嘛", self)
+            snap_tray.setIcon(standard_icon("watch"))
+            snap_tray.triggered.connect(lambda: self._do_screen_watch(force=True))
+            menu.addAction(snap_tray)
+
+        menu.addSeparator()
+        auto_started = self._is_auto_start()
+        auto_tray_action = QAction("开机自启", self)
+        auto_tray_action.setIcon(standard_icon("autostart"))
+        auto_tray_action.setCheckable(True)
+        auto_tray_action.setChecked(auto_started)
+        auto_tray_action.triggered.connect(self._toggle_auto_start)
+        menu.addAction(auto_tray_action)
+        menu.addSeparator()
+        quit_action = QAction("退出", self)
+        quit_action.setIcon(standard_icon("quit"))
+        quit_action.triggered.connect(self._quit)
+        menu.addAction(quit_action)
+        return menu
+
+    def _recover_from_standby(self) -> None:
+        if getattr(self, "_standby", False) and hasattr(self, "_toggle_standby"):
+            self._toggle_standby()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._refresh_tray_state()
+
+    def _refresh_tray_state(self) -> None:
+        tray = getattr(self, "tray", None)
+        if tray is None:
+            return
+        try:
+            if getattr(self, "_standby", False):
+                tray.setToolTip(status_language.tray_standby_tooltip())
+            else:
+                tray.setToolTip(status_language.tray_running_tooltip())
+            # 重建菜单以刷新待机项
+            tray.setContextMenu(self._build_tray_menu())
+        except Exception:
+            pass
+
     def _build_context_menu(self) -> QMenu:
         """构建分组菜单；根层只保留高频操作和清晰的功能入口。"""
         menu = QMenu(self)
@@ -233,15 +280,18 @@ class PetWindowChromeMixin:
         menu.setAccessibleName("MeaPet 操作菜单")
 
         status_action = QAction("养成状态", self)
+        status_action.setIcon(standard_icon("status"))
         status_action.triggered.connect(self._show_status_panel)
         menu.addAction(status_action)
 
         snap_action = QAction("看看我在干嘛", self)
+        snap_action.setIcon(standard_icon("watch"))
         snap_action.triggered.connect(lambda: self._do_screen_watch(force=True))
         menu.addAction(snap_action)
         menu.addSeparator()
 
         expr_menu = QMenu("切换表情", self)
+        expr_menu.setIcon(standard_icon("expression"))
         expr_menu.setObjectName("ExpressionMenu")
         set_scaled_stylesheet(expr_menu, MENU_STYLE)
         expr_menu.setAccessibleName("切换表情")
@@ -266,6 +316,7 @@ class PetWindowChromeMixin:
             vision_cfg.get("backend") or llm_cfg.get("backend") or "ollama"
         ).lower()
         vision_menu = QMenu("识图与观察", self)
+        vision_menu.setIcon(standard_icon("watch"))
         vision_menu.setObjectName("VisionAndWatchMenu")
         set_scaled_stylesheet(vision_menu, MENU_STYLE)
         vision_menu.setAccessibleName("识图与观察设置")
@@ -298,22 +349,36 @@ class PetWindowChromeMixin:
 
         vision_menu.addSeparator()
         w_enabled = self.config.get("watcher", {}).get("enabled", False)
-        watch_text = "关闭屏幕观察" if w_enabled else "开启屏幕观察"
+        watch_text = (
+            status_language.menu_watch_disable()
+            if w_enabled
+            else status_language.menu_watch_enable()
+        )
         watch_action = QAction(watch_text, self)
+        watch_action.setToolTip("开启后可能定时截取屏幕内容")
         watch_action.triggered.connect(self._toggle_watcher_enabled)
         vision_menu.addAction(watch_action)
 
-        standby_text = "取消待机" if self._standby else "待机（暂停识图）"
+        standby_text = (
+            status_language.menu_standby_leave()
+            if self._standby
+            else status_language.menu_standby_enter()
+        )
         standby_action = QAction(standby_text, self)
         standby_action.triggered.connect(self._toggle_standby)
         vision_menu.addAction(standby_action)
         menu.addMenu(vision_menu)
 
         display_menu = QMenu("显示与立绘", self)
+        display_menu.setIcon(standard_icon("display"))
         display_menu.setObjectName("DisplayMenu")
         set_scaled_stylesheet(display_menu, MENU_STYLE)
         display_menu.setAccessibleName("显示与立绘设置")
-        mode_text = "切回 PNG 立绘" if self._use_live2d else "切换到 Live2D"
+        mode_text = (
+            status_language.menu_render_to_png()
+            if self._use_live2d
+            else status_language.menu_render_to_live2d()
+        )
         mode_action = QAction(mode_text, self)
         mode_action.triggered.connect(self._toggle_render_mode)
         display_menu.addAction(mode_action)
@@ -324,6 +389,7 @@ class PetWindowChromeMixin:
         menu.addMenu(display_menu)
 
         settings_menu = QMenu("设置与数据", self)
+        settings_menu.setIcon(standard_icon("settings"))
         settings_menu.setObjectName("SettingsAndDataMenu")
         set_scaled_stylesheet(settings_menu, MENU_STYLE)
         settings_menu.setAccessibleName("设置与数据")
@@ -340,12 +406,14 @@ class PetWindowChromeMixin:
         settings_menu.addSeparator()
         reset_action = QAction("重置所有记忆…", self)
         reset_action.setObjectName("DangerAction")
+        reset_action.setIcon(standard_icon("reset"))
         reset_action.triggered.connect(self._reset_memory)
         settings_menu.addAction(reset_action)
         menu.addMenu(settings_menu)
 
         menu.addSeparator()
         quit_action = QAction("退出", self)
+        quit_action.setIcon(standard_icon("quit"))
         quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
         return menu

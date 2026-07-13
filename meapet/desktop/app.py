@@ -60,6 +60,7 @@ from meapet.desktop.window_chrome import PetWindowChromeMixin
 from meapet.desktop.render_host import PetRenderHostMixin, calculate_drag_position
 from meapet.desktop.config_bridge import PetConfigBridgeMixin
 from meapet.desktop.splash import StartupSplash
+from meapet.desktop import status_language
 
 os.environ.setdefault("QT_MULTIMEDIA_PREFERRED_PLUGINS", "windowsmediafoundation")
 
@@ -113,11 +114,12 @@ class MeaPet(
             self._config_broken = False
 
         self.config = normalize_config(self.config)
-        from meapet.ui_theme import set_ui_font_scale
+        from meapet.ui_theme import resolve_reduced_motion, apply_reduced_motion_env, set_ui_font_scale
 
         set_ui_font_scale(
             (self.config.get("display") or {}).get("font_scale", 1.0)
         )
+        self._apply_motion_preference()
         bub = self.config.get("bubble_duration_ms") or {}
         log.info(
             f"[config] 气泡时长配置: "
@@ -215,6 +217,28 @@ class MeaPet(
         self.chat_engine = create_engine_from_config(self.config, self.memory)
         if self.chat_engine.backend == "ollama" and self.chat_engine.available:
             QTimer.singleShot(2000, self._show_warmup_status)
+        QTimer.singleShot(1200, self._maybe_show_first_run_hint)
+
+    def _apply_motion_preference(self) -> None:
+        """合并配置 / 环境 / 系统启发式，同步到 MEAPET_REDUCED_MOTION。"""
+        from meapet.ui_theme import apply_reduced_motion_env, resolve_reduced_motion
+
+        reduced = resolve_reduced_motion(
+            (self.config.get("display") or {}).get("reduced_motion", None)
+        )
+        apply_reduced_motion_env(reduced)
+
+    def _maybe_show_first_run_hint(self) -> None:
+        """首次启动一次性提示；写入 config.ui.first_run_hint_shown。"""
+        ui = self.config.setdefault("ui", {})
+        if ui.get("first_run_hint_shown"):
+            return
+        self._show_bubble(status_language.first_run_hint(), 4500)
+        ui["first_run_hint_shown"] = True
+        try:
+            self._save_config()
+        except Exception:
+            pass
 
     def _schedule_memory_maintenance(self):
         """将生命周期维护放入后台线程，不阻塞启动"""
@@ -236,7 +260,7 @@ class MeaPet(
 
     def _show_warmup_status(self):
         if getattr(self.chat_engine, "_warmed_up", False):
-            self._show_bubble("梅尔准备好啦~双击对话喵", 3000)
+            self._show_bubble(status_language.ready_hint(), 3000)
 
     def _init_tts(self):
         self.tts = MeaTTS(self.config)
@@ -422,7 +446,7 @@ def main():
         log.error(f"[boot] QApplication 创建失败:\n{traceback.format_exc()}")
         raise
 
-    from meapet.ui_theme import ensure_application_fonts, set_ui_font_scale
+    from meapet.ui_theme import ensure_application_fonts, resolve_reduced_motion, apply_reduced_motion_env, set_ui_font_scale
 
     ensure_application_fonts()
 

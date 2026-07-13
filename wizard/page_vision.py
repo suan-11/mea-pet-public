@@ -48,25 +48,40 @@ class VisionPage(QFrame):
         description.setWordWrap(True)
         layout.addWidget(description)
 
-        self.enable_cb = QCheckBox("启用屏幕观察（watcher.enabled）")
+        self.enable_cb = QCheckBox("启用屏幕观察（可选，默认关闭）")
         self.enable_cb.setAccessibleDescription("定时截取屏幕并交给所选视觉模型分析")
         self.enable_cb.setChecked(False)
         layout.addWidget(self.enable_cb)
+        progressive = QLabel("可先不启用。需要时再打开，并配置识图后端。")
+        progressive.setObjectName("HelperText")
+        progressive.setWordWrap(True)
+        layout.addWidget(progressive)
+        self.advanced_toggle = QCheckBox("显示高级识图选项")
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.setAccessibleName("显示高级识图选项")
+        layout.addWidget(self.advanced_toggle)
+        self.advanced_frame = QFrame()
+        self.advanced_frame.setObjectName("SectionCard")
+        self.advanced_frame.setAccessibleName("高级识图设置")
+        self.advanced_layout = QVBoxLayout(self.advanced_frame)
+        self.advanced_layout.setContentsMargins(16, 14, 16, 14)
+        self.advanced_layout.setSpacing(10)
+        layout.addWidget(self.advanced_frame)
+        self.advanced_frame.setVisible(False)
 
         self.allow_cloud_cb = QCheckBox("允许云端识图（watcher.allow_cloud，截图会上传）")
         self.allow_cloud_cb.setChecked(False)
         self.allow_cloud_cb.setToolTip("使用 MiMo 等云端识图时必须勾选。本地 Ollama 可不勾。")
-        layout.addWidget(self.allow_cloud_cb)
+        self.advanced_layout.addWidget(self.allow_cloud_cb)
 
         self.require_confirm_label = QLabel("隐私保护：每次将截屏上传云端前都必须确认（不可关闭）")
         self.require_confirm_label.setProperty("status", "success")
         self.require_confirm_label.setWordWrap(True)
-        layout.addWidget(self.require_confirm_label)
+        self.advanced_layout.addWidget(self.require_confirm_label)
 
-
-        backend_label = QLabel("识图后端：")
-        backend_label.setObjectName("FieldLabel")
-        layout.addWidget(backend_label)
+        self.backend_label = QLabel("识图后端：")
+        self.backend_label.setObjectName("FieldLabel")
+        self.advanced_layout.addWidget(self.backend_label)
         self.backend_combo = QComboBox()
         self.backend_combo.setObjectName("VisionBackend")
         self.backend_combo.setAccessibleName("识图后端")
@@ -74,26 +89,28 @@ class VisionPage(QFrame):
         self.backend_combo.addItem("MiMo 云端识图", "mimo")
         self.backend_combo.addItem("Ollama 本地识图", "ollama")
         self.backend_combo.currentIndexChanged.connect(self._on_backend_changed)
-        layout.addWidget(self.backend_combo)
+        self.advanced_toggle.toggled.connect(self._sync_advanced_visibility)
+        self.enable_cb.toggled.connect(self._sync_advanced_visibility)
+        self.advanced_layout.addWidget(self.backend_combo)
 
         self.model_label = QLabel("本地视觉模型：")
         self.model_label.setObjectName("FieldLabel")
-        layout.addWidget(self.model_label)
+        self.advanced_layout.addWidget(self.model_label)
         self.model_combo = QComboBox()
         self.model_combo.setObjectName("VisionModel")
         self.model_combo.setAccessibleName("本地视觉模型")
         self.model_combo.addItem("qwen3.5:4b（多模态，推荐）", "qwen3.5:4b")
-        layout.addWidget(self.model_combo)
+        self.advanced_layout.addWidget(self.model_combo)
 
         self.host_label = QLabel("Ollama 地址（可空=用对话配置）：")
         self.host_label.setObjectName("FieldLabel")
-        layout.addWidget(self.host_label)
+        self.advanced_layout.addWidget(self.host_label)
         self.host_input = QLineEdit()
         self.host_input.setObjectName("VisionOllamaHost")
         self.host_input.setPlaceholderText("http://127.0.0.1:11434")
         self.host_input.setStyleSheet(STYLE_INPUT)
         self.host_input.setAccessibleName("识图 Ollama 地址")
-        layout.addWidget(self.host_input)
+        self.advanced_layout.addWidget(self.host_input)
 
         # 云端专用 Key（可空=复用对话 MiMo Key）
         self.cloud_box = QFrame()
@@ -118,11 +135,11 @@ class VisionPage(QFrame):
         self.api_base_input.setStyleSheet(STYLE_INPUT)
         self.api_base_input.setAccessibleName("云端识图 API 地址")
         cloud_l.addWidget(self.api_base_input)
-        layout.addWidget(self.cloud_box)
+        self.advanced_layout.addWidget(self.cloud_box)
 
         interval_label = QLabel("观察间隔（分钟，随机在最小~最大之间）：")
         interval_label.setObjectName("FieldLabel")
-        layout.addWidget(interval_label)
+        self.advanced_layout.addWidget(interval_label)
         row = QHBoxLayout()
         self.min_min_input = QLineEdit("3")
         self.min_min_input.setObjectName("WatchIntervalMinimum")
@@ -145,18 +162,30 @@ class VisionPage(QFrame):
         row.addWidget(maximum_label)
         row.addWidget(self.max_min_input)
         row.addStretch()
-        layout.addLayout(row)
+        self.advanced_layout.addLayout(row)
 
         self.hint = QLabel("")
         self.hint.setWordWrap(True)
         self.hint.setProperty("status", "warning")
         self.hint.setAccessibleName("识图设置提示")
-        layout.addWidget(self.hint)
+        self.advanced_layout.addWidget(self.hint)
 
         layout.addStretch()
         self._on_backend_changed()
 
-    def _on_backend_changed(self):
+        self._sync_advanced_visibility()
+
+    def _sync_advanced_visibility(self, *_args) -> None:
+        """未启用且未展开时隐藏高级识图细节，降低首次配置负担。"""
+        show = bool(
+            self.advanced_toggle.isChecked() or self.enable_cb.isChecked()
+        )
+        self.advanced_frame.setVisible(show)
+        if show and hasattr(self, "_on_backend_changed"):
+            # 恢复后端相关的二次显隐（云端框等）
+            self._on_backend_changed()
+
+    def _on_backend_changed(self, *_args):
         data = self.backend_combo.currentData()
         is_ollama = data == "ollama"
         is_mimo = data == "mimo"
@@ -227,7 +256,7 @@ class VisionPage(QFrame):
             self.max_min_input.setText(str(max(1, int(max_ms) // 60000)))
         except Exception:
             pass
-        self._on_backend_changed()
+        self._sync_advanced_visibility()
 
     def collect(self, llm_backend: str, llm_cfg: dict) -> dict:
         """返回 vision + watcher 片段。"""

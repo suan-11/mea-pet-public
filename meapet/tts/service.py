@@ -14,6 +14,7 @@ import unicodedata
 import uuid
 from typing import Optional
 
+from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.utils import audio_cache_key, legacy_audio_cache_name, debug_enabled
 from meapet.log import get_color_logger
 
@@ -109,6 +110,13 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         # 参考音频目录（转绝对路径）
         ref_dir_raw = tts_cfg.get("ref_dir", "GPT-Sovits")
         self.ref_dir = os.path.normpath(ref_dir_raw if os.path.isabs(ref_dir_raw) else os.path.join(base_dir, ref_dir_raw))
+        gsv_ref_raw = str(tts_cfg.get("gsv_ref_wav") or "").strip()
+        if gsv_ref_raw and not os.path.isabs(gsv_ref_raw):
+            gsv_ref_raw = os.path.join(base_dir, gsv_ref_raw)
+        self.gsv_ref_wav = os.path.normpath(gsv_ref_raw) if gsv_ref_raw else ""
+        self.gsv_ref_lang = normalize_gsv_ref_language(
+            tts_cfg.get("gsv_ref_lang")
+        )
 
         # 合成参数（平衡稳定性和完整性）
         # top_k/top_p/temperature 太低会导致 GPT 提前截断（只输出语气词）
@@ -532,26 +540,40 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
             "ニャにゃ"
         )
+        text_lang = self._gsv_language_label(self.voice_lang)
         if has_kana:
             log.info("已是日语，跳过翻译")
             tts_text = clean
+            text_lang = "日文"
         elif self.translate_enabled:
             log.info("无日语行，回退翻译…")
             jp = self._translate_to_jp(clean)
             if jp and len(jp) >= 2:
                 tts_text = jp
+                text_lang = "日文"
             else:
                 tts_text = clean
         else:
             tts_text = clean
 
-        log.info(f"合成: lang=jp chars={len(tts_text)}")
+        log.info(
+            f"合成: lang={self._gsv_language_tag(text_lang)} "
+            f"chars={len(tts_text)}"
+        )
         if debug_enabled():
             log.debug(f"合成: {tts_text[:60]}")
 
         if self._vits_mode:
             return self._speak_vits(tts_text, output_wav)
-        return self._speak_gsv(tts_text, output_wav, mood, ref_wav, ref_text, ref_lang)
+        return self._speak_gsv(
+            tts_text,
+            output_wav,
+            mood,
+            ref_wav,
+            ref_text,
+            ref_lang,
+            text_lang=text_lang,
+        )
 
 
     async def speak_async(

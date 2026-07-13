@@ -5,15 +5,16 @@ import os
 import sys
 from collections.abc import Callable
 
-from PyQt5.QtWidgets import QApplication, QDialog, QLabel
-from PyQt5.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer
-from PyQt5.QtGui import QPainterPath, QRegion
+from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtCore import QPoint, QRect, QSize, Qt, QTimer
+from PyQt5.QtGui import QRegion
 
-from meapet.desktop.renderer import SpriteRenderer
+from meapet.desktop.renderer import SpriteCanvas, SpriteRenderer
 from meapet.desktop.widgets import (
     SizeScaleDialog,
     calculate_bubble_stack_opacities,
 )
+from meapet.desktop import status_language
 from meapet.utils import safe_print
 
 
@@ -333,7 +334,7 @@ class PetRenderHostMixin:
             sprite_dir = project_path("sprites")
         outfit = char.get("default_outfit", "01")
         direction = char.get("default_direction", "A")
-        self.sprite_label = QLabel(self)
+        self.sprite_label = SpriteCanvas(self)
         self.sprite_label.setAttribute(Qt.WA_TranslucentBackground)
         self.sprite_label.setStyleSheet("background: transparent;")
         self.sprite_label.setAttribute(Qt.WA_TransparentForMouseEvents, False)
@@ -342,12 +343,18 @@ class PetRenderHostMixin:
         safe_print(f"[toggle] PNG renderer 创建成功: {self.renderer is not None}")
         self.renderer.expression_changed.connect(self._on_sprite_changed)
         self._update_sprite()
+        if hasattr(self.renderer, "preload_scaled_frames"):
+            self.renderer.preload_scaled_frames(
+                self.sprite_label.width(),
+                self.sprite_label.height(),
+            )
         self.renderer.start_blink_animation()
 
     def _start_live2d_renderer(self):
         """创建 Live2D 控件，但把可见性推迟到它报告真实首帧以后。"""
         from meapet.desktop.live2d_widget import init_live2d
 
+        self._clear_window_region()
         init_live2d()
         self._use_live2d = True
         self._l2d_pending = True
@@ -432,7 +439,7 @@ class PetRenderHostMixin:
         """清理未就绪的 OpenGL 控件，并在同一最终位置显现 PNG。"""
         safe_print(f"[pet] Live2D 不可用，回退 PNG: {reason}")
         old_widget = self.sprite_label
-        if old_widget is not None and not isinstance(old_widget, QLabel):
+        if old_widget is not None and not isinstance(old_widget, SpriteCanvas):
             try:
                 if hasattr(old_widget, "shutdown"):
                     old_widget.shutdown()
@@ -476,8 +483,7 @@ class PetRenderHostMixin:
         widget.initialization_failed.connect(
             self._on_live2d_initialization_failed
         )
-        w0 = max(80, int(400 * self._size_factor))
-        h0 = max(80, int(660 * self._size_factor))
+        w0, h0 = self._scaled_live2d_size(self._size_factor)
         widget.move(0, 0)
         widget.resize(w0, h0)
         self.resize(w0, h0)
@@ -488,6 +494,26 @@ class PetRenderHostMixin:
         if self._use_live2d and self._l2d_model:
             return self._l2d_model
         return self.renderer
+
+    def _live2d_base_size(self) -> tuple[int, int]:
+        model = getattr(self, "_l2d_model", None)
+        if model is not None:
+            try:
+                width, height = model.get_suggested_size()
+                width = int(width)
+                height = int(height)
+                if width > 0 and height > 0:
+                    return width, height
+            except (AttributeError, TypeError, ValueError):
+                pass
+        return 525, 735
+
+    def _scaled_live2d_size(self, factor: float) -> tuple[int, int]:
+        base_w, base_h = self._live2d_base_size()
+        return (
+            max(80, round(base_w * factor)),
+            max(80, round(base_h * factor)),
+        )
 
     def _safe_set_mood(self, mood: str):
         r = self._safe_renderer()
@@ -505,17 +531,28 @@ class PetRenderHostMixin:
         pixmap = self.renderer.get_current_pixmap()
         if pixmap.isNull():
             return
-        scaled = pixmap.scaled(
-            int(pixmap.width() * self._scale * self._size_factor),
-            int(pixmap.height() * self._scale * self._size_factor),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation,
-        )
-        self.sprite_label.setPixmap(scaled)
-        sw, sh = scaled.width(), scaled.height()
-        self.sprite_label.move(0, 0)
-        self.sprite_label.resize(scaled.size())
-        self.resize(scaled.size())
+        target_w = int(pixmap.width() * self._scale * self._size_factor)
+        target_h = int(pixmap.height() * self._scale * self._size_factor)
+        if hasattr(self.renderer, "get_scaled_pixmap"):
+            scaled = self.renderer.get_scaled_pixmap(target_w, target_h)
+        else:
+            scaled = pixmap.scaled(
+                target_w,
+                target_h,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        target_size = scaled.size()
+        if self.sprite_label.pos() != QPoint(0, 0):
+            self.sprite_label.move(0, 0)
+        if self.sprite_label.size() != target_size:
+            self.sprite_label.resize(target_size)
+        if self.size() != target_size:
+            self.resize(target_size)
+        if hasattr(self.sprite_label, "set_frame"):
+            self.sprite_label.set_frame(scaled)
+        else:
+            self.sprite_label.setPixmap(scaled)
 
     def _on_sprite_changed(self, code: str):
         self._update_sprite()
@@ -523,9 +560,8 @@ class PetRenderHostMixin:
     def _size_factor_preview(self, factor: float):
         self._size_factor = factor
         if self._use_live2d and self.sprite_label:
-            base_w, base_h = 400, 660
-            new_w = max(80, int(base_w * factor))
-            new_h = max(80, int(base_h * factor))
+            self._clear_window_region()
+            new_w, new_h = self._scaled_live2d_size(factor)
             self.sprite_label.resize(new_w, new_h)
             self.resize(new_w, new_h)
             self._apply_hit_region()
@@ -623,46 +659,28 @@ class PetRenderHostMixin:
             f"-> pos=({x},{y}) size={w}x{h}"
         )
 
-    def _apply_hit_region(self):
-        ws=9     #椭圆大小
-        ra=1.4     #宽：高（好吧不是严格的）
-        c_bttm=120*self._size_factor      #椭圆窗口底部裁切
+    def _clear_window_region(self):
+        """移除会裁剪可见内容的 Qt/Win32 窗口区域。"""
+        self.clearMask()
         if sys.platform == "win32":
             try:
                 import win32gui
-                hwnd = int(self.winId())
-                w, h = self.width(), self.height()
-                if not (w > 0 and h > 0):
-                    return
-                if self._use_live2d:
-                    m = w // (ws//ra)
-                    t = h // ws
-                    rgn = win32gui.CreateEllipticRgnIndirect((m, t, w - m, h - t - c_bttm))
-                else:
-                    rgn = win32gui.CreateRoundRectRgn(0, 0, w, h, 0, 0)
-                win32gui.SetWindowRgn(hwnd, rgn, True)
-                return
-            except Exception as e:
-                safe_print(f"[WARN] Win32 hit region failed, fallback to Qt mask: {e}")
 
-        w, h = self.width(), self.height()
-        if w <= 0 or h <= 0:
-            return
-        if self._use_live2d:
-            path = QPainterPath()
-            mx,my=w//ws*ra,h//ws
-            path.addEllipse(QRectF(mx, my, w - 2*mx, h - 2*my - c_bttm))
-            region = QRegion(path.toFillPolygon().toPolygon())
-        else:
-            region = QRegion(0, 0, w, h)
-        self.setMask(region)
+                win32gui.SetWindowRgn(int(self.winId()), 0, True)
+            except Exception as e:
+                safe_print(f"[WARN] Win32 window region reset failed: {e}")
+
+    def _apply_hit_region(self):
+        # QWidget mask / SetWindowRgn 同时影响鼠标和可见内容；透明像素的
+        # 精细命中应由控件事件处理，正常显示阶段始终保留完整绘制表面。
+        self._clear_window_region()
 
     def _toggle_standby(self):
         self._standby = not self._standby
         if self._standby:
             self._watcher_timer.stop()
             self._safe_set_expression("011")
-            self._show_bubble("💤 梅尔酱待机中……", 0)
+            self._show_bubble(status_language.standby_on(), 0)
             self._position_bubble()
             self._apply_hit_region()
         else:
@@ -672,12 +690,16 @@ class PetRenderHostMixin:
                 clear_bubbles()
             elif hasattr(self, "bubble") and self.bubble:
                 self.bubble.hide()
-            self._show_bubble("✨ 梅尔酱回来了喵～", 2500)
+            self._show_bubble(status_language.standby_off(), 2500)
             self._position_bubble()
             self._apply_hit_region()
             self._start_watcher_timer()
+        refresh_tray = getattr(self, "_refresh_tray_state", None)
+        if callable(refresh_tray):
+            refresh_tray()
 
     def _toggle_render_mode(self):
+        self._clear_window_region()
         if self._use_live2d:
             if self.sprite_label:
                 self.sprite_label.shutdown()
@@ -690,7 +712,7 @@ class PetRenderHostMixin:
             self._live2d_startup_widget = None
             self._init_png_renderer()
             self._apply_hit_region()
-            self._show_bubble("🎭 切回 PNG 立绘喵～", 2500)
+            self._show_bubble("已切回 PNG 立绘喵", 2500)
             self.config.setdefault("live2d", {})["enabled"] = False
             self._save_config()
         else:
@@ -716,7 +738,7 @@ class PetRenderHostMixin:
 
             def announce_mode_change():
                 if self._use_live2d:
-                    self._show_bubble("🎭 Live2D 模式喵～", 2500)
+                    self._show_bubble("已切换到 Live2D 喵", 2500)
                 else:
                     self._show_bubble("Live2D 加载失败，已切回 PNG 喵", 3000)
 

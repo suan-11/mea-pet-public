@@ -6,6 +6,8 @@ import os
 import subprocess
 import time
 from typing import Optional
+
+from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.paths import project_root
 from meapet.log import get_color_logger
 from meapet.utils import debug_enabled
@@ -13,18 +15,38 @@ from meapet.tts.common import LANG_TTS, MOOD_TO_REF
 
 log = get_color_logger("tts")
 
+_GSV_LANGUAGE_LABELS = {
+    "jp": LANG_TTS,
+    "zh": "中文",
+    "en": "英文",
+}
+
+
+def _gsv_language_label(value: object) -> str:
+    return _GSV_LANGUAGE_LABELS[normalize_gsv_ref_language(value)]
+
+
+def _gsv_language_tag(value: object) -> str:
+    return normalize_gsv_ref_language(value)
+
 
 class TtsGsvMixin:
+    _gsv_language_label = staticmethod(_gsv_language_label)
+    _gsv_language_tag = staticmethod(_gsv_language_tag)
+
     def _speak_gsv(self, tts_text: str, output_wav: str, mood: str,
-                    ref_wav: str, ref_text: str, ref_lang: str) -> Optional[tuple[str, str]]:
+                    ref_wav: str, ref_text: str, ref_lang: str,
+                    text_lang: str | None = None) -> Optional[tuple[str, str]]:
         """GPT-SoVITS 后端推理（原逻辑）"""
+        reference_language = _gsv_language_label(ref_lang)
+        synthesis_language = _gsv_language_label(text_lang or ref_lang)
         # 获取参考音频
         payload = {
             "ref_wav": ref_wav,
             "prompt_text": ref_text,
-            "prompt_language": LANG_TTS,
+            "prompt_language": reference_language,
             "text": tts_text,
-            "text_language": ref_lang,
+            "text_language": synthesis_language,
             "gpt_path": self.gpt_path,
             "sovits_path": self.sovits_path,
             "top_k": self.top_k,
@@ -36,7 +58,10 @@ class TtsGsvMixin:
         }
         payload_json = json.dumps(payload, ensure_ascii=False)
 
-        log.info(f"ref={os.path.basename(ref_wav)} lang={ref_lang}")
+        log.info(
+            f"ref={os.path.basename(ref_wav)} "
+            f"prompt_lang={reference_language} text_lang={synthesis_language}"
+        )
         log.info(f"text_len={len(tts_text)} chars payload_size={len(payload_json)} bytes")
 
         try:
@@ -89,7 +114,7 @@ class TtsGsvMixin:
                 return None, ""
 
             duration = result.get("duration", 0)
-            result_lang = "jp"
+            result_lang = _gsv_language_tag(synthesis_language)
             log.info(f"SoVITS output: {os.path.basename(output_wav)} ({duration}s) lang={result_lang}")
             return output_wav, result_lang
 
@@ -114,6 +139,36 @@ class TtsGsvMixin:
         返回 (wav_path, ref_text, lang) 或 (None, None, None)
         根据 voice_lang 选择对应语言的参考文件（zh_* / jp_*）
         """
+        explicit_ref = str(getattr(self, "gsv_ref_wav", "") or "").strip()
+        if explicit_ref:
+            if os.path.isfile(explicit_ref):
+                sidecar_text = os.path.splitext(explicit_ref)[0] + ".txt"
+                ref_text = ""
+                try:
+                    with open(sidecar_text, "r", encoding="utf-8") as f:
+                        ref_text = f.read().strip()
+                except FileNotFoundError:
+                    log.warning(
+                        "指定参考音频没有同名 .txt，将使用空参考文本: "
+                        f"{os.path.basename(explicit_ref)}"
+                    )
+                except OSError as exc:
+                    log.warning(
+                        "读取指定参考文本失败，将使用空参考文本: "
+                        f"{type(exc).__name__}"
+                    )
+                return (
+                    explicit_ref,
+                    ref_text,
+                    _gsv_language_label(
+                        getattr(self, "gsv_ref_lang", "jp")
+                    ),
+                )
+            log.warning(
+                "指定参考音频不存在，回退按情绪自动选择: "
+                f"{explicit_ref}"
+            )
+
         ref_type = MOOD_TO_REF.get(mood, "normal")
         ref_folder = os.path.join(self.ref_dir, ref_type)
 

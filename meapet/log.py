@@ -5,10 +5,12 @@ import re
 import datetime
 import traceback
 import sys
+from pathlib import Path
 
 # ====================== 全局配置项 ======================
 LOG_LEVEL = "INFO"           # 默认级别，可设为 "DEBUG","INFO","WARN","ERROR"；调试载荷仅在 MEAPET_DEBUG=1 时输出
-LOG_DIR = "logs"             # 日志文件存放目录
+# 日志路径固定到项目根目录，不受从快捷方式或其它目录启动的 cwd 影响。
+LOG_DIR = str(Path(__file__).resolve().parent.parent / "logs")
 LOG_KEEP_DAYS = 7            # 保留最近几天的日志文件
 # ====================================================
 
