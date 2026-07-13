@@ -281,7 +281,7 @@ class TestOpenClawAdapter(unittest.IsolatedAsyncioTestCase):
         values.update(overrides)
         return OpenClawConfig(**values)
 
-    def _request(self, *, turn_id="turn-1"):
+    def _request(self, *, turn_id="turn-1", attachments=()):
         from meapet.agent.base import AgentTurnRequest
 
         return AgentTurnRequest(
@@ -308,6 +308,7 @@ class TestOpenClawAdapter(unittest.IsolatedAsyncioTestCase):
                 },
             },
             tts_enabled=True,
+            attachments=attachments,
         )
 
     def _socket_for_turn(self, *chat_frames):
@@ -396,6 +397,41 @@ class TestOpenClawAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "你好，主人")
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0].result.segments[0].voice_language, "zh")
+
+    async def test_chat_send_forwards_images_through_official_attachments_field(self):
+        from meapet.agent.base import ImageAttachment
+        from meapet.agent.openclaw import OpenClawAdapter
+
+        first, second = _valid_chunks()
+        socket = self._socket_for_turn(
+            _chat_event("delta", deltaText=first, seq=1),
+            _chat_event("delta", deltaText=second, seq=2),
+            _chat_event("final", seq=3),
+        )
+        adapter = OpenClawAdapter(self._config(), connector=_Connector(socket))
+
+        request = self._request(
+            attachments=(
+                ImageAttachment(
+                    media_type="image/jpeg",
+                    data="YWJj",
+                    file_name="screenshot.jpg",
+                ),
+            )
+        )
+        _events = [event async for event in adapter.stream_turn(request)]
+
+        self.assertEqual(
+            socket.sent[1]["params"]["attachments"],
+            [
+                {
+                    "type": "image",
+                    "mimeType": "image/jpeg",
+                    "fileName": "screenshot.jpg",
+                    "content": "YWJj",
+                }
+            ],
+        )
 
     async def test_malformed_output_is_repaired_once_in_an_isolated_session(self):
         from meapet.agent.base import FormatRepairRequired, TurnCompleted

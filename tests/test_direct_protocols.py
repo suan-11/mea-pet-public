@@ -107,6 +107,110 @@ class TestDirectProtocolConfig(unittest.TestCase):
         self.assertEqual(request.response_format, {"type": "json_object"})
         self.assertEqual(request.extra, {"seed": 7})
 
+    def test_multimodal_parts_are_rendered_for_each_native_protocol(self):
+        from meapet.direct.client import (
+            DirectProtocolConfig,
+            _anthropic_spec,
+            _ollama_spec,
+            _openai_chat_spec,
+            _responses_spec,
+        )
+        from meapet.direct.types import CanonicalChatRequest
+
+        request = CanonicalChatRequest(
+            model="vision-test",
+            messages=(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "请看这张图"},
+                        {
+                            "type": "image",
+                            "media_type": "image/jpeg",
+                            "data": "YWJj",
+                        },
+                    ],
+                },
+            ),
+        )
+
+        def config(protocol):
+            return DirectProtocolConfig(
+                protocol=protocol,
+                base_url="https://models.example.test/v1",
+            )
+
+        openai = _openai_chat_spec(config("openai_chat"), request).body
+        self.assertEqual(
+            openai["messages"][0]["content"],
+            [
+                {"type": "text", "text": "请看这张图"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/jpeg;base64,YWJj"},
+                },
+            ],
+        )
+
+        ollama = _ollama_spec(config("ollama_chat"), request).body
+        self.assertEqual(
+            ollama["messages"][0],
+            {"role": "user", "content": "请看这张图", "images": ["YWJj"]},
+        )
+
+        responses = _responses_spec(
+            config("openai_responses"),
+            request,
+        ).body
+        self.assertEqual(
+            responses["input"][0]["content"],
+            [
+                {"type": "input_text", "text": "请看这张图"},
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/jpeg;base64,YWJj",
+                },
+            ],
+        )
+
+        anthropic = _anthropic_spec(
+            config("anthropic_messages"),
+            request,
+        ).body
+        self.assertEqual(
+            anthropic["messages"][0]["content"],
+            [
+                {"type": "text", "text": "请看这张图"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": "YWJj",
+                    },
+                },
+            ],
+        )
+
+    def test_canonical_multimodal_parts_reject_remote_urls_and_bad_base64(self):
+        from meapet.direct.types import CanonicalChatRequest
+
+        for image_part in (
+            {"type": "image_url", "image_url": {"url": "https://private.test/a"}},
+            {"type": "image", "media_type": "image/jpeg", "data": "not base64"},
+            {"type": "image", "media_type": "text/plain", "data": "YWJj"},
+        ):
+            with self.subTest(part=image_part), self.assertRaisesRegex(
+                ValueError,
+                "image",
+            ):
+                CanonicalChatRequest(
+                    model="vision-test",
+                    messages=(
+                        {"role": "user", "content": [image_part]},
+                    ),
+                )
+
 
 class TestDirectProtocolClient(unittest.IsolatedAsyncioTestCase):
     async def _collect(self, protocol, handler, *, base_url, api_key="secret"):

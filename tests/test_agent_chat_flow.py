@@ -89,6 +89,70 @@ def _completed(segment):
     )
 
 
+class TestAgentImageAttachment(unittest.TestCase):
+    def test_request_accepts_only_bounded_base64_images(self):
+        from meapet.agent.base import AgentTurnRequest, ImageAttachment
+
+        attachment = ImageAttachment(
+            media_type="image/jpeg",
+            data="YWJj",
+            file_name="screenshot.jpg",
+        )
+        request = AgentTurnRequest(
+            turn_id="vision-turn",
+            user_text="请看截图",
+            attachments=(attachment,),
+        )
+
+        self.assertEqual(request.attachments, (attachment,))
+        self.assertEqual(attachment.decoded_size, 3)
+
+        for values in (
+            {"media_type": "text/plain", "data": "YWJj"},
+            {"media_type": "image/jpeg", "data": "not base64"},
+            {"media_type": "image/jpeg", "data": ""},
+        ):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                ImageAttachment(**values)
+
+    def test_hermes_sends_images_as_openai_content_parts(self):
+        from meapet.agent.base import AgentTurnRequest, ImageAttachment
+        from meapet.agent.hermes import HermesAdapter, HermesConfig
+
+        adapter = HermesAdapter(
+            HermesConfig(base_url="http://127.0.0.1:8642")
+        )
+        messages = adapter._messages(
+            AgentTurnRequest(
+                turn_id="vision-turn",
+                user_text="请看截图",
+                attachments=(
+                    ImageAttachment(
+                        media_type="image/jpeg",
+                        data="YWJj",
+                        file_name="screenshot.jpg",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            messages[-1],
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请看截图"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/jpeg;base64,YWJj"
+                        },
+                    },
+                ],
+            },
+        )
+
+
 class TestAgentFactory(unittest.TestCase):
     def test_hermes_factory_resolves_env_and_persists_session_scope(self):
         from meapet.agent.factory import create_agent_adapter_from_config
