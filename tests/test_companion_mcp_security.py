@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import sys
 import tempfile
 import unittest
@@ -300,6 +301,44 @@ class TestControlAsgiSurface(unittest.TestCase):
         self.assertTrue(server.should_exit)
         self.assertEqual(future.result_calls, 1)
         self.assertFalse(runtime.running)
+
+    def test_configured_client_ca_requires_a_client_certificate(self):
+        from meapet.control.broker import CompanionControlBroker
+        from meapet.control.transport import (
+            CompanionMcpRuntime,
+            ControlServerConfig,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cert = root / "server.pem"
+            key = root / "server-key.pem"
+            ca = root / "client-ca.pem"
+            for path in (cert, key, ca):
+                path.write_text("test material", encoding="utf-8")
+            runtime = CompanionMcpRuntime(
+                CompanionControlBroker(state={}),
+                ControlServerConfig(
+                    auth_token="t" * 48,
+                    cert_file=str(cert),
+                    key_file=str(key),
+                    ca_file=str(ca),
+                ),
+            )
+
+            server = SimpleNamespace(serve=mock.AsyncMock())
+            with mock.patch("uvicorn.Config") as make_config, mock.patch(
+                "uvicorn.Server",
+                return_value=server,
+            ):
+                import asyncio
+
+                asyncio.run(runtime._serve())
+
+        self.assertEqual(
+            make_config.call_args.kwargs["ssl_cert_reqs"],
+            ssl.CERT_REQUIRED,
+        )
 
 
 if __name__ == "__main__":

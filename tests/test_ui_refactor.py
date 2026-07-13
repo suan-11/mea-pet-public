@@ -1224,6 +1224,9 @@ class UiRefactorTests(unittest.TestCase):
             )
         )
         self.assertEqual(dialog.scope_combo.currentData(), "full_screen")
+        self.assertEqual(dialog.countdown_label.text(), "15 秒后自动取消。")
+        dialog._tick()
+        self.assertEqual(dialog.countdown_label.text(), "14 秒后自动取消。")
         dialog.scope_combo.setCurrentIndex(
             dialog.scope_combo.findData("region")
         )

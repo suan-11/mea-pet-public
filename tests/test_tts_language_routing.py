@@ -214,6 +214,27 @@ class TestTtsWorkerLanguage(unittest.TestCase):
 
 
 class TestMeaTtsLanguageOverride(unittest.TestCase):
+    def test_translation_endpoint_rejects_unsafe_base_urls(self):
+        from meapet.tts.service import MeaTTS
+
+        tts = MeaTTS.__new__(MeaTTS)
+        for base_url in (
+            "file:///tmp/private.txt",
+            "https://user:password@example.test/v1",
+            "https://example.test/v1?token=secret",
+            "https://example.test/v1#fragment",
+        ):
+            with self.subTest(base_url=base_url):
+                tts.translate_api_base = base_url
+                with self.assertRaisesRegex(ValueError, "translation API"):
+                    tts._translation_endpoint()
+
+        tts.translate_api_base = "https://example.test/v1"
+        self.assertEqual(
+            tts._translation_endpoint(),
+            "https://example.test/v1/chat/completions",
+        )
+
     def test_mimo_async_uses_per_call_language_instead_of_configured_default(self):
         from meapet.tts.service import MeaTTS
 
