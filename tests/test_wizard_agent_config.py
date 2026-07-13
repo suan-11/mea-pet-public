@@ -168,6 +168,25 @@ class TestWizardConversationConfig(unittest.TestCase):
         self.assertEqual(collected["llm"]["direct"]["model"], "local-model")
         self.assertEqual(collected["agent_control"]["port"], 9000)
 
+    def test_openclaw_remote_plaintext_ws_requires_explicit_visible_opt_in(self):
+        page = self.wizard.backend_page
+        page.agent_radio.setChecked(True)
+        page.set_agent_kind("openclaw")
+        page.agent_base_url.setText("ws://192.168.50.20:18789")
+        page.agent_auth_token.setText("$OPENCLAW_GATEWAY_TOKEN")
+
+        self.assertFalse(page.agent_allow_insecure_ws.isChecked())
+        self.assertFalse(page.insecure_ws_warning.isVisibleTo(page))
+
+        page.agent_allow_insecure_ws.setChecked(True)
+        config = self.wizard.collect_config()
+
+        self.assertTrue(config["llm"]["agent"]["allow_insecure_ws"])
+        self.assertTrue(page.insecure_ws_warning.isVisibleTo(page))
+
+        self.wizard.apply_conversation_config(config)
+        self.assertTrue(page.agent_allow_insecure_ws.isChecked())
+
 
 class TestWizardCaptureScope(unittest.TestCase):
     @classmethod
