@@ -25,6 +25,7 @@ class TtsMimoMixin:
         mood: str = "neutral",
         lang_tag: str = "zh",
         style: str = "",
+        voice_language: str = "",
     ) -> Optional[tuple[str, str]]:
         """同步入口：内部走 httpx 异步客户端。"""
         from meapet.async_runtime import run as _arun
@@ -35,6 +36,7 @@ class TtsMimoMixin:
                 mood=mood,
                 lang_tag=lang_tag,
                 style=style,
+                voice_language=voice_language,
             ),
             timeout=max(float(getattr(self, "timeout", 60)), 150),
         )
@@ -47,6 +49,7 @@ class TtsMimoMixin:
         mood: str = "neutral",
         lang_tag: str = "zh",
         style: str = "",
+        voice_language: str = "",
     ) -> Optional[tuple[str, str]]:
         """MiMo TTS — 真异步 HTTP（httpx）。"""
         import base64
@@ -68,7 +71,10 @@ class TtsMimoMixin:
         model_name = self.mimo_model
         ref = None
         if self._mimo_voiceclone:
-            ref = self._pick_clone_ref_wav(mood)
+            ref = self._pick_clone_ref_wav(
+                mood,
+                voice_language=voice_language or lang_tag,
+            )
             if not ref:
                 log.warn(
                     "voice-clone 未找到参考音频。"
@@ -177,12 +183,15 @@ class TtsMimoMixin:
 
     def _normalize_voice_lang(self, lang: str = "") -> str:
         """统一语言代码：jp / zh / en。"""
-        raw = (lang or getattr(self, "voice_lang", "") or "zh").strip().lower()
-        if raw in ("jp", "ja", "jpn", "japanese", "日文", "日语"):
+        raw = (
+            lang or getattr(self, "voice_lang", "") or "zh"
+        ).strip().lower().replace("_", "-")
+        primary = raw.split("-", 1)[0]
+        if primary in ("jp", "ja") or raw in ("jpn", "japanese", "日文", "日语"):
             return "jp"
-        if raw in ("en", "eng", "english", "英文", "英语"):
+        if primary == "en" or raw in ("eng", "english", "英文", "英语"):
             return "en"
-        if raw in ("zh", "cn", "zh-cn", "zh_cn", "chinese", "中文", "汉语"):
+        if primary in ("zh", "cn") or raw in ("chinese", "中文", "汉语"):
             return "zh"
         return raw or "zh"
 
@@ -200,14 +209,34 @@ class TtsMimoMixin:
             return "en"
         return ""
 
-    def _pick_clone_ref_wav(self, mood: str = "neutral") -> Optional[str]:
+    def _pick_clone_ref_wav(
+        self,
+        mood: str = "neutral",
+        voice_language: str = "",
+    ) -> Optional[str]:
         """
         选择 voice-clone 参考音频（语言与 voice_lang 一致）：
         1) 显式 clone_ref / voice_ref
         2) 优先同语言样本：voice_cache + GPT-Sovits（zh_* / jp_*）
         3) 再回退其它语言样本
         """
-        want = self._normalize_voice_lang(getattr(self, "voice_lang", "zh"))
+        want = self._normalize_voice_lang(
+            voice_language or getattr(self, "voice_lang", "zh")
+        )
+
+        references = getattr(self, "reference_audios", {})
+        mapped = references.get(want) if isinstance(references, dict) else None
+        mapped_path = (
+            str(mapped.get("path") or "").strip()
+            if isinstance(mapped, dict)
+            else str(mapped or "").strip()
+        )
+        if mapped_path:
+            if os.path.isfile(mapped_path):
+                return mapped_path
+            log.warn(
+                f"固定参考音频不存在，继续查找同语言样本: {os.path.basename(mapped_path)}"
+            )
 
         if self.mimo_clone_ref and os.path.isfile(self.mimo_clone_ref):
             ref_lang = self._detect_lang_from_path(self.mimo_clone_ref)

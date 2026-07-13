@@ -299,10 +299,18 @@ class TestAgentChatPolling(unittest.TestCase):
         scheduled = []
 
         class VoiceWorker:
-            def __init__(self, _tts, text, mood="neutral", style=""):
+            def __init__(
+                self,
+                _tts,
+                text,
+                mood="neutral",
+                style="",
+                language="",
+            ):
                 self.text = text
                 self.mood = mood
                 self.style = style
+                self.language = language
                 self.done = False
                 self.result = None
 
@@ -322,6 +330,7 @@ class TestAgentChatPolling(unittest.TestCase):
         self.assertEqual(voice_worker.text, "你好，主人")
         self.assertEqual(voice_worker.mood, "happy")
         self.assertEqual(voice_worker.style, "轻声")
+        self.assertEqual(voice_worker.language, "zh")
 
         with tempfile.TemporaryDirectory() as td:
             wav = Path(td) / "reply.wav"

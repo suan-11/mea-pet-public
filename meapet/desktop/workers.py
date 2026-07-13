@@ -161,11 +161,13 @@ class TTSWorker:
         text: str,
         mood: str = "neutral",
         style: str = "",
+        language: str = "",
     ):
         self.tts = tts
         self.text = text
         self.mood = mood
         self.style = style
+        self.language = str(language or "").strip()
         self._future: Optional[Future] = None
         self._done = False
         self._result = None
@@ -188,7 +190,14 @@ class TTSWorker:
 
     async def _run(self):
         if hasattr(self.tts, "speak_async"):
-            if self.style:
+            if self.language:
+                result = await self.tts.speak_async(
+                    self.text,
+                    mood=self.mood,
+                    style=self.style,
+                    language=self.language,
+                )
+            elif self.style:
                 result = await self.tts.speak_async(
                     self.text,
                     mood=self.mood,
@@ -197,10 +206,12 @@ class TTSWorker:
             else:
                 result = await self.tts.speak_async(self.text, mood=self.mood)
         else:
-            args = (self.text, self.mood, self.style) if self.style else (
-                self.text,
-                self.mood,
-            )
+            if self.language:
+                args = (self.text, self.mood, self.style, self.language)
+            elif self.style:
+                args = (self.text, self.mood, self.style)
+            else:
+                args = (self.text, self.mood)
             result = await asyncio.to_thread(self.tts.speak, *args)
         if result and result[0]:
             wav, lang = result

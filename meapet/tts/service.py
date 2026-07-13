@@ -117,6 +117,29 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.gsv_ref_lang = normalize_gsv_ref_language(
             tts_cfg.get("gsv_ref_lang")
         )
+        self.reference_audios = {}
+        raw_references = tts_cfg.get("reference_audios")
+        if isinstance(raw_references, dict):
+            for raw_language, raw_entry in raw_references.items():
+                language = normalize_gsv_ref_language(raw_language)
+                if isinstance(raw_entry, dict):
+                    ref_path = str(raw_entry.get("path") or "").strip()
+                    ref_text = str(raw_entry.get("text") or "").strip()
+                else:
+                    ref_path = str(raw_entry or "").strip()
+                    ref_text = ""
+                if ref_path and not os.path.isabs(ref_path):
+                    ref_path = os.path.join(base_dir, ref_path)
+                if ref_path or ref_text:
+                    self.reference_audios[language] = {
+                        "path": os.path.normpath(ref_path) if ref_path else "",
+                        "text": ref_text,
+                    }
+        if self.gsv_ref_wav and self.gsv_ref_lang not in self.reference_audios:
+            self.reference_audios[self.gsv_ref_lang] = {
+                "path": self.gsv_ref_wav,
+                "text": "",
+            }
 
         # 合成参数（平衡稳定性和完整性）
         # top_k/top_p/temperature 太低会导致 GPT 提前截断（只输出语气词）
@@ -440,6 +463,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         text: str,
         mood: str = "neutral",
         style: str = "",
+        language: str = "",
     ) -> Optional[tuple[str, str]]:
         """
         文字 → 语音，返回 (wav_path, lang)
@@ -496,7 +520,13 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 log.debug(f"TTS: 跳过文本 [debug]: {clean[:40]}")
             return None, ""
 
-        log.info(f"TTS: chars={len(clean)} mood={mood} engine={self.engine}")
+        target_language = self._normalize_voice_lang(
+            language or self.voice_lang
+        )
+        log.info(
+            f"TTS: chars={len(clean)} mood={mood} engine={self.engine} "
+            f"lang={target_language}"
+        )
         if debug_enabled():
             log.debug(f"TTS [debug]: {clean[:60]}")
 
@@ -505,7 +535,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
 
         # ── MiMo 云端：语言跟随 voice_lang；clone 参考也会按同语言挑选 ──
         if self._mimo_mode:
-            vlang = (self.voice_lang or "jp").strip().lower()
+            vlang = target_language
             want_jp = vlang in ("jp", "ja", "jpn", "japanese", "日文", "日语")
             if want_jp:
                 tts_text = self._prepare_jp_tts_text(clean)
@@ -525,34 +555,21 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 mood=mood,
                 lang_tag=lang_tag,
                 style=style,
+                voice_language=target_language,
             )
 
         # ── 本地引擎：获取参考音频 + 中文→日语 ──
-        ref_wav, ref_text, ref_lang = self._get_ref_paths(mood)
+        ref_wav, ref_text, ref_lang = self._get_ref_paths(
+            mood,
+            voice_language=target_language,
+        )
         if not ref_wav and not self._vits_mode:
             log.warn(f"TTS: no ref for mood={mood}")
             return None, ""
 
-        has_kana = any(
-            c in clean for c in
-            "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
-            "がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゃゅょっ"
-            "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
-            "ニャにゃ"
-        )
-        text_lang = self._gsv_language_label(self.voice_lang)
-        if has_kana:
-            log.info("已是日语，跳过翻译")
-            tts_text = clean
-            text_lang = "日文"
-        elif self.translate_enabled:
-            log.info("无日语行，回退翻译…")
-            jp = self._translate_to_jp(clean)
-            if jp and len(jp) >= 2:
-                tts_text = jp
-                text_lang = "日文"
-            else:
-                tts_text = clean
+        text_lang = self._gsv_language_label(target_language)
+        if target_language == "jp":
+            tts_text = self._prepare_jp_tts_text(clean)
         else:
             tts_text = clean
 
@@ -581,6 +598,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         text: str,
         mood: str = "neutral",
         style: str = "",
+        language: str = "",
     ):
         """async 入口：MiMo 走 httpx；本地 GSV/VITS 仍 to_thread(子进程)。"""
         import asyncio
@@ -600,9 +618,12 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             return None, ""
 
         output_wav = self._new_output_wav_path()
+        target_language = self._normalize_voice_lang(
+            language or self.voice_lang
+        )
 
         if self._mimo_mode and hasattr(self, "_speak_mimo_async"):
-            vlang = (getattr(self, "voice_lang", "") or "jp").strip().lower()
+            vlang = target_language
             want_jp = vlang in ("jp", "ja", "jpn", "japanese", "日文", "日语")
             if want_jp:
                 tts_text = await asyncio.to_thread(self._prepare_jp_tts_text, clean)
@@ -619,9 +640,16 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 mood=mood,
                 lang_tag=lang_tag,
                 style=style,
+                voice_language=target_language,
             )
 
-        return await asyncio.to_thread(self.speak, text, mood, style)
+        return await asyncio.to_thread(
+            self.speak,
+            text,
+            mood,
+            style,
+            target_language,
+        )
 
 
     def pre_render_batch(

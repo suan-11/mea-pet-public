@@ -418,6 +418,29 @@ def _normalize_agent_control(value: object) -> dict:
     return control
 
 
+def _normalize_reference_audios(tts: dict) -> dict:
+    """规范化每语言固定参考音频，并只读迁移旧单条 GSV 配置。"""
+    raw_mapping = tts.get("reference_audios")
+    mapping = {}
+    if isinstance(raw_mapping, dict):
+        for raw_language, raw_entry in raw_mapping.items():
+            language = normalize_gsv_ref_language(raw_language)
+            if isinstance(raw_entry, dict):
+                path = str(raw_entry.get("path") or "").strip()
+                text = str(raw_entry.get("text") or "").strip()
+            else:
+                path = str(raw_entry or "").strip()
+                text = ""
+            if path or text:
+                mapping[language] = {"path": path, "text": text}
+
+    legacy_path = str(tts.get("gsv_ref_wav") or "").strip()
+    legacy_language = normalize_gsv_ref_language(tts.get("gsv_ref_lang"))
+    if legacy_path and legacy_language not in mapping:
+        mapping[legacy_language] = {"path": legacy_path, "text": ""}
+    return mapping
+
+
 
 def normalize_config(config: dict) -> dict:
     """补全默认字段、规范化 watcher / bubble / display / tts.sync"""
@@ -463,6 +486,7 @@ def normalize_config(config: dict) -> dict:
     tts["gsv_ref_lang"] = normalize_gsv_ref_language(
         tts.get("gsv_ref_lang")
     )
+    tts["reference_audios"] = _normalize_reference_audios(tts)
     cfg["tts"] = tts
 
     # watcher 统一结构（interval 内嵌，不再用顶层 watcher_interval）

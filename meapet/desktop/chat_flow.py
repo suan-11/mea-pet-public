@@ -386,6 +386,7 @@ class PetChatFlowMixin:
                 segment.voice_text,
                 mood=segment.mood,
                 style=segment.tts_style,
+                language=segment.voice_language,
             )
             workers[segment.index] = worker
             worker.start()
