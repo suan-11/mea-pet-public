@@ -509,6 +509,16 @@ class TestRepositoryIgnoreRules(unittest.TestCase):
         ):
             self.assertIn(expected, patterns)
 
+    def test_setuptools_discovers_runtime_subpackages(self):
+        import tomllib
+
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        setuptools = project["tool"]["setuptools"]
+        package_find = setuptools["packages"]["find"]
+
+        self.assertIn("meapet*", package_find["include"])
+        self.assertIn("wizard*", package_find["include"])
+
 
 class TestInstallerReliability(unittest.TestCase):
     def test_pip_install_checks_process_return_code(self):
