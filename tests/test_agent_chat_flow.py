@@ -167,6 +167,10 @@ class TestAgentChatWorkerSelection(unittest.TestCase):
             enabled = False
             voice_lang = "zh"
 
+            @staticmethod
+            def supported_languages():
+                return ("zh", "jp", "en")
+
         class Host(PetChatFlowMixin):
             config = {
                 "llm": {"mode": "agent"},
@@ -194,6 +198,10 @@ class TestAgentChatWorkerSelection(unittest.TestCase):
         self.assertEqual(
             request.frontend_context["frontend_capabilities"]["renderer"],
             "png",
+        )
+        self.assertEqual(
+            request.frontend_context["frontend_capabilities"]["tts_languages"],
+            ["zh", "ja", "en"],
         )
         self.assertEqual(
             request.frontend_context["companion_state"]["affection_level"],

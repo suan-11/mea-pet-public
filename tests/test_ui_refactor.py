@@ -1532,6 +1532,36 @@ class UiRefactorTests(unittest.TestCase):
         self.assertEqual(tts_config["gsv_ref_wav"], "./refs/jp.wav")
         self.assertEqual(tts_config["gsv_ref_lang"], "jp")
 
+    def test_translation_is_an_explicit_language_fallback_not_a_model_fallback(self) -> None:
+        from wizard.app import SetupWizard
+
+        wizard = self._track(SetupWizard())
+        wizard._load_timer.stop()
+        for timer in wizard.tts_page._startup_timers:
+            timer.stop()
+        wizard._existing_config = {}
+
+        wizard.tts_page.apply_config(
+            {
+                "engine": "gpt_sovits",
+                "enabled": True,
+                "translate_to_jp": True,
+                "translate_target_language": "zh",
+                "translate_api_key": "translate-test-key",
+            }
+        )
+
+        page = wizard.tts_page
+        self.assertTrue(page.translation_enabled_cb.isChecked())
+        self.assertEqual(page.translate_target_combo.currentData(), "zh")
+        self.assertIn("输出语言不受支持", page.translation_enabled_cb.text())
+        self.assertNotIn("免费翻译失效", page.translate_key.placeholderText())
+
+        tts_config = wizard.collect_config()["tts"]
+        self.assertTrue(tts_config["translate_to_jp"])
+        self.assertEqual(tts_config["translate_target_language"], "zh")
+        self.assertEqual(tts_config["translate_api_key"], "translate-test-key")
+
     def test_tray_menu_offers_standby_recovery(self) -> None:
         from meapet.desktop.window_chrome import PetWindowChromeMixin
         from meapet.desktop import status_language

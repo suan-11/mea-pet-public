@@ -40,6 +40,23 @@ class TestReferenceAudioConfig(unittest.TestCase):
             {"path": "./legacy-ja.wav", "text": ""},
         )
 
+    def test_normalizes_translation_target_and_supported_languages(self):
+        from meapet.config.store import normalize_config
+
+        config = normalize_config(
+            {
+                "tts": {
+                    "translate_to_jp": True,
+                    "translate_target_language": "ja-JP",
+                    "supported_languages": ["zh-CN", "jp", "zh"],
+                }
+            }
+        )
+
+        self.assertTrue(config["tts"]["translate_to_jp"])
+        self.assertEqual(config["tts"]["translate_target_language"], "jp")
+        self.assertEqual(config["tts"]["supported_languages"], ["zh", "jp"])
+
 
 class TestGsvReferenceRouting(unittest.TestCase):
     def test_explicit_segment_language_selects_its_fixed_reference(self):
