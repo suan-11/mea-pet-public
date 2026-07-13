@@ -134,6 +134,14 @@ def resolve_secret(file_value: str = "", env_names: Tuple[str, ...] = ()) -> str
     return raw
 
 
+def save_config(config: dict, path: Optional[str] = None) -> None:
+    cpath = path or config_path()
+    existing = load_json(cpath, {})
+    merged = _deep_merge(existing, config)
+    save_json(cpath, normalize_config(merged))
+
+
+
 def resolve_llm_api_key(llm_cfg: dict) -> str:
     backend = (llm_cfg.get("backend") or "ollama").lower()
     names = ENV_LLM_KEY.get(backend, ("MEAPET_API_KEY",))
@@ -360,11 +368,6 @@ def load_config(path: Optional[str] = None) -> dict:
     """加载统一 config.json 并补全默认字段。"""
     cpath = path or config_path()
     return normalize_config(load_json(cpath, {}))
-
-
-def save_config(config: dict, path: Optional[str] = None) -> None:
-    save_json(path or config_path(), normalize_config(config))
-
 
 
 def scrub_secrets(config: dict) -> dict:
