@@ -204,20 +204,36 @@ class PetChatFlowMixin:
                 tts_style = (eng.take_tts_style() or "").strip()
         except Exception as e:
             log.error(f"[tts] 取 TTS 风格失败: {e}")
-        self.show_reply(reply, detected)
-        set_awaiting_reply_state(self, False)
-        # 后台 TTS 合成
-        self._tts_worker = TTSWorker(
-            self.tts,
-            voice_text,
-            mood=detected,
-            style=tts_style,
-        )
-        self._tts_worker.start()
-        self._ensure_tts_poll()
-        # 记忆系统操作（延后执行，不阻塞气泡）
-        from PyQt5.QtCore import QTimer
+
+        # 记忆系统操作与 TTS 并行，不阻塞最终气泡。
         QTimer.singleShot(0, lambda: self._do_memory_ops(reply, detected))
+
+        # 最终回复必须等音频文件真正生成后再显示；否则文字和声音会明显错位。
+        # TTS 关闭或启动失败时仍立即显示文字，不能让回复永久卡住。
+        self._pending_chat_reply = (reply, detected)
+        tts = getattr(self, "tts", None)
+        if tts is None or not bool(getattr(tts, "enabled", True)):
+            self._complete_pending_chat_reply()
+            return
+
+        set_awaiting_reply_state(
+            self,
+            True,
+            status_language.thinking_busy(),
+        )
+        try:
+            self._tts_worker = TTSWorker(
+                tts,
+                voice_text,
+                mood=detected,
+                style=tts_style,
+            )
+            self._tts_worker.start()
+            self._ensure_tts_poll()
+        except Exception as e:
+            log.error(f"[tts] 语音合成启动失败，回退文字: {type(e).__name__}: {e}")
+            self._tts_worker = None
+            self._complete_pending_chat_reply()
 
     def _ensure_tts_poll(self):
         """确保 TTS 轮询 timer 在运行"""
@@ -229,10 +245,14 @@ class PetChatFlowMixin:
     def _poll_tts(self):
         """轮询所有 TTSWorker 完成状态"""
         if hasattr(self, '_tts_worker') and self._tts_worker and self._tts_worker.done:
-            result = self._tts_worker.get_result()
+            try:
+                result = self._tts_worker.get_result()
+            except Exception as e:
+                log.error(f"[tts] 读取合成结果失败: {type(e).__name__}: {e}")
+                result = None
             self._tts_worker = None
-            if result:
-                self._on_tts_audio(result)
+            # 空结果同样必须进入完成处理，以显示等待中的文字回复。
+            self._on_tts_audio(result)
         if hasattr(self, '_speak_worker') and self._speak_worker and self._speak_worker.done:
             result = self._speak_worker.get_result()
             self._speak_worker = None
@@ -280,29 +300,57 @@ class PetChatFlowMixin:
             return "shy"
         return "neutral"
 
-    def _on_tts_audio(self, raw: str):
-        """TTS 合成完成 → 播放语音（文字已显示）"""
-        wav_path = raw.rsplit("|", 1)[0] if "|" in raw else raw
+    def _complete_pending_chat_reply(self, wav_path: str = "") -> None:
+        """显示等待中的聊天回复，并在同一事件循环节拍开始播放音频。"""
+        pending = getattr(self, "_pending_chat_reply", None)
+        if pending is None:
+            # 兼容旧调用：没有等待文字时，仍允许单独播放有效音频。
+            if wav_path:
+                self._play_audio(wav_path)
+            return
+
+        try:
+            del self._pending_chat_reply
+        except AttributeError:
+            pass
+
+        reply, mood = pending
+        duration_ms = None
+        config = getattr(self, "config", {}) or {}
+        tts_config = config.get("tts") or {}
+        bubble_config = config.get("bubble_duration_ms") or {}
+        if wav_path and tts_config.get("sync_with_audio"):
+            audio_ms = self._get_wav_duration_ms(wav_path)
+            if audio_ms > 0:
+                duration_ms = max(
+                    audio_ms + 500,
+                    int(bubble_config.get("reply", 3000)),
+                )
+
+        try:
+            if duration_ms is None:
+                self.show_reply(reply, mood)
+            else:
+                self.show_reply(reply, mood, duration_ms=duration_ms)
+        except Exception as e:
+            log.error(f"[chat] 显示等待回复失败: {type(e).__name__}: {e}")
+        finally:
+            set_awaiting_reply_state(self, False)
+
+        if wav_path:
+            self._play_audio(wav_path)
+
+    def _on_tts_audio(self, raw: str | None):
+        """TTS 完成后再显示最终气泡；失败时显示无声文字兜底。"""
+        value = str(raw or "")
+        wav_path = value.rsplit("|", 1)[0] if "|" in value else value
         if not wav_path or not os.path.exists(wav_path):
-            log.warn(f"[audio] TTS 完成但文件无效: chars={len(raw or '')}")
+            log.warning(f"[audio] TTS 未生成有效文件，回退文字: chars={len(value)}")
             if debug_enabled():
                 log.debug(f"[audio] 无效 TTS 返回: {raw!r}")
+            self._complete_pending_chat_reply()
             return
-        # 可选：气泡时长对齐音频
-        audio_ms = self._get_wav_duration_ms(wav_path)
-        if self.config.get("tts", {}).get("sync_with_audio") and audio_ms > 0:
-            try:
-                self.bubble.show_text(
-                    self.bubble.text_label.text(),
-                    duration_ms=max(
-                        audio_ms + 500,
-                        self.config["bubble_duration_ms"]["reply"],
-                    ),
-                )
-            except Exception:
-                pass
-        # 无论是否 sync，都必须播放（此前误把 play 放进 sync 分支，默认永不播）
-        self._play_audio(wav_path)
+        self._complete_pending_chat_reply(wav_path)
 
     def _on_chat_error(self, err: str):
         _log_private_text("[chat] 错误", err)

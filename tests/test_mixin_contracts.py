@@ -226,7 +226,7 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
         class FakeTTS:
             enabled = True
 
-        class Host:
+        class Host(chat_flow.PetChatFlowMixin):
             chat_engine = Engine()
             tts = FakeTTS()
             _awaiting_reply = True
@@ -310,7 +310,7 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
             def get_result():
                 return None
 
-        class Host:
+        class Host(chat_flow.PetChatFlowMixin):
             _awaiting_reply = True
             _pending_chat_reply = ("语音失败也要显示喵", "neutral")
             _tts_worker = DoneWorker()
@@ -350,7 +350,7 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
         class DisabledTTS:
             enabled = False
 
-        class Host:
+        class Host(chat_flow.PetChatFlowMixin):
             chat_engine = Engine()
             tts = DisabledTTS()
             _awaiting_reply = True
@@ -414,7 +414,7 @@ class TestFormattedChatToTtsFlow(unittest.TestCase):
             def start():
                 raise RuntimeError("worker start failed")
 
-        class Host:
+        class Host(chat_flow.PetChatFlowMixin):
             chat_engine = Engine()
             tts = EnabledTTS()
             _awaiting_reply = True
