@@ -274,6 +274,25 @@ class TestConversationConfigMigration(unittest.TestCase):
             },
         )
 
+    def test_scrub_secrets_removes_agent_and_control_tokens(self):
+        from meapet.config.store import scrub_secrets
+
+        scrubbed = scrub_secrets(
+            {
+                "llm": {
+                    "api_key": "legacy-secret",
+                    "direct": {"api_key": "direct-secret"},
+                    "agent": {"auth_token": "agent-secret"},
+                },
+                "agent_control": {"auth_token": "control-secret"},
+            }
+        )
+
+        self.assertEqual(scrubbed["llm"]["api_key"], "")
+        self.assertEqual(scrubbed["llm"]["direct"]["api_key"], "")
+        self.assertEqual(scrubbed["llm"]["agent"]["auth_token"], "")
+        self.assertEqual(scrubbed["agent_control"]["auth_token"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
