@@ -106,6 +106,32 @@ class TestScreenCapture(unittest.TestCase):
             capture_screen_image(scope="application", application="Code")
         self.assertEqual(missing.exception.code, "window_not_found")
 
+    def test_existing_screen_watcher_reuses_scoped_capture_backend(self):
+        from meapet.watcher.capture import CapturedImage
+        from meapet.watcher.screen import ScreenWatcher
+
+        watcher = ScreenWatcher(
+            capture_scope="region",
+            capture_region={"x": 1, "y": 2, "width": 30, "height": 40},
+            capture_application="",
+        )
+        captured = CapturedImage(
+            image=_Image(),
+            metadata={"scope": "region", "width": 100, "height": 80},
+        )
+        with mock.patch(
+            "meapet.watcher.screen.capture_screen_image",
+            return_value=captured,
+        ) as capture:
+            image = watcher._capture_image()
+
+        self.assertIs(image, captured.image)
+        capture.assert_called_once_with(
+            scope="region",
+            region={"x": 1, "y": 2, "width": 30, "height": 40},
+            application="",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
