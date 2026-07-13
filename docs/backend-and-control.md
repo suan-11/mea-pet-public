@@ -266,7 +266,7 @@ GPT-SoVITS 的固定参考音频按规范化语言查找：
 }
 ```
 
-示例显式允许可信内网明文 HTTP；请求和 Token 会以明文经过局域网。更安全的远程配置应提供 `cert_file` + `key_file`，服务地址随之变为 HTTPS。只配置证书或只配置私钥会拒绝启动。
+示例显式允许可信内网明文 HTTP；请求和 Token 会以明文经过局域网。更安全的远程配置应提供 `cert_file` + `key_file`，服务地址随之变为 HTTPS。只配置证书或只配置私钥会拒绝启动。进一步配置 `ca_file` 后会启用 mTLS，Agent 必须提供由该 CA 签发的客户端证书；它不只是服务端信任链提示。
 
 `listen_host` 和 `allowed_agent_ip` 都必须是具体 IP 字面量，不能使用 `0.0.0.0`、网段或主机名。一个实例只允许一个 Agent 来源 IP。
 
@@ -332,4 +332,3 @@ Token 少于 32 个字符时服务拒绝启动。空 Token 会自动生成高熵
 - 所选模式、协议和模型 ID。
 
 不要提供 `config.json`、Bearer Token、API Key、截图原图、`mea_memory.db` 或完整私人对话。
-
