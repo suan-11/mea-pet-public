@@ -7,8 +7,10 @@ import random
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
-from PyQt5.QtGui import QPixmap, QMovie
-from PyQt5.QtCore import QTimer, QObject, pyqtSignal
+
+from PyQt5.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QMovie, QPainter, QPixmap
+from PyQt5.QtWidgets import QWidget
 
 
 @dataclass
@@ -86,6 +88,38 @@ MOOD_TO_EXPRESSION = {
 }
 
 
+class SpriteCanvas(QWidget):
+    """在一个透明绘制面中同步提交完整 PNG 帧。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._frame = QPixmap()
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+
+    def sizeHint(self) -> QSize:
+        if self._frame.isNull():
+            return super().sizeHint()
+        return self._frame.size()
+
+    def set_frame(self, frame: QPixmap) -> None:
+        """替换完整后备帧，并在当前 GUI 轮次同步重绘整个表面。"""
+        self._frame = QPixmap(frame)
+        if self.size() != self._frame.size():
+            self.resize(self._frame.size())
+        self.repaint(self.rect())
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        # Source 模式会同时替换颜色与 Alpha，避免透明窗口残留上一帧局部。
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), Qt.transparent)
+        if not self._frame.isNull():
+            painter.drawPixmap(0, 0, self._frame)
+        painter.end()
+
+
 class SpriteRenderer(QObject):
     """立绘渲染器 - 管理 PNG 差分切换 & 眨眼动画"""
     
@@ -102,6 +136,9 @@ class SpriteRenderer(QObject):
         self._blink_index = 0
         self._is_blinking = False
         self._expression_has_blink = True
+        self._pixmap_cache: dict[str, QPixmap] = {}
+        self._scaled_pixmap_cache: dict[tuple[str, int, int], QPixmap] = {}
+        self._preload_initial_frames()
         
     @property
     def prefix(self) -> str:
@@ -123,25 +160,81 @@ class SpriteRenderer(QObject):
                 return bc
         return None
 
-    def get_current_pixmap(self) -> QPixmap:
-        """获取当前应该显示的 QPixmap"""
-        # 眨眼时切换到闭眼差分（011/012），否则用当前表情差分
+    def _load_pixmap(self, path: str) -> QPixmap:
+        pixmap = self._pixmap_cache.get(path)
+        if pixmap is None:
+            pixmap = QPixmap(path)
+            self._pixmap_cache[path] = pixmap
+        return pixmap
+
+    def _preload_initial_frames(self) -> None:
+        """启动时预读默认与闭眼帧，眨眼期间不触发磁盘解码。"""
+        codes = (self._current_expression, self._get_blink_code())
+        for code in codes:
+            if not code:
+                continue
+            path = self._get_path(code)
+            if os.path.exists(path):
+                self._load_pixmap(path)
+
+    def _get_current_path(self) -> str:
         if self._is_blinking and self._expression_has_blink:
             blink_code = self._get_blink_code()
             if blink_code:
-                path = self._get_path(blink_code)
-                if os.path.exists(path):
-                    return QPixmap(path)
+                blink_path = self._get_path(blink_code)
+                if os.path.exists(blink_path):
+                    return blink_path
 
-        code = self._current_expression
-        path = self._get_path(code)
+        path = self._get_path(self._current_expression)
         if os.path.exists(path):
-            return QPixmap(path)
-        # fallback to base
+            return path
         base_path = os.path.join(self.sprite_dir, f"{self.prefix}_base.png")
         if os.path.exists(base_path):
-            return QPixmap(base_path)
-        raise FileNotFoundError(f"Cannot find sprite for {self.prefix}_{code}")
+            return base_path
+        raise FileNotFoundError(
+            f"Cannot find sprite for {self.prefix}_{self._current_expression}"
+        )
+
+    def get_current_pixmap(self) -> QPixmap:
+        """获取当前应该显示的 QPixmap"""
+        return self._load_pixmap(self._get_current_path())
+
+    def _get_scaled_pixmap_for_path(
+        self,
+        path: str,
+        width: int,
+        height: int,
+    ) -> QPixmap:
+        key = (path, max(1, int(width)), max(1, int(height)))
+        scaled = self._scaled_pixmap_cache.get(key)
+        if scaled is None:
+            scaled = self._load_pixmap(path).scaled(
+                key[1],
+                key[2],
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            self._scaled_pixmap_cache[key] = scaled
+        return scaled
+
+    def get_scaled_pixmap(self, width: int, height: int) -> QPixmap:
+        """返回当前帧的缓存缩放结果。"""
+        return self._get_scaled_pixmap_for_path(
+            self._get_current_path(),
+            width,
+            height,
+        )
+
+    def preload_scaled_frames(self, width: int, height: int) -> None:
+        """预缩放当前与闭眼帧，避免 150ms 眨眼窗口内做重采样。"""
+        paths = {self._get_current_path()}
+        blink_code = self._get_blink_code()
+        if blink_code:
+            blink_path = self._get_path(blink_code)
+            if os.path.exists(blink_path):
+                paths.add(blink_path)
+        for path in paths:
+            self._get_scaled_pixmap_for_path(path, width, height)
 
     def set_mood(self, mood: str):
         """根据情绪设置表情"""
