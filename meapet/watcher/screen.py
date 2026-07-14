@@ -457,7 +457,7 @@ class ScreenWatcher(QThread):
             )
             ratio = 1280 / max(1, image.width)
             if ratio < 1.0:
-                img = img.resize((320, int(img.height * ratio)))
+                img = image.resize((320, int(image.height * ratio)))
             buf = io.BytesIO()
             img.convert('RGB').save(buf, format="JPEG", quality=50)
             b64 = base64.b64encode(buf.getvalue()).decode()
@@ -469,6 +469,11 @@ class ScreenWatcher(QThread):
             coordinator = VisionCoordinator(self._reply_adapter)
             self.progress.emit(STAGE_SUMMARY)
             if self.mode == "inherit":
+                attachment = ImageAttachment(
+                    image=image,
+                    base64=b64,
+                    mime_type="image/jpeg",
+                )
                 operation = coordinator.inherit(
                     attachment,
                     idle_minutes=self.idle_minutes,
@@ -476,7 +481,7 @@ class ScreenWatcher(QThread):
                     tts_enabled=self._tts_enabled,
                 )
             elif self.mode == "relay":
-                raw_observation = self._request_visual_observation(encoded)
+                raw_observation = self._request_visual_observation(b64)
                 observation = parse_vision_observation(raw_observation)
                 if observation is None:
                     raise RuntimeError("视觉模型未返回可用观察")
@@ -576,14 +581,3 @@ class ScreenWatcher(QThread):
         if any(w in text for w in ["哼", "……", "懒得"]):
             return "melancholy"
         return "neutral"
-
-
-if __name__ == "__main__":
-    w = ScreenWatcher(idle_minutes=5)
-    w.progress.connect(lambda s: log.info(f"[test] {s}"))
-    w.result_ready.connect(lambda t, m: log.info(f"[test] 梅尔 [{m}]: {t}"))
-    w.silent.connect(lambda: log.info("[test] (不说话)"))
-    w.error.connect(lambda e: log.error(f"[test] ERROR: {e}"))
-    w.search_request.connect(lambda q: log.info(f"[test] 搜索请求: {q}"))
-    w.start()
-    w.wait()

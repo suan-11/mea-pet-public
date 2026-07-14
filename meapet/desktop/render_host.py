@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
-from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtCore import QPoint, QRect, QSize, Qt, QTimer
