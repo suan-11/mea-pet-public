@@ -352,9 +352,9 @@ class Live2DWidget(QOpenGLWidget):
                 return
 
             # 2. 【核心优化】降采样 (Downsampling)
-            # 将图像缩小到宽度只有 150 像素左右。
+            # 将图像缩小到宽度只有 120 像素左右。
             # 这会让像素数量减少几十倍，极大降低后续计算和回读的开销！
-            target_w = 150
+            target_w = 120
             scale_ratio = target_w / w
             target_h = int(h * scale_ratio)
         
@@ -372,10 +372,13 @@ class Live2DWidget(QOpenGLWidget):
             arr = np.frombuffer(ptr, dtype=np.uint8).reshape((target_h, target_w, 4))
             alpha_channel = arr[:, :, 3] 
 
-            # 4. 找出 Alpha > 15 的像素的边界 (15 是容差，过滤掉半透明抗锯齿边缘)
+            # 修复：不同尺寸下Alpha值变化
+            dynamic_threshold = int(np.max(alpha_channel) * 0.1)
+
+            # 4. 找出 Alpha > 50 的像素的边界 (50 是容差，过滤掉半透明抗锯齿边缘)
             # np.any 是 C 语言级别的循环，比 Python for 循环快成百上千倍
-            rows_with_content = np.any(alpha_channel > 15, axis=1)
-            cols_with_content = np.any(alpha_channel > 15, axis=0)
+            rows_with_content = np.any(alpha_channel > dynamic_threshold, axis=1)
+            cols_with_content = np.any(alpha_channel > dynamic_threshold, axis=0)
 
             if not np.any(rows_with_content) or not np.any(cols_with_content):
                 # 如果整张图都是透明的，清空 Mask
@@ -392,25 +395,17 @@ class Live2DWidget(QOpenGLWidget):
             real_w = int((cmax - cmin) / scale_ratio)
             real_h = int((rmax - rmin) / scale_ratio)
 
-            # 6. 【关键】向外扩展 10% 的余量 (Padding)
+            # 6. 【关键】向外扩展余量 (Padding)
             # 因为模型会动，300ms 内模型可能会有位移或形变，留出余量防止点击失效
-            pad_x = int(real_w * 0.1)
-            pad_y = int(real_h * 0.1)
+            pad_x = max(5, int(real_w * 0.03))  # 左右留 3%，最小 5px
+            pad_y = max(5, int(real_h * 0.03))  # 上下留 3%，最小 5px
         
             final_x = max(0, real_x - pad_x)
             final_y = max(0, real_y - pad_y)
             final_w = min(w - final_x, real_w + 2 * pad_x)
             final_h = min(h - final_y, real_h + 2 * pad_y)
 
-            #=====================为防止冲突=============================
-            # 7. 应用矩形 Mask
-            # 我们不需要多边形，一个紧紧包裹住模型当前动作的矩形就足够完美了
-            # mask_region = QRegion(final_x, final_y, final_w, final_h)
-        
-            # 只有当 Mask 发生明显变化时才更新，避免无意义的 Qt 重绘
-            # if self.mask() != mask_region:
-            #     self.setMask(mask_region)
-            #======================此处废除===========================
+            self._render_rect = (final_x, final_y, final_w, final_h)
 
             # 8. 通知父窗口裁切 (仅首次)
             if not self._tight_bounds_emitted:

@@ -585,6 +585,8 @@ class PetRenderHostMixin:
             self._update_sprite()
             self._apply_hit_region()
             QApplication.processEvents()
+        if hasattr(self.sprite_label, '_tight_bounds_emitted'):
+            self.sprite_label._tight_bounds_emitted = False
         self._position_bubble()
 
     def _open_size_dialog(self):
