@@ -1636,20 +1636,22 @@ class UiRefactorTests(unittest.TestCase):
                 "enabled": True,
                 "translate_to_jp": True,
                 "translate_target_language": "zh",
-                "translate_api_key": "translate-test-key",
+                "prefer_model_voice_translation": True,
             }
         )
 
         page = wizard.tts_page
         self.assertTrue(page.translation_enabled_cb.isChecked())
+        self.assertTrue(page.prefer_model_voice_cb.isChecked())
         self.assertEqual(page.translate_target_combo.currentData(), "zh")
         self.assertIn("输出语言不受支持", page.translation_enabled_cb.text())
-        self.assertNotIn("免费翻译失效", page.translate_key.placeholderText())
+        self.assertFalse(hasattr(page, "translate_key"))
 
         tts_config = wizard.collect_config()["tts"]
         self.assertTrue(tts_config["translate_to_jp"])
+        self.assertTrue(tts_config["prefer_model_voice_translation"])
         self.assertEqual(tts_config["translate_target_language"], "zh")
-        self.assertEqual(tts_config["translate_api_key"], "translate-test-key")
+        self.assertNotIn("translate_api_key", tts_config)
 
     def test_tray_menu_offers_standby_recovery(self) -> None:
         from meapet.desktop.window_chrome import PetWindowChromeMixin
