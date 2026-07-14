@@ -36,6 +36,10 @@ if sys.platform == "win32":
         win32api = None
         win32con = None
 
+from PyQt5.QtGui import QBitmap, QRegion, QImage
+from PyQt5.QtCore import Qt
+
+
 
 class Live2DModel:
     """Live2D 模型控制器，提供与 SpriteRenderer 兼容的接口"""
@@ -137,6 +141,7 @@ class Live2DWidget(QOpenGLWidget):
     chat_requested = pyqtSignal()
     first_frame_ready = pyqtSignal()
     initialization_failed = pyqtSignal(str)
+    tight_bounds_ready = pyqtSignal(int, int, int, int)  # x, y, w, h 紧密包围盒
 
     def __init__(self, l2d_model: Live2DModel, parent=None):
         super().__init__(parent)
@@ -166,6 +171,7 @@ class Live2DWidget(QOpenGLWidget):
         self._initialization_error = ""
         self._frame_drawn = False
         self._first_frame_emitted = False
+        self._tight_bounds_emitted = False
         self._drag_target = (0.0, 0.0)  # 眼球追踪坐标（每帧更新）
         self._global_filter_installed = False
         self._timer = QTimer(self)
@@ -182,6 +188,10 @@ class Live2DWidget(QOpenGLWidget):
         self._drag_pointer_origin = None
         self._drag_window_origin = None
 
+        #添加计数器
+        self._mask_update_counter = 0
+        self._mask_update_interval = 10
+
         self.resize(525, 735)
 
         # 3. 【删除】这行代码，否则鼠标事件无法触发
@@ -189,22 +199,17 @@ class Live2DWidget(QOpenGLWidget):
         self.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        # 仅处理鼠标按下事件（穿透判定）
-        if obj == self and event.type() == QEvent.MouseButtonPress:
-            # 如果是右键，不拦截，用于呼出菜单
-            if event.button() == Qt.RightButton:
+        if obj == self and event.type() in (
+            QEvent.MouseButtonPress,
+            QEvent.MouseButtonDblClick,
+        ):
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.RightButton:
                 return False
-            # 如果是左键，判断是否点击在模型的非透明区域
-            # （这里可以简单判断坐标，或者通过读取像素判断是否透明）
             x, y = event.x(), event.y()
             w, h = self.width(), self.height()
-            # 简单的矩形碰撞检测 — 扩大范围以适配非100%缩放
-            if w * 0.15 < x < w * 0.85 and 0 < y < h * 0.9:
-                return False  # 在模型区域内，不拦截，允许触发 mousePressEvent
-
-            # 在模型区域外，返回 True 拦截事件，让操作系统将其传递给底层窗口
+            if ((x / w - 0.5) * 2) ** 2 + ((y / h - 0.5) * 2) ** 2 <= 1:
+                return False
             return True
-
         return super().eventFilter(obj, event)
 
     def initializeGL(self):
@@ -326,12 +331,53 @@ class Live2DWidget(QOpenGLWidget):
         self.l2d.model.Update()
         self.l2d.model.Draw()
         self._frame_drawn = True
+        self._mask_update_counter += 1
+        if self._mask_update_counter >= self._mask_update_interval:
+            self._mask_update_counter = 0
+            self._update_window_mask()
 
     def _on_frame_swapped(self):
         """只在 Qt 确认首帧已交换到屏幕后通知宿主显现。"""
         if self._frame_drawn and not self._first_frame_emitted:
             self._first_frame_emitted = True
             self.first_frame_ready.emit()
+    def _update_window_mask(self):
+        """根据渲染帧的 Alpha 通道更新窗口遮罩，首次计算紧密包围盒通知父窗口。"""
+        if not self._ready or not hasattr(self, 'l2d') or not self.l2d.model:
+            return
+
+        try:
+            img = self.grabFramebuffer()
+            if img.format() != QImage.Format_ARGB32:
+                img = img.convertToFormat(QImage.Format_ARGB32)
+            mask_img = img.createMaskFromColor(Qt.transparent, Qt.MaskOutColor)
+            bitmap = QBitmap.fromImage(mask_img)
+            region = QRegion(bitmap)
+            dpr = self.devicePixelRatio()
+            if dpr != 1.0:
+                scaled_size = self.size()
+                region = region.scaled(scaled_size.width(), scaled_size.height())
+            self.setMask(region)
+
+            # 首次成功 → 计算紧密包围盒，通知父窗口裁切透明边框
+            if not self._tight_bounds_emitted:
+                bounds = region.boundingRect()
+                if bounds.width() > 20 and bounds.height() > 20:
+                    self._tight_bounds_emitted = True
+                    bx, by, bw, bh = (
+                        bounds.x(), bounds.y(),
+                        bounds.width(), bounds.height(),
+                    )
+                    QTimer.singleShot(
+                        0,
+                        lambda bx=bx, by=by, bw=bw, bh=bh: self.tight_bounds_ready.emit(
+                            bx, by, bw, bh
+                        ),
+                    )
+
+        except Exception as e:
+            log.warn(f"[Live2D] 像素级掩码更新失败: {e}")
+            self.clearMask()
 
     def _on_timer(self):
         self.update()
