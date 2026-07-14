@@ -1271,10 +1271,16 @@ class UiRefactorTests(unittest.TestCase):
             "QLineEdit",
             "QSpinBox",
             "QLabel#ConsentValidation",
+            "QComboBox::down-arrow",
+            "QSpinBox::up-arrow",
+            "QSpinBox::down-arrow",
         ):
             with self.subTest(selector=selector):
                 self.assertIn(selector, stylesheet)
 
+        dialog.show()
+        dialog._timer.stop()
+        QApplication.processEvents()
         compact_height = dialog.height()
         dialog.scope_combo.setCurrentIndex(
             dialog.scope_combo.findData("region")

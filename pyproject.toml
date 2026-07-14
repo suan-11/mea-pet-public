@@ -12,7 +12,7 @@ authors = [
     { name = "FlexiAtom", email = "3685587367@qq.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 keywords = [
     "desktop-pet",
     "live2d",
@@ -30,6 +30,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Environment :: X11 Applications :: Qt",
     "Topic :: Games/Entertainment",
     "Topic :: Desktop Environment",
@@ -106,6 +107,7 @@ exclude = ["tests*"]
     "*.pth",
     "assets/fonts/*.ttf",
     "assets/fonts/*.txt",
+    "assets/icons/*.svg",
 ]
 
 [tool.pytest.ini_options]

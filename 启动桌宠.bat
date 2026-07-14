@@ -80,7 +80,7 @@ echo Fix options:
 echo   1. install uv: https://docs.astral.sh/uv/getting-started/installation/
 echo      powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
 echo   2. set MEAPET_ALLOW_DOWNLOAD=1 then re-run
-echo   3. install Python 3.10-3.12 with Add to PATH
+echo   3. install Python 3.10+ with Add to PATH ^(local VITS recommends 3.10-3.12^)
 echo   4. manual:
 echo      uv python install 3.12
 echo      uv venv --python 3.12 .venv
@@ -163,7 +163,7 @@ exit /b !ERR!
 set "SYS_PY="
 where py >nul 2>&1
 if not errorlevel 1 (
-    for %%V in (3.12 3.11 3.10 3) do (
+    for %%V in (3.12 3.13 3.11 3.10 3) do (
         if not defined SYS_PY (
             py -%%V -c "import sys; raise SystemExit(0 if sys.version_info[:2]>=(3,10) else 1)" >nul 2>&1
             if not errorlevel 1 (

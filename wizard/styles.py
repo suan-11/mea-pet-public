@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 from meapet.ui_theme import (
+    BUNDLED_CHEVRON_DOWN_PATH,
+    BUNDLED_CHEVRON_UP_PATH,
     DISPLAY_FONT_FAMILY,
     FONT_FAMILY,
     MIN_TARGET_SIZE,
@@ -249,7 +251,9 @@ WIZARD_STYLESHEET = f"""
     QLineEdit,
     QTextEdit,
     QPlainTextEdit,
-    QComboBox {{
+    QComboBox,
+    QSpinBox,
+    QDoubleSpinBox {{
         background: {COLOR_INPUT};
         color: {COLOR_TEXT};
         border: 1px solid {COLOR_BORDER_STRONG};
@@ -260,23 +264,74 @@ WIZARD_STYLESHEET = f"""
     QLineEdit:hover,
     QTextEdit:hover,
     QPlainTextEdit:hover,
-    QComboBox:hover {{
+    QComboBox:hover,
+    QSpinBox:hover,
+    QDoubleSpinBox:hover {{
         border-color: {COLOR_MUTED};
     }}
     QLineEdit:focus,
     QTextEdit:focus,
     QPlainTextEdit:focus,
-    QComboBox:focus {{
+    QComboBox:focus,
+    QSpinBox:focus,
+    QDoubleSpinBox:focus {{
         border: 2px solid {COLOR_FOCUS};
         padding: 8px 11px;
     }}
     QLineEdit:disabled,
     QTextEdit:disabled,
     QPlainTextEdit:disabled,
-    QComboBox:disabled {{
+    QComboBox:disabled,
+    QSpinBox:disabled,
+    QDoubleSpinBox:disabled {{
         background: {rgba(COLOR_INPUT, 150)};
         color: {rgba(COLOR_MUTED, 150)};
         border-color: {rgba(COLOR_BORDER, 150)};
+    }}
+    QSpinBox,
+    QDoubleSpinBox {{
+        padding-right: 34px;
+    }}
+    QSpinBox::up-button,
+    QDoubleSpinBox::up-button,
+    QSpinBox::down-button,
+    QDoubleSpinBox::down-button {{
+        subcontrol-origin: border;
+        width: 28px;
+        color: {COLOR_TEXT_SECONDARY};
+        background: {COLOR_ELEVATED};
+        border-left: 1px solid {COLOR_BORDER_STRONG};
+    }}
+    QSpinBox::up-button,
+    QDoubleSpinBox::up-button {{
+        subcontrol-position: top right;
+        border-bottom: 1px solid {COLOR_BORDER};
+        border-top-right-radius: {RADIUS_SMALL - 1}px;
+    }}
+    QSpinBox::down-button,
+    QDoubleSpinBox::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: {RADIUS_SMALL - 1}px;
+    }}
+    QSpinBox::up-button:hover,
+    QDoubleSpinBox::up-button:hover,
+    QSpinBox::down-button:hover,
+    QDoubleSpinBox::down-button:hover {{
+        background: {rgba(COLOR_FOCUS, 40)};
+        border-left-color: {COLOR_FOCUS};
+    }}
+    QSpinBox::up-arrow,
+    QDoubleSpinBox::up-arrow {{
+        image: url("{BUNDLED_CHEVRON_UP_PATH}");
+        width: 10px;
+        height: 7px;
+    }}
+    QSpinBox::down-arrow,
+    QDoubleSpinBox::down-arrow,
+    QComboBox::down-arrow {{
+        image: url("{BUNDLED_CHEVRON_DOWN_PATH}");
+        width: 10px;
+        height: 7px;
     }}
     QTextEdit#LogOutput {{
         color: {COLOR_TEXT_SECONDARY};
@@ -522,6 +577,7 @@ def prepare_accessible_page(root) -> None:
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import (
         QAbstractButton,
+        QAbstractSpinBox,
         QComboBox,
         QLineEdit,
         QPlainTextEdit,
@@ -557,6 +613,12 @@ def prepare_accessible_page(root) -> None:
         combo.setFocusPolicy(Qt.StrongFocus)
         if not combo.accessibleName():
             combo.setAccessibleName(combo.objectName() or "配置选项")
+
+    for spin_box in root.findChildren(QAbstractSpinBox):
+        spin_box.setMinimumHeight(MIN_TARGET_SIZE)
+        spin_box.setFocusPolicy(Qt.StrongFocus)
+        if not spin_box.accessibleName():
+            spin_box.setAccessibleName(spin_box.objectName() or "数值设置")
 
     for slider in root.findChildren(QSlider):
         slider.setMinimumHeight(MIN_TARGET_SIZE)

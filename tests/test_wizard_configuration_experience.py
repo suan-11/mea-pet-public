@@ -169,6 +169,13 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         thread.assert_called_once()
         thread.return_value.start.assert_called_once_with()
 
+        llm = self._track(LLMPage())
+        llm._status_timer.stop()
+        with patch("wizard.page_llm.threading.Thread") as thread:
+            llm._refresh_ollama_status()
+        thread.assert_called_once()
+        thread.return_value.start.assert_called_once_with()
+
     def test_python_313_is_a_valid_core_runtime_with_a_local_vits_advisory(self) -> None:
         from wizard.platform_info import (
             PYTHON_CHECK_NAME,
@@ -214,16 +221,12 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
             "QSpinBox::down-button",
             "QDoubleSpinBox::up-button",
             "QDoubleSpinBox::down-button",
+            "QSpinBox::up-arrow",
+            "QSpinBox::down-arrow",
+            "QComboBox::down-arrow",
         ):
             with self.subTest(selector=selector):
                 self.assertIn(selector, WIZARD_STYLESHEET)
-
-        llm = self._track(LLMPage())
-        llm._status_timer.stop()
-        with patch("wizard.page_llm.threading.Thread") as thread:
-            llm._refresh_ollama_status()
-        thread.assert_called_once()
-        thread.return_value.start.assert_called_once_with()
 
     def test_slow_gsv_probe_is_not_scheduled_when_page_opens(self) -> None:
         from wizard.page_tts import TTSPage

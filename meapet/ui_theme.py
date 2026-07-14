@@ -41,6 +41,12 @@ DISPLAY_FONT_FAMILY = f'"{DISPLAY_FONT_NAME}"'
 BUNDLED_DISPLAY_FONT_PATH = (
     Path(__file__).resolve().parent / "assets" / "fonts" / "LXGWWenKai-Regular.ttf"
 )
+BUNDLED_CHEVRON_UP_PATH = (
+    Path(__file__).resolve().parent / "assets" / "icons" / "chevron-up.svg"
+).as_posix()
+BUNDLED_CHEVRON_DOWN_PATH = (
+    Path(__file__).resolve().parent / "assets" / "icons" / "chevron-down.svg"
+).as_posix()
 
 if sys.platform == "win32":
     FALLBACK_BODY_FONT_NAME = "Microsoft YaHei UI"

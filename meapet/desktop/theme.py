@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from meapet.ui_theme import (
+    BUNDLED_CHEVRON_DOWN_PATH,
+    BUNDLED_CHEVRON_UP_PATH,
     DISPLAY_FONT_FAMILY,
     FONT_FAMILY,
     MONO_FONT_FAMILY,
@@ -139,7 +141,8 @@ DIALOG_STYLE = f"""
 
 
 CONSENT_DIALOG_STYLE = f"""
-    QDialog#CloudConsentRoot {{
+    QDialog#CloudConsentRoot,
+    QDialog#CaptureScopeConsentRoot {{
         color: {COLOR_TEXT};
         font-family: {FONT_FAMILY};
         background: transparent;
@@ -148,6 +151,11 @@ CONSENT_DIALOG_STYLE = f"""
         background: {COLOR_CARD};
         border: 1px solid {COLOR_BORDER_STRONG};
         border-radius: {RADIUS_LARGE}px;
+    }}
+    QFrame#SectionCard {{
+        background: {COLOR_ELEVATED};
+        border: 1px solid {COLOR_BORDER};
+        border-radius: {RADIUS_SMALL}px;
     }}
     QLabel {{
         color: {COLOR_TEXT};
@@ -169,6 +177,24 @@ CONSENT_DIALOG_STYLE = f"""
         color: {COLOR_SECONDARY};
         font-size: 13px;
     }}
+    QLabel#FieldLabel {{
+        color: {COLOR_SECONDARY};
+        font-size: 12px;
+        font-weight: 650;
+    }}
+    QLabel#HelperText {{
+        color: {COLOR_MUTED};
+        font-size: 11px;
+    }}
+    QLabel#ConsentValidation {{
+        color: {COLOR_ERR};
+        font-size: 12px;
+        font-weight: 650;
+        padding: 5px 8px;
+        background: {rgba(COLOR_ERR, 18)};
+        border: 1px solid {rgba(COLOR_ERR, 75)};
+        border-radius: {RADIUS_SMALL}px;
+    }}
     QLabel#ConsentCountdown {{
         color: {COLOR_WARN};
         font-size: 12px;
@@ -177,6 +203,85 @@ CONSENT_DIALOG_STYLE = f"""
         background: {rgba(COLOR_WARN, 18)};
         border: 1px solid {rgba(COLOR_WARN, 70)};
         border-radius: {RADIUS_SMALL}px;
+    }}
+    QComboBox,
+    QLineEdit,
+    QSpinBox {{
+        min-height: 42px;
+        color: {COLOR_TEXT};
+        background: {COLOR_INPUT};
+        border: 1px solid {COLOR_BORDER_STRONG};
+        border-radius: {RADIUS_SMALL}px;
+        padding: 0 12px;
+        selection-background-color: {rgba(COLOR_ACCENT, 105)};
+    }}
+    QComboBox:hover,
+    QLineEdit:hover,
+    QSpinBox:hover {{
+        border-color: {COLOR_MUTED};
+    }}
+    QComboBox:focus,
+    QLineEdit:focus,
+    QSpinBox:focus {{
+        border: 2px solid {COLOR_FOCUS};
+    }}
+    QComboBox::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        width: 32px;
+        background: {COLOR_ELEVATED};
+        border: none;
+        border-left: 1px solid {COLOR_BORDER_STRONG};
+        border-top-right-radius: {RADIUS_SMALL - 1}px;
+        border-bottom-right-radius: {RADIUS_SMALL - 1}px;
+    }}
+    QComboBox::down-arrow {{
+        image: url("{BUNDLED_CHEVRON_DOWN_PATH}");
+        width: 10px;
+        height: 7px;
+    }}
+    QComboBox QAbstractItemView {{
+        color: {COLOR_TEXT};
+        background: {COLOR_ELEVATED};
+        border: 1px solid {COLOR_BORDER_STRONG};
+        selection-color: {COLOR_TEXT};
+        selection-background-color: {rgba(COLOR_FOCUS, 45)};
+        padding: 4px;
+    }}
+    QSpinBox {{
+        padding-right: 32px;
+    }}
+    QSpinBox::up-button,
+    QSpinBox::down-button {{
+        subcontrol-origin: border;
+        width: 26px;
+        color: {COLOR_SECONDARY};
+        background: {COLOR_CARD};
+        border-left: 1px solid {COLOR_BORDER_STRONG};
+    }}
+    QSpinBox::up-button {{
+        subcontrol-position: top right;
+        border-bottom: 1px solid {COLOR_BORDER};
+        border-top-right-radius: {RADIUS_SMALL - 1}px;
+    }}
+    QSpinBox::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: {RADIUS_SMALL - 1}px;
+    }}
+    QSpinBox::up-button:hover,
+    QSpinBox::down-button:hover {{
+        background: {rgba(COLOR_FOCUS, 40)};
+        border-left-color: {COLOR_FOCUS};
+    }}
+    QSpinBox::up-arrow {{
+        image: url("{BUNDLED_CHEVRON_UP_PATH}");
+        width: 10px;
+        height: 7px;
+    }}
+    QSpinBox::down-arrow {{
+        image: url("{BUNDLED_CHEVRON_DOWN_PATH}");
+        width: 10px;
+        height: 7px;
     }}
     QPushButton {{
         min-width: 112px;

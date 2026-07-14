@@ -22,7 +22,13 @@ from wizard.styles import (
     STYLE_PAGE_CARD,
     set_status,
 )
-from wizard.platform_info import PLATFORM, platform_checklist, ollama_install_hint
+from wizard.platform_info import (
+    PLATFORM,
+    PYTHON_CHECK_NAME,
+    ollama_install_hint,
+    platform_checklist,
+    python_runtime_compatibility,
+)
 from wizard.env_utils import (
     pip_install, check_installed, download_file,
     check_ollama_running, check_ollama_installed, pull_ollama_model,
@@ -266,16 +272,15 @@ class EnvCheckPage(QFrame):
             step += 1
             pct = int(step / total_steps * 90)
 
-            if name == "Python 3.10–3.12":
-                ver = sys.version_info
-                ok = ver.major == 3 and 10 <= ver.minor <= 12
+            if name == PYTHON_CHECK_NAME:
+                ok, version_status = python_runtime_compatibility()
                 self._set_item_status(
                     name, ok,
-                    f"{'✅' if ok else '⚠️'} {ver.major}.{ver.minor}.{ver.micro}"
+                    f"{'✅' if ok else '⚠️'} {version_status}",
                 )
                 self.log(
                     f"Python: {sys.version.split()[0]} "
-                    f"({'OK' if ok else '需要 3.10–3.12'})"
+                    f"({'OK' if ok else '需要 3.10+'})"
                 )
             elif name == "Ollama":
                 ollama_ok = check_ollama_installed()
@@ -426,12 +431,13 @@ class EnvCheckPage(QFrame):
             self.log("⏭ pywin32 仅适用于 Windows，已跳过")
             self._set_installing(False)
             return
-        if name == "Python 3.10–3.12":
-            self.log("请从 https://www.python.org/downloads/ 手动安装 Python 3.10–3.12")
+        if name == PYTHON_CHECK_NAME:
+            self.log("请从 https://www.python.org/downloads/ 手动安装 Python 3.10+")
             QMessageBox.information(
                 self, "手动安装 Python",
                 f"当前平台：{PLATFORM['display']}\n\n"
-                "请手动安装 Python 3.10~3.12 并加入 PATH。\n"
+                "请手动安装 Python 3.10+ 并加入 PATH。\n"
+                "如需本地 VITS，推荐使用 Python 3.10~3.12。\n"
                 "本向导默认不自动下载 Python。"
             )
             self._set_installing(False)
