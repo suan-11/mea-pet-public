@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import os
 import threading
 from collections.abc import Callable, Iterable
 
@@ -47,23 +49,79 @@ class TranslationService:
             if str(provider or "").strip()
         )
         self.max_attempts = max(1, min(int(max_attempts), 3))
-        self._translate_func = translate_func or self._load_translate_func()
+        self._state_lock = threading.RLock()
+        self._translate_func = translate_func if callable(translate_func) else None
+        self._load_attempted = self._translate_func is not None
+        self._dependency_present = (
+            self._translate_func is not None or self._translation_package_present()
+        )
         self._last_successful_provider = ""
         self._next_provider_index = 0
-        self._state_lock = threading.RLock()
+
+    @staticmethod
+    def _translation_package_present() -> bool:
+        """只检查模块规格，避免在 TTS 启动阶段执行第三方包代码。"""
+        try:
+            return importlib.util.find_spec("translators") is not None
+        except (ImportError, ValueError):
+            return False
 
     @staticmethod
     def _load_translate_func() -> Callable[..., object] | None:
+        # translators 默认在 import 阶段访问 OneTrust 推断地区。固定地区可
+        # 避免一次与实际翻译无关的网络请求；用户仍可显式覆盖为 EN。
+        region = str(os.environ.get("translators_default_region") or "").upper()
+        if region not in {"CN", "EN"}:
+            os.environ["translators_default_region"] = "CN"
         try:
             import translators as translators_package
         except ImportError:
             log.error("翻译组件 translators 未安装；本轮无法进行机器翻译")
             return None
-        return translators_package.translate_text
+        except Exception as exc:
+            log.warning(
+                "[translate] 翻译组件加载失败；不影响 TTS 启动，"
+                f"本轮跳过翻译 error={type(exc).__name__}"
+            )
+            return None
+        translate_func = getattr(translators_package, "translate_text", None)
+        if not callable(translate_func):
+            log.error("翻译组件 translators 缺少 translate_text")
+            return None
+        return translate_func
+
+    def _ensure_translate_func(self) -> Callable[..., object] | None:
+        """首次真正需要翻译时才导入第三方后端，且隔离其全部异常。"""
+        with self._state_lock:
+            if self._translate_func is not None:
+                return self._translate_func
+            if self._load_attempted or not self._dependency_present:
+                return None
+            self._load_attempted = True
+            try:
+                loaded = self._load_translate_func()
+            except Exception as exc:
+                # 防止测试替身、第三方更新或 import hook 绕过加载器自身保护。
+                log.warning(
+                    "[translate] 翻译组件初始化异常；不影响 TTS，"
+                    f"本轮跳过翻译 error={type(exc).__name__}"
+                )
+                loaded = None
+            if callable(loaded):
+                self._translate_func = loaded
+            else:
+                self._dependency_present = False
+            return self._translate_func
 
     @property
     def available(self) -> bool:
-        return bool(self._translate_func and self.providers)
+        if not self.providers:
+            return False
+        with self._state_lock:
+            return bool(
+                self._translate_func is not None
+                or (self._dependency_present and not self._load_attempted)
+            )
 
     @property
     def last_successful_provider(self) -> str:
@@ -95,7 +153,10 @@ class TranslationService:
     ) -> str:
         value = str(text or "").strip()
         target = canonical_tts_language(target_language)
-        if not value or not target or not self.available:
+        if not value or not target or not self.providers:
+            return ""
+        translate_func = self._ensure_translate_func()
+        if translate_func is None:
             return ""
 
         source = _provider_language(source_language, fallback="auto")
@@ -104,7 +165,7 @@ class TranslationService:
             with self._state_lock:
                 self._next_provider_index = (index + 1) % len(self.providers)
             try:
-                result = self._translate_func(
+                result = translate_func(
                     value,
                     translator=provider,
                     from_language=source,
