@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestTranslationService(unittest.TestCase):
@@ -109,6 +113,15 @@ class TestTranslationService(unittest.TestCase):
         service = TranslationService(translate_func=translate)
         self.assertEqual(service.translate("你好", "zh", "jp"), "")
         self.assertEqual(len(calls), 3)
+
+
+class TestTranslationDependencyPackaging(unittest.TestCase):
+    def test_default_launcher_installs_and_checks_translation_component(self):
+        requirements = (ROOT / "linux_requirements.txt").read_text(encoding="utf-8")
+        launcher = (ROOT / "启动桌宠.bat").read_text(encoding="utf-8")
+
+        self.assertIn("translators>=6.0.4,<7", requirements)
+        self.assertIn("import translators", launcher)
 
 
 if __name__ == "__main__":

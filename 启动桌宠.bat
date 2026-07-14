@@ -99,7 +99,7 @@ goto end
 :dep_check
 echo [MeaPet] checking deps...
 "!PY_CMD!" --version
-"!PY_CMD!" -c "import PyQt5,PIL,requests,numpy,httpx,OpenGL,jieba" >nul 2>&1
+"!PY_CMD!" -c "import PyQt5,PIL,requests,numpy,httpx,OpenGL,jieba; import translators" >nul 2>&1
 if not errorlevel 1 goto ready
 echo [MeaPet] installing missing deps...
 call :ensure_uv
