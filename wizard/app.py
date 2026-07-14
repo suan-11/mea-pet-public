@@ -974,7 +974,10 @@ class SetupWizard(QWidget):
                 self.tts_page.translation_enabled_cb.isChecked()
             ),
             "translate_target_language": translation_target,
-            "translate_api_key": self.tts_page.translate_key.text().strip(),
+            "prefer_model_voice_translation": bool(
+                hasattr(self.tts_page, "prefer_model_voice_cb")
+                and self.tts_page.prefer_model_voice_cb.isChecked()
+            ),
             "python_exe": gsv_python,
             "vits_python": self.tts_page.vits_python_input.text().strip(),
             "api_key": tts_key,

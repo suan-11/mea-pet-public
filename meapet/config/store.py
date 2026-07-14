@@ -38,7 +38,8 @@ ENV_LLM_KEY = {
 }
 
 ENV_TTS_KEY = ("MIMO_API_KEY", "XIAOMIMIMO_API_KEY")
-ENV_TRANSLATE_KEY = ("TRANSLATE_API_KEY", "DEEPSEEK_API_KEY")
+# 仅用于读取/脱敏旧配置；当前 TTS 翻译服务不再需要密钥。
+ENV_TRANSLATE_KEY = ("TRANSLATE_API_KEY",)
 ENV_VISION_KEY = ENV_LLM_KEY["mimo"]
 
 SUPPORTED_VISION_BACKENDS = {"ollama", "mimo"}
@@ -225,16 +226,11 @@ def resolve_tts_api_key(tts_cfg: dict, llm_cfg: Optional[dict] = None) -> str:
 
 
 def resolve_translate_api_key(tts_cfg: dict, llm_cfg: Optional[dict] = None) -> str:
-    llm_cfg = llm_cfg or {}
-    resolved = resolve_secret(
+    """读取旧版翻译密钥；绝不复用对话模型密钥。"""
+    return resolve_secret(
         tts_cfg.get("translate_api_key", ""),
         ENV_TRANSLATE_KEY,
     )
-    if resolved:
-        return resolved
-    if (llm_cfg.get("backend") or "").lower() == "deepseek":
-        return resolve_llm_api_key(llm_cfg)
-    return ""
 
 
 def resolve_vision_backend(
@@ -521,6 +517,10 @@ def normalize_config(config: dict) -> dict:
         tts.get("translate_target_language")
         or tts.get("voice_lang")
         or "jp"
+    )
+    # 保存用户意图；运行时再按机器翻译组件是否可用决定本轮是否生效。
+    tts["prefer_model_voice_translation"] = bool(
+        tts.get("prefer_model_voice_translation", True)
     )
     raw_supported = tts.get("supported_languages")
     if isinstance(raw_supported, (list, tuple)):

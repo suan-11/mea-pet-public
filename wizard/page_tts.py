@@ -335,30 +335,41 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         packaged_hint.setObjectName("HelperText")
         layout.addWidget(packaged_hint)
 
-        # 翻译只是“输出语言不受 TTS 支持”时的显式兜底。
+        # 翻译只是目标语朗读或“不受 TTS 支持”时的显式兜底。
         self.translate_frame = QFrame()
         tf = QVBoxLayout(self.translate_frame)
         tf.setContentsMargins(0, 5, 0, 0)
         self.translation_enabled_cb = QCheckBox(
-            "输出语言不受支持时，使用翻译 API 后再合成"
+            "输出语言不受支持时，使用机器翻译后再合成"
         )
         self.translation_enabled_cb.setChecked(False)
         self.translation_enabled_cb.setAccessibleName("TTS 语言翻译兜底")
         self.translation_enabled_cb.setToolTip(
             "仅在 voice_language 没有可用 TTS/参考音频时调用。\n"
-            "模型请求失败、TTS 请求失败都不会触发翻译。"
+            "会在固定翻译服务间轮换，单段最多请求 3 次；不会调用 LLM。"
         )
         tf.addWidget(self.translation_enabled_cb)
+
+        self.prefer_model_voice_cb = QCheckBox(
+            "优先让对话模型直接输出目标语朗读文本"
+        )
+        self.prefer_model_voice_cb.setChecked(True)
+        self.prefer_model_voice_cb.setAccessibleName("优先模型输出目标语朗读")
+        self.prefer_model_voice_cb.setToolTip(
+            "开启后会要求回复模型在 voice_text 中给出目标语朗读稿。\n"
+            "若语言标记或正文不合格，会使用机器翻译回落；不会调用 LLM。"
+        )
+        tf.addWidget(self.prefer_model_voice_cb)
         # 保留旧属性名，避免第三方页面扩展失效。
         self.mimo_translate_jp_cb = self.translation_enabled_cb
 
         target_row = QHBoxLayout()
-        target_label = QLabel("翻译目标语言：")
+        target_label = QLabel("目标朗读语言：")
         target_label.setObjectName("FieldLabel")
         target_row.addWidget(target_label)
         self.translate_target_combo = WheelSafeComboBox()
         self.translate_target_combo.setObjectName("TtsTranslationTargetLanguage")
-        self.translate_target_combo.setAccessibleName("TTS 翻译目标语言")
+        self.translate_target_combo.setAccessibleName("TTS 目标朗读语言")
         self.translate_target_combo.addItem("日语", "jp")
         self.translate_target_combo.addItem("中文", "zh")
         self.translate_target_combo.addItem("英语", "en")
@@ -366,18 +377,11 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         tf.addLayout(target_row)
 
         translate_hint = QLabel(
-            "只会翻译到已有固定参考音频、且当前 TTS 可合成的语言。"
+            "目标语必须有固定参考音频或受当前 TTS 支持；翻译失败时保留文字并跳过语音。"
         )
         translate_hint.setObjectName("HelperText")
         translate_hint.setWordWrap(True)
         tf.addWidget(translate_hint)
-        self.translate_key = QLineEdit()
-        self.translate_key.setObjectName("TranslationApiKey")
-        self.translate_key.setPlaceholderText("启用语言兜底时必填：翻译 API Key")
-        self.translate_key.setStyleSheet(STYLE_INPUT)
-        self.translate_key.setEchoMode(QLineEdit.Password)
-        self.translate_key.setAccessibleName("翻译 API Key")
-        tf.addWidget(self.translate_key)
         layout.addWidget(self.translate_frame)
         self._sync_engine_details_visibility()
 
@@ -414,8 +418,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             "mimo_voiceclone_cb",
             "mimo_clone_ref_input",
             "translation_enabled_cb",
+            "prefer_model_voice_cb",
             "translate_target_combo",
-            "translate_key",
         ):
             if hasattr(self, attr):
                 getattr(self, attr).setEnabled(on)
@@ -520,7 +524,6 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 break
         self._toggle_backend()
 
-
     def _on_mimo_voice_lang_changed(self, *_args):
         """根据默认合成语言更新 clone 提示。"""
         lang = "jp"
@@ -584,6 +587,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         if hasattr(self, "translation_enabled_cb"):
             self.translation_enabled_cb.setChecked(
                 bool(tts_cfg.get("translate_to_jp", False))
+            )
+        if hasattr(self, "prefer_model_voice_cb"):
+            self.prefer_model_voice_cb.setChecked(
+                bool(tts_cfg.get("prefer_model_voice_translation", True))
             )
         if hasattr(self, "translate_target_combo"):
             target_language = normalize_gsv_ref_language(
@@ -658,10 +665,6 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 else:
                     gsv_dir = parent
             self.gsv_dir_input.setText(gsv_dir)
-
-        tk = (tts_cfg.get("translate_api_key") or "").strip()
-        if tk and hasattr(self, "translate_key"):
-            self.translate_key.setText(tk)
 
         self._toggle(self.enable_cb.isChecked())
         if engine == "mimo" and self.enable_cb.isChecked():

@@ -73,7 +73,7 @@ python -m compileall -q meapet wizard
 ## Config & secrets
 
 - **Env var > config.json** (`store.py:resolve_secret`); supports `"$ENV_VAR"` / `${ENV_VAR}` placeholders
-- Key env vars: `DEEPSEEK_API_KEY`, `MIMO_API_KEY` / `XIAOMIMIMO_API_KEY`, `MEAPET_API_KEY` (fallback), `TRANSLATE_API_KEY` (falls to `DEEPSEEK_API_KEY`), `HERMES_API_SERVER_KEY` / `MEAPET_AGENT_TOKEN`, `MEAPET_CONTROL_TOKEN`, `GSV_PYTHON`, `MEAPET_FORCE_PNG`, `MEAPET_DEBUG`, `MEAPET_ALLOW_DOWNLOAD`, `MEAPET_REDUCED_MOTION`
+- Key env vars: `DEEPSEEK_API_KEY`, `MIMO_API_KEY` / `XIAOMIMIMO_API_KEY`, `MEAPET_API_KEY` (fallback), `HERMES_API_SERVER_KEY` / `MEAPET_AGENT_TOKEN`, `MEAPET_CONTROL_TOKEN`, `GSV_PYTHON`, `MEAPET_FORCE_PNG`, `MEAPET_DEBUG`, `MEAPET_ALLOW_DOWNLOAD`, `MEAPET_REDUCED_MOTION`
 
 ## Key behaviors
 

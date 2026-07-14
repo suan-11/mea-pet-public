@@ -119,7 +119,7 @@ class TestTtsLanguagePolicy(unittest.TestCase):
             "zh-CN",
             supported_languages=("ja", "zh"),
             translation_enabled=True,
-            translation_api_configured=True,
+            translation_available=True,
             preferred_translation_language="ja",
         )
 
@@ -135,7 +135,7 @@ class TestTtsLanguagePolicy(unittest.TestCase):
             "fr-FR",
             supported_languages=("zh-CN", "jp"),
             translation_enabled=True,
-            translation_api_configured=True,
+            translation_available=True,
             preferred_translation_language="ja-JP",
         )
 
@@ -144,20 +144,20 @@ class TestTtsLanguagePolicy(unittest.TestCase):
         self.assertEqual(plan.synthesis_language, "jp")
         self.assertTrue(plan.requires_translation)
 
-    def test_skips_voice_when_translation_api_is_not_configured(self):
+    def test_skips_voice_when_translation_component_is_unavailable(self):
         from meapet.tts.language_policy import plan_tts_language
 
         plan = plan_tts_language(
             "fr",
             supported_languages=("jp",),
             translation_enabled=True,
-            translation_api_configured=False,
+            translation_available=False,
             preferred_translation_language="jp",
         )
 
         self.assertEqual(plan.action, "skip")
         self.assertEqual(plan.synthesis_language, "")
-        self.assertIn("translation_api_unavailable", plan.reason)
+        self.assertIn("translation_unavailable", plan.reason)
 
     def test_uses_first_available_language_if_preference_is_unavailable(self):
         from meapet.tts.language_policy import plan_tts_language
@@ -166,7 +166,7 @@ class TestTtsLanguagePolicy(unittest.TestCase):
             "fr",
             supported_languages=("zh-CN", "en-US"),
             translation_enabled=True,
-            translation_api_configured=True,
+            translation_available=True,
             preferred_translation_language="jp",
         )
 
@@ -271,6 +271,7 @@ class TestMeaTtsLanguageOverride(unittest.TestCase):
                     }
                 }
             )
+            tts.translation_service = mock.Mock(available=True)
 
             with (
                 mock.patch.object(
@@ -312,6 +313,7 @@ class TestMeaTtsLanguageOverride(unittest.TestCase):
                     }
                 }
             )
+            tts.translation_service = mock.Mock(available=True)
 
             with (
                 mock.patch.object(
@@ -436,6 +438,7 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
                 }
             )
             tts._mimo_mode = True
+            tts.translation_service = mock.Mock(available=True)
             with mock.patch.object(tts, "supported_languages", return_value=("jp",)):
                 with mock.patch.object(
                     tts,
@@ -472,6 +475,7 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
                 }
             )
             tts._mimo_mode = True
+            tts.translation_service = mock.Mock(available=True)
             with mock.patch.object(tts, "supported_languages", return_value=("jp",)):
                 with mock.patch.object(
                     tts,
@@ -510,6 +514,7 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             )
+            tts.translation_service = mock.Mock(available=True)
             with mock.patch.object(
                 tts,
                 "supported_languages",
@@ -543,6 +548,7 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             )
+            tts.translation_service = mock.Mock(available=True)
             with mock.patch.object(
                 tts,
                 "_translate_text_async",
@@ -572,6 +578,7 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
                     }
                 }
             )
+            tts.translation_service = mock.Mock(available=True)
             with mock.patch.object(
                 tts,
                 "_translate_text_async",
@@ -592,3 +599,53 @@ class TestPreferModelVoiceTranslation(unittest.IsolatedAsyncioTestCase):
             {"tts": {"prefer_model_voice_translation": True, "translate_api_key": ""}}
         )
         self.assertTrue(cfg["tts"]["prefer_model_voice_translation"])
+
+
+class TestVoiceTranslationPrompt(unittest.TestCase):
+    @staticmethod
+    def _request(*, tts_enabled=True, prefer=True, available=True):
+        from meapet.agent.base import AgentTurnRequest
+
+        return AgentTurnRequest(
+            turn_id="voice-translation-prompt",
+            user_text="你好",
+            tts_enabled=tts_enabled,
+            frontend_context={
+                "frontend_capabilities": {
+                    "prefer_model_voice_translation": prefer,
+                    # 既有协议字段；当前含义是非 LLM 机器翻译组件可用。
+                    "translation_api_available": available,
+                    "voice_target_language": "ja-JP",
+                }
+            },
+        )
+
+    def test_output_and_repair_prompts_request_configured_target_language(self):
+        from meapet.agent.prompts import (
+            build_output_instruction,
+            build_repair_instruction,
+        )
+
+        request = self._request()
+        for instruction in (
+            build_output_instruction(request),
+            build_repair_instruction(request),
+        ):
+            with self.subTest(instruction=instruction[:24]):
+                self.assertIn("优先模型输出目标语朗读", instruction)
+                self.assertIn("voice_target_language", instruction)
+                self.assertIn("非 LLM 机器翻译", instruction)
+
+    def test_dynamic_voice_instruction_requires_tts_preference_and_fallback(self):
+        from meapet.agent.prompts import build_output_instruction
+
+        for request in (
+            self._request(tts_enabled=False),
+            self._request(prefer=False),
+            self._request(available=False),
+        ):
+            with self.subTest(request=request):
+                self.assertNotIn(
+                    "优先模型输出目标语朗读",
+                    build_output_instruction(request),
+                )

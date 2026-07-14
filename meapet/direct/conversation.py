@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import AsyncIterator
 
 from meapet.agent.base import (
@@ -13,8 +14,8 @@ from meapet.agent.base import (
 )
 from meapet.agent.prompts import (
     MAX_REPAIR_INPUT_CHARS,
-    OUTPUT_INSTRUCTION,
-    REPAIR_INSTRUCTION,
+    build_output_instruction,
+    build_repair_instruction,
     frontend_context_json,
 )
 from meapet.conversation.output_protocol import (
@@ -23,12 +24,16 @@ from meapet.conversation.output_protocol import (
     SegmentCompleted,
 )
 from meapet.direct.client import DirectProtocolError
+from meapet.log import get_color_logger
 from meapet.direct.types import (
     CanonicalChatRequest,
     ReasoningDelta,
     StreamDone,
     TextDelta,
 )
+
+
+log = get_color_logger("direct_conversation")
 
 
 class DirectConversationAdapter:
@@ -67,7 +72,7 @@ class DirectConversationAdapter:
     ):
         repair_request = self._canonical_request(
             (
-                {"role": "system", "content": REPAIR_INSTRUCTION},
+                {"role": "system", "content": build_repair_instruction(request)},
                 {
                     "role": "user",
                     "content": malformed_output[:MAX_REPAIR_INPUT_CHARS],
@@ -91,11 +96,20 @@ class DirectConversationAdapter:
         return result
 
     async def stream_turn(self, request: AgentTurnRequest) -> AsyncIterator[object]:
+        turn = str(request.turn_id or "")[:24]
+        log.info(
+            f"[direct] 回合开始 turn={turn} "
+            f"user_chars={len(request.user_text or '')} "
+            f"attachments={len(request.attachments or ())} "
+            f"tts={bool(request.tts_enabled)}"
+        )
         if request.turn_id in self._cancelled_turns:
             self._cancelled_turns.discard(request.turn_id)
+            log.info(f"[direct] 回合已取消(开始前) turn={turn}")
             yield TurnCancelled(request.turn_id)
             return
         if not self.engine.available:
+            log.error(f"[direct] 后端未就绪 turn={turn}")
             yield TurnFailed(
                 request.turn_id,
                 "backend_unavailable",
@@ -105,9 +119,14 @@ class DirectConversationAdapter:
             return
 
         prepared = False
+        started = time.perf_counter()
         try:
             messages = self.engine._prepare_direct_turn(request.user_text)
             prepared = True
+            log.info(
+                f"[direct] 上下文已准备 turn={turn} messages={len(messages)} "
+                f"history_tail_role={messages[-1].get('role') if messages else '-'}"
+            )
             if request.attachments:
                 messages[-1] = {
                     "role": "user",
@@ -123,7 +142,7 @@ class DirectConversationAdapter:
             messages[0] = {
                 "role": "system",
                 "content": (
-                    f"{system}\n\n{OUTPUT_INSTRUCTION}\n"
+                    f"{system}\n\n{build_output_instruction(request)}\n"
                     f"前端只读摘要：{frontend_context_json(request)}"
                 ),
             }
@@ -133,6 +152,10 @@ class DirectConversationAdapter:
             completed_indices: set[int] = set()
             protocol_completed_emitted = False
             stream_done = False
+            log.info(
+                f"[direct] 开始流式调用 turn={turn} model={canonical.model} "
+                f"max_tokens={canonical.max_tokens}"
+            )
 
             async for event in self.protocol_client.stream(canonical):
                 if request.turn_id in self._cancelled_turns:
@@ -159,8 +182,20 @@ class DirectConversationAdapter:
             if not stream_done:
                 raise DirectProtocolError("protocol", "模型流未正常结束。")
 
+            raw_text = "".join(raw_chunks)
+            if raw_text.strip():
+                # 控制台默认可见：完整模型文本（非 reasoning）。
+                log.info(
+                    f"[direct] 模型返回文本 turn={turn} chars={len(raw_text)}\n{raw_text}"
+                )
+            else:
+                log.info(f"[direct] 模型返回文本为空 turn={turn}")
+
             result = parser.close(tts_enabled=request.tts_enabled)
             if result.requires_repair(tts_enabled=request.tts_enabled):
+                log.warning(
+                    f"[direct] 输出协议需修复 turn={turn} raw_chars={len(raw_text)}"
+                )
                 yield FormatRepairRequired(result)
                 repaired = await self._repair_result(
                     request=request,
@@ -190,19 +225,39 @@ class DirectConversationAdapter:
             if result.done and not protocol_completed_emitted:
                 yield ProtocolCompleted()
             self.engine._commit_direct_turn(result)
+            elapsed = time.perf_counter() - started
+            display_chars = sum(
+                len((seg.display_text or "").strip())
+                for seg in result.segments
+            )
+            log.info(
+                f"[direct] 回合完成 turn={turn} segments={len(result.segments)} "
+                f"display_chars={display_chars} elapsed={elapsed:.2f}s"
+            )
             yield TurnCompleted(request.turn_id, result)
         except DirectProtocolError as exc:
             if prepared:
                 self.engine._rollback_direct_turn(request.user_text)
+            elapsed = time.perf_counter() - started
+            log.error(
+                f"[direct] 回合失败 turn={turn} category={exc.category} "
+                f"retryable={exc.retryable} elapsed={elapsed:.2f}s "
+                f"msg={exc.safe_message}"
+            )
             yield TurnFailed(
                 request.turn_id,
                 exc.category,
                 exc.safe_message,
                 exc.retryable,
             )
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
             if prepared:
                 self.engine._rollback_direct_turn(request.user_text)
+            elapsed = time.perf_counter() - started
+            log.error(
+                f"[direct] 配置错误 turn={turn} type={type(exc).__name__} "
+                f"elapsed={elapsed:.2f}s"
+            )
             yield TurnFailed(
                 request.turn_id,
                 "configuration",

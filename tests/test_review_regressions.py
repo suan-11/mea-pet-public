@@ -56,7 +56,7 @@ class TestProviderKeyIsolation(unittest.TestCase):
             )
         self.assertEqual(key, "")
 
-    def test_deepseek_translation_may_reuse_deepseek_llm_key(self):
+    def test_translation_never_reuses_deepseek_llm_key(self):
         from meapet.config.store import resolve_translate_api_key
 
         with mock.patch.dict(os.environ, _SECRET_ENV_KEYS, clear=False):
@@ -64,7 +64,7 @@ class TestProviderKeyIsolation(unittest.TestCase):
                 {},
                 {"backend": "deepseek", "api_key": "deepseek-test-key"},
             )
-        self.assertEqual(key, "deepseek-test-key")
+        self.assertEqual(key, "")
 
     def test_deepseek_backend_does_not_consume_openai_key(self):
         from meapet.config.store import resolve_llm_api_key

@@ -8,12 +8,10 @@ from meapet.paths import project_path
 
 import os
 import sys
-import json
 import shutil
 import unicodedata
 import uuid
 from typing import Optional
-from urllib.parse import urlsplit, urlunsplit
 
 from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.utils import audio_cache_key, legacy_audio_cache_name, debug_enabled
@@ -32,8 +30,11 @@ from meapet.tts.engines.mimo import TtsMimoMixin
 from meapet.tts.engines.vits import TtsVitsMixin
 from meapet.tts.language_policy import (
     canonical_tts_language,
+    detect_script_language,
     plan_tts_language,
+    voice_text_language_relation,
 )
+from meapet.tts.translation import TranslationService
 
 
 class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
@@ -166,21 +167,22 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         # 子进程超时（秒）
         self.timeout = tts_cfg.get("timeout", 60)
 
-        # 翻译只用于“输出语言无法合成”的兜底，不参与模型故障回退。
+        # 翻译用于目标语朗读校正和“不受支持语言”兜底，不参与模型故障回退。
         self.translate_enabled = bool(tts_cfg.get("translate_to_jp", False))
         self.translate_target_language = canonical_tts_language(
             tts_cfg.get("translate_target_language")
             or tts_cfg.get("voice_lang")
             or "jp"
         )
+        self.prefer_model_voice_translation = bool(
+            tts_cfg.get("prefer_model_voice_translation", True)
+        )
         llm_cfg = cfg.get("llm", {}) or {}
-        # 密钥：环境变量优先（见 config_store）
         try:
-            from meapet.config.store import resolve_translate_api_key, resolve_tts_api_key
-            self.translate_api_key = resolve_translate_api_key(tts_cfg, llm_cfg)
+            from meapet.config.store import resolve_tts_api_key
+
             _resolved_tts_key = resolve_tts_api_key(tts_cfg, llm_cfg)
         except Exception:
-            self.translate_api_key = tts_cfg.get("translate_api_key", "")
             _resolved_tts_key = (
                 tts_cfg.get("api_key", "")
                 or (
@@ -190,13 +192,8 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 )
                 or os.environ.get("MIMO_API_KEY", "")
             )
-        self.translate_api_base = str(
-            tts_cfg.get("translate_api_base")
-            or "https://api.deepseek.com/v1"
-        ).strip()
-        self.translate_model = str(
-            tts_cfg.get("translate_model") or "deepseek-v4-flash"
-        ).strip()
+        # 机器翻译使用 translators 的固定服务池；不复用任何 LLM 或模型密钥。
+        self.translation_service = TranslationService()
         raw_supported_languages = tts_cfg.get("supported_languages")
         self._configured_supported_languages = tuple(
             language
@@ -441,74 +438,13 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             requested_language,
             supported_languages=self.supported_languages(),
             translation_enabled=self.translate_enabled,
-            translation_api_configured=bool(self.translate_api_key),
+            translation_available=self._translation_available(),
             preferred_translation_language=self.translate_target_language,
         )
 
-    def _translation_endpoint(self) -> str:
-        raw = str(self.translate_api_base or "").strip().rstrip("/")
-        parsed = urlsplit(raw)
-        if (
-            parsed.scheme.lower() not in {"http", "https"}
-            or not parsed.netloc
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError(
-                "translation API base URL must be http(s) without credentials, "
-                "query, or fragment"
-            )
-        base = urlunsplit(
-            (
-                parsed.scheme.lower(),
-                parsed.netloc,
-                parsed.path.rstrip("/"),
-                "",
-                "",
-            )
-        )
-        if base.endswith("/chat/completions"):
-            return base
-        return f"{base}/chat/completions"
-
-    def _translation_payload(
-        self,
-        text: str,
-        source_language: str,
-        target_language: str,
-    ) -> dict:
-        prompt = (
-            "Translate the following text faithfully from "
-            f"{source_language} to {target_language}. Preserve tone and meaning. "
-            "Return only the translated text, without notes or markdown.\n\n"
-            f"{text}"
-        )
-        return {
-            "model": self.translate_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1,
-            "max_tokens": max(128, min(1024, len(text) * 4)),
-        }
-
-    def _extract_translation(self, result: object, target_language: str) -> str:
-        try:
-            translated = str(
-                result["choices"][0]["message"]["content"]  # type: ignore[index]
-            ).strip()
-        except (KeyError, IndexError, TypeError):
-            return ""
-        if translated.startswith("```") and translated.endswith("```"):
-            translated = translated.strip("`").strip()
-            if "\n" in translated:
-                first, rest = translated.split("\n", 1)
-                if first.strip().lower() in {"text", "translation"}:
-                    translated = rest.strip()
-        translated = " ".join(translated.splitlines()).strip()
-        if canonical_tts_language(target_language) == "jp":
-            translated = self._clean_jp(translated)
-        return translated if len(translated) >= 1 else ""
+    def _translation_available(self) -> bool:
+        service = getattr(self, "translation_service", None)
+        return bool(service is not None and getattr(service, "available", False))
 
     def _translate_text(
         self,
@@ -516,36 +452,23 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         source_language: str,
         target_language: str,
     ) -> str:
-        """通过用户配置的翻译 API 翻译；不自动轮询其他服务。"""
-        if not self.translate_api_key:
+        """通过固定的非 LLM 翻译服务池翻译。"""
+        service = getattr(self, "translation_service", None)
+        if service is None or not getattr(service, "available", False):
             return ""
-        import urllib.request
-
-        payload = json.dumps(
-            self._translation_payload(text, source_language, target_language)
-        ).encode("utf-8")
-        req = urllib.request.Request(
-            self._translation_endpoint(),
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.translate_api_key}",
-            },
-        )
-        try:
-            # Endpoint is restricted to a validated http(s) URL above.
-            with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
-                result = json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            log.warning(f"翻译 API 请求失败: {type(exc).__name__}")
-            if debug_enabled():
-                log.debug(f"翻译 API 异常 [debug]: {exc!r}")
-            return ""
-        translated = self._extract_translation(result, target_language)
+        translated = str(
+            service.translate(text, source_language, target_language) or ""
+        ).strip()
+        if translated and canonical_tts_language(target_language) == "jp":
+            translated = self._clean_jp(translated)
         if translated:
             log.info(
-                f"翻译完成: {source_language}->{target_language} "
-                f"chars={len(translated)}"
+                f"[tts] 机器翻译完成: {source_language}->{target_language} "
+                f"chars={len(translated)}\n{translated}"
+            )
+        else:
+            log.warning(
+                f"[tts] 机器翻译失败: {source_language}->{target_language}"
             )
         return translated
 
@@ -555,38 +478,22 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         source_language: str,
         target_language: str,
     ) -> str:
-        if not self.translate_api_key:
+        service = getattr(self, "translation_service", None)
+        if service is None or not getattr(service, "available", False):
             return ""
-        from meapet.http_async import post_json
-
-        try:
-            response = await post_json(
-                self._translation_endpoint(),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.translate_api_key}",
-                },
-                json=self._translation_payload(
-                    text,
-                    source_language,
-                    target_language,
-                ),
-                timeout=30,
-            )
-            if response.status_code != 200:
-                log.warning(f"翻译 API HTTP {response.status_code}")
-                return ""
-            result = response.json()
-        except Exception as exc:
-            log.warning(f"翻译 API 请求失败: {type(exc).__name__}")
-            if debug_enabled():
-                log.debug(f"翻译 API 异常 [debug]: {exc!r}")
-            return ""
-        translated = self._extract_translation(result, target_language)
+        translated = str(
+            await service.translate_async(text, source_language, target_language) or ""
+        ).strip()
+        if translated and canonical_tts_language(target_language) == "jp":
+            translated = self._clean_jp(translated)
         if translated:
             log.info(
-                f"翻译完成: {source_language}->{target_language} "
-                f"chars={len(translated)}"
+                f"[tts] 机器翻译完成: {source_language}->{target_language} "
+                f"chars={len(translated)}\n{translated}"
+            )
+        else:
+            log.warning(
+                f"[tts] 机器翻译失败: {source_language}->{target_language}"
             )
         return translated
 
@@ -595,54 +502,148 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         clean: str,
         requested_language: str,
     ) -> Optional[tuple[str, str]]:
-        plan = self._language_plan(requested_language)
-        if plan.action == "skip":
-            log.warning(
-                f"TTS: 跳过语音 lang={plan.requested_language or '?'} "
-                f"reason={plan.reason}"
-            )
-            return None
-        if not plan.requires_translation:
-            return clean, plan.synthesis_language
-        translated = self._translate_text(
+        action, source_lang, target_lang, reason = self._select_tts_text_route(
             clean,
-            plan.requested_language,
-            plan.synthesis_language,
+            requested_language,
         )
+        log.info(f"[tts] 合成原文:\n{clean}")
+        if action == "skip":
+            log.warning(f"TTS: 跳过语音 reason={reason}")
+            return None
+        if action == "direct":
+            log.info(
+                f"[tts] 朗读来源 source=model reason={reason} "
+                f"lang={target_lang} chars={len(clean)}"
+            )
+            return clean, target_lang
+
+        log.info(
+            f"[tts] 朗读来源 source=machine_translation reason={reason} "
+            f"{source_lang}->{target_lang} chars={len(clean)}"
+        )
+        log.info(
+            f"[tts] 开始翻译 {source_lang}->{target_lang} chars={len(clean)}"
+        )
+        translated = self._translate_text(clean, source_lang, target_lang)
         if not translated:
             log.warning(
                 "TTS: 翻译失败，跳过语音；原文气泡仍会显示"
             )
             return None
-        return translated, plan.synthesis_language
+        log.info(
+            f"[tts] 翻译后文本 {source_lang}->{target_lang} "
+            f"chars={len(translated)}:\n{translated}"
+        )
+        return translated, target_lang
+
+    def _select_tts_text_route(
+        self,
+        clean: str,
+        requested_language: str,
+    ) -> tuple[str, str, str, str]:
+        """返回 action/source/target/reason，不执行网络请求。"""
+        claimed = canonical_tts_language(requested_language)
+        supported = self.supported_languages()
+        target = self._configured_or_default_target()
+        translation_available = self._translation_available()
+        prefer_effective = bool(
+            self.prefer_model_voice_translation and translation_available
+        )
+
+        if prefer_effective:
+            if not target or target not in supported:
+                return "skip", claimed, target, "configured_target_unsupported"
+            relation = voice_text_language_relation(clean, target)
+            if relation == "match":
+                return "direct", target, target, "target_text_match"
+            if relation == "ambiguous" and claimed == target:
+                return "direct", target, target, "target_text_ambiguous"
+            source = self._translation_source_language(clean, claimed)
+            reason = (
+                "declared_language_differs_from_target"
+                if relation == "ambiguous"
+                else "voice_text_differs_from_target"
+            )
+            return "translate", source, target, reason
+
+        plan = self._language_plan(requested_language)
+        if plan.action == "skip":
+            return "skip", claimed, "", plan.reason or "language_plan_skip"
+
+        synthesis = plan.synthesis_language
+        if plan.action == "direct":
+            relation = voice_text_language_relation(clean, synthesis)
+            if relation != "mismatch":
+                return "direct", synthesis, synthesis, f"declared_text_{relation}"
+            if not self.translate_enabled or not translation_available:
+                return "skip", claimed, synthesis, "confirmed_language_mismatch"
+            source = self._translation_source_language(clean, claimed)
+            return "translate", source, synthesis, "confirmed_language_mismatch"
+
+        source = self._translation_source_language(clean, claimed)
+        return "translate", source, synthesis, "unsupported_output_language"
+
+    def _configured_or_default_target(self) -> str:
+        return canonical_tts_language(
+            self.translate_target_language or self.voice_lang or "jp"
+        )
+
+    def _translation_source_language(
+        self,
+        clean: str,
+        claimed_language: str,
+    ) -> str:
+        """选择机器翻译源语言：脚本可确认则优先，否则使用模型声明。"""
+        claimed = canonical_tts_language(claimed_language)
+        observed = detect_script_language(clean)
+        if observed in {"zh", "jp", "en"}:
+            return observed
+        return claimed or "zh"
 
     async def _prepare_tts_text_async(
         self,
         clean: str,
         requested_language: str,
     ) -> Optional[tuple[str, str]]:
-        plan = self._language_plan(requested_language)
-        if plan.action == "skip":
-            log.warning(
-                f"TTS: 跳过语音 lang={plan.requested_language or '?'} "
-                f"reason={plan.reason}"
-            )
+        action, source_lang, target_lang, reason = self._select_tts_text_route(
+            clean,
+            requested_language,
+        )
+        log.info(f"[tts] 合成原文:\n{clean}")
+        if action == "skip":
+            log.warning(f"TTS: 跳过语音 reason={reason}")
             return None
-        if not plan.requires_translation:
-            return clean, plan.synthesis_language
+        if action == "direct":
+            log.info(
+                f"[tts] 朗读来源 source=model reason={reason} "
+                f"lang={target_lang} chars={len(clean)}"
+            )
+            return clean, target_lang
+
+        log.info(
+            f"[tts] 朗读来源 source=machine_translation reason={reason} "
+            f"{source_lang}->{target_lang} chars={len(clean)}"
+        )
+        log.info(
+            f"[tts] 开始翻译 {source_lang}->{target_lang} chars={len(clean)}"
+        )
         translated = await self._translate_text_async(
             clean,
-            plan.requested_language,
-            plan.synthesis_language,
+            source_lang,
+            target_lang,
         )
         if not translated:
             log.warning(
                 "TTS: 翻译失败，跳过语音；原文气泡仍会显示"
             )
             return None
-        return translated, plan.synthesis_language
+        log.info(
+            f"[tts] 翻译后文本 {source_lang}->{target_lang} "
+            f"chars={len(translated)}:\n{translated}"
+        )
+        return translated, target_lang
 
-    # 保留旧内部入口，但也必须遵循“API 失败就跳过语音”。
+    # 保留旧内部入口；实现已切换为非 LLM 机器翻译服务池。
     def _translate_to_jp(self, text: str) -> str:
         return self._translate_text(text, "zh", "jp")
 
@@ -652,7 +653,7 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
     def _prepare_jp_tts_text(self, clean: str) -> str:
         if self._text_has_kana(clean):
             return clean
-        if not self.translate_enabled or not self.translate_api_key:
+        if not self.translate_enabled or not self._translation_available():
             return ""
         return self._translate_to_jp(clean)
 
@@ -736,6 +737,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         if prepared is None:
             return None
         tts_text, synthesis_language = prepared
+        log.info(
+            f"[tts] 最终合成文本 lang={synthesis_language} "
+            f"chars={len(tts_text)}:\n{tts_text}"
+        )
 
         # 输出文件
         output_wav = self._new_output_wav_path()
@@ -823,6 +828,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             if prepared is None:
                 return None
             tts_text, lang_tag = prepared
+            log.info(
+                f"[tts] 最终合成文本 lang={lang_tag} "
+                f"chars={len(tts_text)}:\n{tts_text}"
+            )
             return await self._speak_mimo_async(
                 tts_text,
                 output_wav,

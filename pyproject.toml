@@ -46,6 +46,7 @@ dependencies = [
     "mcp>=1.27,<2",
     "uvicorn>=0.30",
     "jieba>=0.42",
+    "translators>=6.0.4,<7",
 ]
 
 [project.optional-dependencies]

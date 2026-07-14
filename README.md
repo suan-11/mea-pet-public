@@ -113,7 +113,7 @@ GPT-SoVITS 可在 `tts.reference_audios` 中为每种语言配置一条固定参
 
 兼容字段 `gsv_ref_wav` + `gsv_ref_lang` 会只读迁移为对应语言的一条参考音频。固定 WAV 旁的同名 `.txt` 可作为参考文本。
 
-翻译 API 不是模型后端的失败兜底。仅当回复语言不受当前 TTS 支持、用户显式开启翻译且翻译 API 已配置时，才翻译到受支持语言后合成；否则跳过该段语音并保留原文气泡。
+语音翻译由 MeaPet 内置的非 LLM 机器翻译服务池处理，单段失败时轮换服务、总计最多请求 3 次。开启“优先模型输出目标语朗读”后，模型返回的 `voice_language` 与 `voice_text` 会和配置的目标朗读语言一起校验；确认不一致时翻译到目标语。另一个“输出语言不受支持时翻译”开关只控制普通语言兜底。翻译最终失败时跳过该段语音并保留原文气泡。
 
 ## 屏幕识图
 
@@ -125,7 +125,7 @@ GPT-SoVITS 可在 `tts.reference_audios` 中为每种语言配置一条固定参
 | `inherit` | 主回复模型支持图片时，把截图与用户请求放进同一次多模态请求 |
 | `relay` | 先由独立视觉模型生成摘要，再把摘要交给回复后端 |
 
-`inherit` 适合本身支持图片的直连模型或 Agent；`relay` 可在直连模式下选择 Ollama 或 MiMo 作为视觉模型。Agent 模式应继承 Agent 自身的视觉能力，否则关闭识图，不在 MeaPet 侧另接一个视觉模型。翻译 API 不参与视觉链路。
+`inherit` 适合本身支持图片的直连模型或 Agent；`relay` 可在直连模式下选择 Ollama 或 MiMo 作为视觉模型。Agent 模式应继承 Agent 自身的视觉能力，否则关闭识图，不在 MeaPet 侧另接一个视觉模型。TTS 机器翻译不参与视觉链路。
 
 隐私规则是强制的：屏幕观察默认关闭；每次截图都要在本机确认，授权仅本次有效。确认时默认全屏，也可以改为框定区域或指定应用。截图只在内存中传递，不由新链路写入磁盘；云端识图还必须显式允许 `watcher.allow_cloud`。
 
@@ -201,7 +201,6 @@ http(s)://<listen_host>:<port>/mcp
 | `MEAPET_API_KEY` | 自定义直连接口兜底 |
 | `HERMES_API_SERVER_KEY` / `MEAPET_AGENT_TOKEN` | Hermes / OpenClaw Agent 认证 |
 | `MEAPET_CONTROL_TOKEN` | Companion MCP Bearer Token |
-| `TRANSLATE_API_KEY` | 显式启用的 TTS 翻译 |
 | `GSV_PYTHON` | GPT-SoVITS 环境的 `python.exe` |
 | `MEAPET_FORCE_PNG` | 非空真值时强制 PNG |
 | `MEAPET_DEBUG=1` | 允许载荷级调试日志；默认不要开启 |

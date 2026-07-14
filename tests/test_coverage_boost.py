@@ -110,7 +110,7 @@ class TestConfigStoreMore(unittest.TestCase):
         )
         self.assertEqual(
             resolve_translate_api_key({}, {"backend": "deepseek", "api_key": "sk-tr"}),
-            "sk-tr",
+            "",
         )
         self.assertEqual(
             resolve_vision_api_key({"backend": "mimo", "api_key": "sk-vis"}, {}),

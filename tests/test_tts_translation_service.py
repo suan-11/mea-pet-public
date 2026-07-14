@@ -33,10 +33,13 @@ class TestTranslationService(unittest.TestCase):
         from meapet.tts.translation import TranslationService
 
         calls = []
+        failures_remaining = 2
 
         def translate(_text, **kwargs):
+            nonlocal failures_remaining
             calls.append(kwargs["translator"])
-            if len(calls) < 3:
+            if failures_remaining:
+                failures_remaining -= 1
                 raise RuntimeError("temporary provider failure")
             return "こんにちは"
 

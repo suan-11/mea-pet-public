@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import re
 from dataclasses import dataclass, field
@@ -27,13 +28,16 @@ from meapet.conversation.output_protocol import (
 )
 from meapet.agent.prompts import (
     MAX_REPAIR_INPUT_CHARS,
-    OUTPUT_INSTRUCTION,
-    REPAIR_INSTRUCTION,
+    build_output_instruction,
+    build_repair_instruction,
     frontend_context_json,
 )
+from meapet.log import get_color_logger
 
 _CONTROL_RE = re.compile(r"[\r\n\x00]")
 _SAFE_STATUS_RE = re.compile(r"[\x00-\x1f\x7f<>]")
+
+log = get_color_logger("hermes")
 
 
 @dataclass(frozen=True)
@@ -267,7 +271,7 @@ class HermesAdapter:
             {
                 "role": "system",
                 "content": (
-                    f"{OUTPUT_INSTRUCTION}\n"
+                    f"{build_output_instruction(request)}\n"
                     f"前端只读摘要：{frontend_context_json(request)}"
                 ),
             }
@@ -327,7 +331,7 @@ class HermesAdapter:
         body = {
             "model": self.config.model,
             "messages": [
-                {"role": "system", "content": REPAIR_INSTRUCTION},
+                {"role": "system", "content": build_repair_instruction(request)},
                 {
                     "role": "user",
                     "content": malformed_output[:MAX_REPAIR_INPUT_CHARS],
@@ -383,8 +387,16 @@ class HermesAdapter:
         return result
 
     async def stream_turn(self, request: AgentTurnRequest) -> AsyncIterator[object]:
+        turn = str(request.turn_id or "")[:24]
+        started = time.perf_counter()
+        log.info(
+            f"[agent] 回合开始 turn={turn} model={self.config.model} "
+            f"user_chars={len(request.user_text or '')} "
+            f"base={self.config.base_url}"
+        )
         if request.turn_id in self._cancelled_turns:
             self._cancelled_turns.discard(request.turn_id)
+            log.info(f"[agent] 回合已取消(开始前) turn={turn}")
             yield TurnCancelled(request.turn_id)
             return
 
@@ -392,6 +404,7 @@ class HermesAdapter:
             headers = self._headers(turn_id=request.turn_id)
             client = await self._get_client()
         except ValueError:
+            log.error(f"[agent] 配置不完整 turn={turn}")
             yield TurnFailed(
                 request.turn_id,
                 "configuration",
@@ -408,20 +421,34 @@ class HermesAdapter:
         raw_chunks: list[str] = []
         completed_indices: set[int] = set()
         protocol_completed_emitted = False
+        endpoint = self.config.endpoint("/v1/chat/completions")
+        log.info(
+            f"[agent] HTTP 发起 method=POST url={endpoint} "
+            f"messages={len(body['messages'])} timeout={self.config.timeout_seconds:.0f}s"
+        )
 
         try:
             async with client.stream(
                 "POST",
-                self.config.endpoint("/v1/chat/completions"),
+                endpoint,
                 headers=headers,
                 json=body,
                 timeout=self.config.timeout_seconds,
             ) as response:
+                content_type = response.headers.get("Content-Type", "")
+                log.info(
+                    f"[agent] HTTP 响应 status={response.status_code} "
+                    f"content_type={content_type or '-'}"
+                )
                 if response.status_code >= 400:
+                    log.error(
+                        f"[agent] HTTP 错误 status={response.status_code} turn={turn}"
+                    )
                     yield _failure_for_status(request.turn_id, response.status_code)
                     return
-                content_type = response.headers.get("Content-Type", "").lower()
-                if "text/event-stream" not in content_type:
+                content_type_l = content_type.lower()
+                if "text/event-stream" not in content_type_l:
+                    log.error(f"[agent] 非 SSE 响应 turn={turn}")
                     yield TurnFailed(
                         request.turn_id,
                         "protocol",
@@ -479,12 +506,23 @@ class HermesAdapter:
                             protocol_completed_emitted = True
                         yield event
 
+            raw_text = "".join(raw_chunks)
+            if raw_text.strip():
+                log.info(
+                    f"[agent] 模型返回文本 turn={turn} chars={len(raw_text)}\n{raw_text}"
+                )
+            else:
+                log.info(f"[agent] 模型返回文本为空 turn={turn}")
+
             result = parser.close(tts_enabled=request.tts_enabled)
             if result.requires_repair(tts_enabled=request.tts_enabled):
+                log.warning(
+                    f"[agent] 输出协议需修复 turn={turn} raw_chars={len(raw_text)}"
+                )
                 yield FormatRepairRequired(result)
                 repaired = await self._repair_result(
                     request=request,
-                    malformed_output="".join(raw_chunks),
+                    malformed_output=raw_text,
                     client=client,
                 )
                 if request.turn_id in self._cancelled_turns:
@@ -500,17 +538,29 @@ class HermesAdapter:
                     completed_indices.add(segment.index)
             if result.done and not protocol_completed_emitted:
                 yield ProtocolCompleted()
+            elapsed = time.perf_counter() - started
+            log.info(
+                f"[agent] 回合完成 turn={turn} segments={len(result.segments)} "
+                f"elapsed={elapsed:.2f}s"
+            )
             yield TurnCompleted(request.turn_id, result)
         except asyncio.CancelledError:
             raise
         except httpx.TimeoutException:
+            elapsed = time.perf_counter() - started
+            log.error(f"[agent] 超时 turn={turn} elapsed={elapsed:.2f}s")
             yield TurnFailed(
                 request.turn_id,
                 "timeout",
                 "Agent 响应超时，请稍后再试。",
                 True,
             )
-        except httpx.RequestError:
+        except httpx.RequestError as exc:
+            elapsed = time.perf_counter() - started
+            log.error(
+                f"[agent] 连接失败 turn={turn} type={type(exc).__name__} "
+                f"elapsed={elapsed:.2f}s"
+            )
             yield TurnFailed(
                 request.turn_id,
                 "connection",

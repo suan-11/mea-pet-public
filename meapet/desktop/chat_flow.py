@@ -30,6 +30,7 @@ from meapet.agent.presentation import (
     UpdateBubble,
 )
 from meapet.chat.engine import SYSTEM_PROMPT
+from meapet.config.normalizers import canonical_tts_language
 from meapet.conversation.capabilities import build_agent_frontend_context
 from meapet.conversation.output_protocol import (
     SegmentCompleted,
@@ -309,7 +310,43 @@ class PetChatFlowMixin:
             current_mood=current_mood,
             busy=bool(getattr(self, "_awaiting_reply", False)),
         )
-        return build_agent_frontend_context(capabilities, state)
+        context = build_agent_frontend_context(capabilities, state)
+        # 只读扩展：提示词据此决定是否要求模型输出目标语 voice_text。
+        caps = context.setdefault("frontend_capabilities", {})
+        prefer = bool(
+            getattr(tts, "prefer_model_voice_translation", False)
+            if tts is not None
+            else configured_tts.get("prefer_model_voice_translation", True)
+        )
+        translation_available = False
+        if tts is not None:
+            available = getattr(tts, "_translation_available", None)
+            if callable(available):
+                try:
+                    translation_available = bool(available())
+                except Exception as exc:
+                    log.warning(
+                        "[agent] 读取机器翻译能力失败: "
+                        f"{type(exc).__name__}"
+                    )
+            else:
+                service = getattr(tts, "translation_service", None)
+                translation_available = bool(
+                    service is not None and getattr(service, "available", False)
+                )
+        target = canonical_tts_language(
+            getattr(tts, "translate_target_language", "")
+            or getattr(tts, "voice_lang", "")
+            or configured_tts.get("translate_target_language")
+            or configured_tts.get("voice_lang")
+            or "jp"
+        )
+        if isinstance(caps, dict):
+            caps["prefer_model_voice_translation"] = prefer
+            # 字段名为既有 Agent 协议的一部分；含义已改为非 LLM 机器翻译组件可用。
+            caps["translation_api_available"] = translation_available
+            caps["voice_target_language"] = target
+        return context
 
     def _make_chat_worker(self, message: str):
         """按显式模式选择直连模型或 Agent worker。"""
@@ -389,6 +426,11 @@ class PetChatFlowMixin:
         self._safe_set_mood("talking")
         self._last_user_msg = message
         _log_private_text("[chat] 发送给 LLM", message)
+        mode = "agent" if self._is_agent_mode() else "direct"
+        log.info(
+            f"[chat] 请求发起 mode={mode} chars={len(message or '')} "
+            f"text={message}"
+        )
 
         # 显示思考中提示
         self._show_bubble(
@@ -430,7 +472,10 @@ class PetChatFlowMixin:
         self._chat_poll.timeout.connect(self._poll_chat)
         self._chat_poll.start(100)
         worker_name = type(self._chat_worker).__name__
-        log.info(f"[chat] {worker_name} 已启动")
+        log.info(
+            f"[chat] {worker_name} 已启动 mode="
+            f"{'agent' if self._is_agent_mode() else 'direct'}"
+        )
 
     def _poll_chat(self):
         """主线程轮询直连结果，或增量消费 Agent 事件。"""
@@ -487,6 +532,21 @@ class PetChatFlowMixin:
             self._record_agent_timeline_event(event, context)
             if isinstance(event, TurnCompleted):
                 self._agent_turn_result = event.result
+                try:
+                    segments = getattr(event.result, "segments", ()) or ()
+                    reply_text = "\n".join(
+                        str(getattr(seg, "display_text", "") or "")
+                        for seg in segments
+                        if str(getattr(seg, "display_text", "") or "").strip()
+                    )
+                    if reply_text:
+                        log.info(
+                            f"[reply] 模型返回文本 chars={len(reply_text)}\n{reply_text}"
+                        )
+                except Exception as exc:
+                    log.debug(
+                        f"[reply] 记录模型返回文本失败: {type(exc).__name__}"
+                    )
             if presentation is None:
                 continue
             for action in presentation.consume(event):
@@ -808,7 +868,8 @@ class PetChatFlowMixin:
         if context is not None and not self._turn_context_is_current(context):
             return
         _log_private_text("[reply] LLM 回复", reply, suffix=f"mood={mood}")
-        log.info(f"[reply] 收到回复，mood={mood}")
+        # 控制台默认打印模型返回的可展示文本。
+        log.info(f"[reply] 收到回复 mood={mood} chars={len(reply or '')}\n{reply or ''}")
         if hasattr(self, '_chat_timeout'):
             self._chat_timeout.stop()
         eng = getattr(self, "chat_engine", None)
