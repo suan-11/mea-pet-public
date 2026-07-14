@@ -2,14 +2,76 @@
 
 from __future__ import annotations
 
+import os
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestTranslationService(unittest.TestCase):
+    def test_tts_startup_does_not_load_translation_backend(self):
+        from meapet.tts.service import MeaTTS
+        from meapet.tts.translation import TranslationService
+
+        with tempfile.TemporaryDirectory() as output_dir, mock.patch.object(
+            TranslationService,
+            "_load_translate_func",
+            side_effect=RuntimeError("translation package import reached network"),
+        ) as loader:
+            tts = MeaTTS(
+                {
+                    "tts": {
+                        "enabled": True,
+                        "engine": "mimo",
+                        "api_key": "test-key-not-real",
+                        "output_dir": output_dir,
+                    }
+                }
+            )
+
+        loader.assert_not_called()
+        self.assertIsInstance(tts.translation_service, TranslationService)
+
+    def test_lazy_translation_import_failure_is_isolated(self):
+        from meapet.tts.translation import TranslationService
+
+        with mock.patch(
+            "meapet.tts.translation.importlib.util.find_spec",
+            return_value=object(),
+        ), mock.patch.object(
+            TranslationService,
+            "_load_translate_func",
+            side_effect=RuntimeError("temporary translators bootstrap failure"),
+        ) as loader:
+            service = TranslationService()
+            self.assertTrue(service.available)
+            self.assertEqual(service.translate("你好", "zh", "jp"), "")
+
+        loader.assert_called_once_with()
+        self.assertFalse(service.available)
+
+    def test_translation_backend_uses_a_fixed_region_without_geo_request(self):
+        from meapet.tts.translation import TranslationService
+
+        translate = mock.Mock(return_value="こんにちは")
+        fake_package = SimpleNamespace(translate_text=translate)
+        with mock.patch.dict(os.environ, {}, clear=False), mock.patch.dict(
+            sys.modules,
+            {"translators": fake_package},
+        ):
+            os.environ.pop("translators_default_region", None)
+            loaded = TranslationService._load_translate_func()
+            selected_region = os.environ.get("translators_default_region")
+
+        self.assertIs(loaded, translate)
+        self.assertEqual(selected_region, "CN")
+
     def test_rotates_across_at_most_three_non_llm_services(self):
         from meapet.tts.translation import TranslationService
 
@@ -121,7 +183,8 @@ class TestTranslationDependencyPackaging(unittest.TestCase):
         launcher = (ROOT / "启动桌宠.bat").read_text(encoding="utf-8")
 
         self.assertIn("translators>=6.0.4,<7", requirements)
-        self.assertIn("import translators", launcher)
+        self.assertIn("find_spec('translators')", launcher)
+        self.assertNotIn("; import translators", launcher)
 
 
 if __name__ == "__main__":
