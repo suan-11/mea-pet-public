@@ -13,7 +13,10 @@ from meapet.utils import (
     is_loopback_url,
 )
 from meapet.desktop.workers import TTSWorker
-from meapet.desktop.dialogs import confirm_cloud_vision
+from meapet.desktop.dialogs import (
+    confirm_cloud_capture_scope,
+    confirm_cloud_vision,
+)
 from meapet.config.store import (
     resolve_vision_api_base,
     resolve_vision_backend,
@@ -100,23 +103,19 @@ class PetWatcherMixin:
             self._show_bubble(status_language.cloud_vision_disabled(), 4000)
             return False
 
-        msg = "\n".join([
-            "即将截取当前屏幕，并把截图发送到云端识别。",
-            "",
-            "图中可能包含聊天、密码、邮件、代码等隐私信息。",
-            "每次上传前都必须确认；取消则不会截屏。",
-        ])
-        allowed = confirm_cloud_vision(
+        approval = confirm_cloud_capture_scope(
             self,
-            title="允许本次云端识图？",
-            message=msg,
             timeout_seconds=5,
-            accept_text="允许本次上传",
         )
-        if not allowed:
+        if approval is None:
             log.info("[watcher] user denied cloud screenshot upload")
             self._show_bubble(status_language.watching_denied(), 2500)
             return False
+        watcher = getattr(self, "_watcher", None)
+        if watcher is not None:
+            watcher.capture_scope = approval.scope
+            watcher.capture_region = approval.region
+            watcher.capture_application = approval.application
         log.info("[watcher] user allowed cloud vision for this capture only")
         return True
 

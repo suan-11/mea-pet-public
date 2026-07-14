@@ -81,7 +81,7 @@ class ChatEngine:
         memory: "MeaMemory" = None,
         bridge_url: str = "http://127.0.0.1:18888",
         protocol: str = "",
-        max_tokens: int = 512,
+        max_tokens: int = 4096,
         direct_client=None,
     ):
         self.backend = backend
@@ -97,7 +97,7 @@ class ChatEngine:
         try:
             self.max_tokens = max(1, int(max_tokens))
         except (TypeError, ValueError):
-            self.max_tokens = 512
+            self.max_tokens = 4096
         self.bridge_url = bridge_url.rstrip("/")
         self.available = False
         self.memory = memory  # MeaMemory 实例
@@ -1113,7 +1113,7 @@ def create_engine_from_config(config: dict, memory: "MeaMemory" = None) -> ChatE
         memory=memory,
         bridge_url=llm_cfg.get("bridge_url", "http://127.0.0.1:18888"),
         protocol=protocol,
-        max_tokens=direct.get("max_tokens", llm_cfg.get("max_tokens", 512)),
+        max_tokens=direct.get("max_tokens", llm_cfg.get("max_tokens", 4096)),
     )
 
 

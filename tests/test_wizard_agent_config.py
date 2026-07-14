@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -26,7 +27,15 @@ class TestWizardConversationConfig(unittest.TestCase):
     def setUp(self):
         from wizard.app import SetupWizard
 
-        self.wizard = SetupWizard()
+        self._config_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._config_dir.cleanup)
+        template = json.loads(
+            (ROOT / "config.example.json").read_text(encoding="utf-8")
+        )
+        self.wizard = SetupWizard(
+            config_path=Path(self._config_dir.name) / "profile.json",
+            initial_config=template,
+        )
         self.wizard._load_timer.stop()
         self.wizard.llm_page._status_timer.stop()
         self.wizard.env_page._check_timer.stop()

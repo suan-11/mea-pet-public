@@ -115,6 +115,7 @@ class SetupWizard(QWidget):
         self._dirty = False
         self._suppress_dirty = False
         self._closing_after_save = False
+        self._connection_test_jobs = {}
         ensure_application_fonts()
         self.setWindowTitle(f"MeaPet 配置 — {PLATFORM['os_label']}")
         self.setObjectName("WizardRoot")
@@ -269,6 +270,7 @@ class SetupWizard(QWidget):
             w.mouseReleaseEvent = lambda e: setattr(self, '_drag', None)
 
         self._connect_required_field_updates()
+        self._connect_connection_tests()
         self._sync_llm_key_panel()
         self._connect_dirty_tracking()
         self._refresh_required_tabs()
@@ -276,8 +278,12 @@ class SetupWizard(QWidget):
         self._load_timer = QTimer(self)
         self._load_timer.setSingleShot(True)
         self._load_timer.timeout.connect(self._load_existing_config)
-        self._load_timer.start(0)
-        apply_ui_font_scale(self, initial_font_scale)
+        # 配置文件是本地小 JSON；首帧前同步回填，避免 100% 控件随后跳回保存值。
+        self._load_existing_config()
+        apply_ui_font_scale(
+            self,
+            self.font_scale_slider.value() / 100.0,
+        )
 
     def _build_display_settings(self, initial_scale: float) -> QFrame:
         """创建独立的界面字号设置卡，并提供即时预览。"""
@@ -403,7 +409,107 @@ class SetupWizard(QWidget):
                 event.ignore()
                 return
         self._dirty = False
+        self._cancel_connection_tests()
         event.accept()
+
+    def _connect_connection_tests(self) -> None:
+        """把四个请求入口统一接到后台探测，不在 GUI 线程等待网络。"""
+        bindings = (
+            (
+                "direct",
+                self.llm_page.test_connection_btn,
+                self.llm_page.connection_status,
+            ),
+            (
+                "agent",
+                self.backend_page.test_agent_connection_btn,
+                self.backend_page.agent_connection_status,
+            ),
+            (
+                "tts",
+                self.tts_page.test_connection_btn,
+                self.tts_page.connection_status,
+            ),
+            (
+                "vision",
+                self.vision_page.test_connection_btn,
+                self.vision_page.connection_status,
+            ),
+        )
+        for target, button, status in bindings:
+            button.clicked.connect(
+                lambda _checked=False, kind=target, action=button, label=status: (
+                    self._start_connection_test(kind, action, label)
+                )
+            )
+
+    def _start_connection_test(
+        self,
+        target: str,
+        button: QPushButton,
+        status: QLabel,
+    ) -> None:
+        active = self._connection_test_jobs.get(target)
+        if active is not None and not active[0].done():
+            return
+        try:
+            from meapet.async_runtime import submit
+            from wizard.connection_test import probe_connection
+
+            config = self.collect_config()
+            future = submit(probe_connection(target, config))
+        except Exception as exc:
+            set_status(status, "error", f"无法开始测试：{exc}")
+            return
+
+        button.setEnabled(False)
+        set_status(status, "warning", "正在测试，请稍候…")
+        timer = QTimer(self)
+        timer.setInterval(100)
+        timer.timeout.connect(
+            lambda kind=target: self._poll_connection_test(kind)
+        )
+        self._connection_test_jobs[target] = (future, timer, button, status)
+        timer.start()
+
+    def _poll_connection_test(self, target: str) -> None:
+        job = self._connection_test_jobs.get(target)
+        if job is None:
+            return
+        future, timer, button, status = job
+        if not future.done():
+            return
+        timer.stop()
+        timer.deleteLater()
+        self._connection_test_jobs.pop(target, None)
+        try:
+            result = future.result()
+        except Exception as exc:
+            set_status(status, "error", f"测试失败：{exc}")
+        else:
+            set_status(
+                status,
+                "success" if result.ok else "error",
+                result.message,
+            )
+        enabled = True
+        if target == "tts":
+            enabled = self.tts_page.enable_cb.isChecked()
+        elif target == "vision":
+            enabled = self.vision_page.mode_combo.currentData() != "disabled"
+        button.setEnabled(enabled)
+
+    def _cancel_connection_tests(self) -> None:
+        for future, timer, button, _status in tuple(
+            self._connection_test_jobs.values()
+        ):
+            timer.stop()
+            future.cancel()
+            try:
+                button.setEnabled(True)
+            except RuntimeError:
+                pass
+        self._connection_test_jobs.clear()
 
     def _make_scroll_tab(self, *pages: QWidget) -> QScrollArea:
         """给每个标签提供独立滚动区域，避免高 DPI 或小窗口裁切表单。"""
@@ -925,7 +1031,7 @@ class SetupWizard(QWidget):
         llm["model"] = str(direct.get("model") or "")
         llm["api_key"] = str(direct.get("api_key") or "")
         llm["temperature"] = direct.get("temperature", 0.7)
-        llm["max_tokens"] = direct.get("max_tokens", 512)
+        llm["max_tokens"] = direct.get("max_tokens", 4096)
 
         config["agent_control"] = self._deep_merge(
             config.get("agent_control") or {},
@@ -1009,7 +1115,10 @@ class SetupWizard(QWidget):
                 "配置已保存！\n\n"
                 f"{launch_hint}\n"
                 f"当前平台：{PLATFORM['display']}\n\n"
-                "提示：再次打开配置页会自动加载本次选择。"
+                "从桌宠菜单打开时：对话、语音、识图和减少动画会立即重新初始化，"
+                "无需重启；若新后端启动失败，桌宠会直接报错。\n"
+                "字体缩放需要重启桌宠后完整生效；独立打开配置页时，"
+                "其它改动会在下次启动时生效。"
             )
             self._dirty = False
             self._closing_after_save = True

@@ -229,7 +229,7 @@ class TestConversationConfigMigration(unittest.TestCase):
                 "model": "deepseek-test",
                 "api_key": "$DEEPSEEK_API_KEY",
                 "temperature": 0.4,
-                "max_tokens": 512,
+                "max_tokens": 4096,
             },
         )
         self.assertEqual(cfg["llm"]["backend"], "deepseek")

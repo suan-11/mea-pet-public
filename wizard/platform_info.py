@@ -72,7 +72,7 @@ PLATFORM = detect_platform()
 def platform_checklist() -> list:
     """按平台返回环境检测项 [(name, hint, required), ...]。"""
     items = [
-        ("Python 3.10+", "运行桌宠的基础", True),
+        ("Python 3.10–3.12", "运行桌宠的基础", True),
         ("pip", "Python 包管理器", True),
         ("PyQt5", "窗口界面库", True),
         ("requests", "HTTP 请求库（兼容）", True),
@@ -105,4 +105,3 @@ def ollama_install_hint() -> str:
         "  curl -fsSL https://ollama.com/install.sh | sh\n"
         "或使用发行版包管理器。本向导默认不自动下载。"
     )
-

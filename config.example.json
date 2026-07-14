@@ -7,7 +7,7 @@
     "api_key": "",
     "api_base": "",
     "temperature": 0.7,
-    "max_tokens": 512,
+    "max_tokens": 4096,
     "direct": {
       "provider": "ollama",
       "protocol": "ollama_chat",
@@ -16,7 +16,7 @@
       "model": "qwen3.5:4b",
       "api_key": "",
       "temperature": 0.7,
-      "max_tokens": 512
+      "max_tokens": 4096
     },
     "agent": {
       "kind": "hermes",

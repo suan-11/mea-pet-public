@@ -8,7 +8,6 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -21,6 +20,7 @@ from PyQt5.QtWidgets import (
 
 from meapet.ui_theme import MIN_TARGET_SIZE
 from wizard.styles import STYLE_INPUT, STYLE_PAGE_CARD
+from wizard.widgets import WheelSafeComboBox
 
 
 def _field(layout, label: str, widget, accessible_name: str) -> None:
@@ -92,7 +92,7 @@ class BackendPage(QFrame):
         agent_layout.setContentsMargins(16, 14, 16, 16)
         agent_layout.setSpacing(10)
 
-        self.agent_kind = QComboBox()
+        self.agent_kind = WheelSafeComboBox()
         self.agent_kind.addItem("Hermes Agent", "hermes")
         self.agent_kind.addItem("OpenClaw Gateway", "openclaw")
         _field(agent_layout, "Agent 类型：", self.agent_kind, "Agent 类型")
@@ -161,6 +161,18 @@ class BackendPage(QFrame):
         self.agent_ca_file.setStyleSheet(STYLE_INPUT)
         self.agent_ca_file.setPlaceholderText("可选：内部 CA 文件路径")
         _field(agent_layout, "Agent CA 文件：", self.agent_ca_file, "Agent CA 文件")
+
+        agent_test_row = QHBoxLayout()
+        self.test_agent_connection_btn = QPushButton("测试 Agent 连接")
+        self.test_agent_connection_btn.setAccessibleName("测试 Agent 连接")
+        self.test_agent_connection_btn.setProperty("doesNotModifyConfig", True)
+        agent_test_row.addWidget(self.test_agent_connection_btn)
+        self.agent_connection_status = QLabel("尚未测试")
+        self.agent_connection_status.setProperty("status", "muted")
+        self.agent_connection_status.setAccessibleName("Agent 连接测试状态")
+        self.agent_connection_status.setWordWrap(True)
+        agent_test_row.addWidget(self.agent_connection_status, 1)
+        agent_layout.addLayout(agent_test_row)
 
         control_title = QLabel("Agent 主动控制桌宠（Companion MCP）")
         control_title.setObjectName("SectionTitle")

@@ -4,12 +4,11 @@ from __future__ import annotations
 from PyQt5.QtCore import QSignalBlocker
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QSpinBox,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -18,6 +17,7 @@ from wizard.styles import (
     STYLE_PAGE_CARD,
     set_status,
 )
+from wizard.widgets import WheelSafeComboBox
 
 # 兼容页面内可能使用的短名
 class VisionPage(QFrame):
@@ -54,7 +54,7 @@ class VisionPage(QFrame):
         mode_label = QLabel("视觉链路：")
         mode_label.setObjectName("FieldLabel")
         layout.addWidget(mode_label)
-        self.mode_combo = QComboBox()
+        self.mode_combo = WheelSafeComboBox()
         self.mode_combo.setObjectName("VisionMode")
         self.mode_combo.setAccessibleName("视觉链路模式")
         self.mode_combo.addItem("关闭截屏/识图", "disabled")
@@ -65,11 +65,6 @@ class VisionPage(QFrame):
             "中转：独立视觉模型只输出结构化观察，再交给主回复模型。"
         )
         layout.addWidget(self.mode_combo)
-        self.advanced_toggle = QCheckBox("显示高级识图选项")
-        self.advanced_toggle.setProperty("doesNotModifyConfig", True)
-        self.advanced_toggle.setChecked(False)
-        self.advanced_toggle.setAccessibleName("显示高级识图选项")
-        layout.addWidget(self.advanced_toggle)
         self.advanced_frame = QFrame()
         self.advanced_frame.setObjectName("SectionCard")
         self.advanced_frame.setAccessibleName("高级识图设置")
@@ -103,7 +98,7 @@ class VisionPage(QFrame):
         self.backend_label = QLabel("识图后端：")
         self.backend_label.setObjectName("FieldLabel")
         self.advanced_layout.addWidget(self.backend_label)
-        self.backend_combo = QComboBox()
+        self.backend_combo = WheelSafeComboBox()
         self.backend_combo.setObjectName("VisionBackend")
         self.backend_combo.setAccessibleName("识图后端")
         self.backend_combo.addItem("跟随对话后端（推荐）", "auto")
@@ -113,14 +108,13 @@ class VisionPage(QFrame):
             self._on_relay_backend_selected
         )
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        self.advanced_toggle.toggled.connect(self._sync_advanced_visibility)
         self.enable_cb.toggled.connect(self._on_enable_changed)
         self.advanced_layout.addWidget(self.backend_combo)
 
         self.model_label = QLabel("本地视觉模型：")
         self.model_label.setObjectName("FieldLabel")
         self.advanced_layout.addWidget(self.model_label)
-        self.model_combo = QComboBox()
+        self.model_combo = WheelSafeComboBox()
         self.model_combo.setObjectName("VisionModel")
         self.model_combo.setAccessibleName("本地视觉模型")
         self.model_combo.addItem("qwen3.5:4b（多模态，推荐）", "qwen3.5:4b")
@@ -161,63 +155,6 @@ class VisionPage(QFrame):
         cloud_l.addWidget(self.api_base_input)
         self.advanced_layout.addWidget(self.cloud_box)
 
-        capture_label = QLabel("截图范围：")
-        capture_label.setObjectName("FieldLabel")
-        self.advanced_layout.addWidget(capture_label)
-        self.capture_scope_combo = QComboBox()
-        self.capture_scope_combo.setObjectName("ScreenCaptureScope")
-        self.capture_scope_combo.setAccessibleName("屏幕观察截图范围")
-        self.capture_scope_combo.addItem("全部屏幕（默认）", "full_screen")
-        self.capture_scope_combo.addItem("固定区域", "region")
-        self.capture_scope_combo.addItem("Windows 应用窗口", "application")
-        self.capture_scope_combo.currentIndexChanged.connect(
-            self._on_capture_scope_changed
-        )
-        self.advanced_layout.addWidget(self.capture_scope_combo)
-
-        self.capture_region_frame = QFrame()
-        self.capture_region_frame.setObjectName("SectionCard")
-        region_layout = QHBoxLayout(self.capture_region_frame)
-        region_layout.setContentsMargins(12, 10, 12, 10)
-        self.capture_x = QSpinBox()
-        self.capture_y = QSpinBox()
-        self.capture_width = QSpinBox()
-        self.capture_height = QSpinBox()
-        for label, widget, default, name in (
-            ("X", self.capture_x, 0, "截图区域 X"),
-            ("Y", self.capture_y, 0, "截图区域 Y"),
-            ("宽", self.capture_width, 1280, "截图区域宽度"),
-            ("高", self.capture_height, 720, "截图区域高度"),
-        ):
-            widget.setRange(
-                -100_000 if widget in (self.capture_x, self.capture_y) else 1,
-                100_000,
-            )
-            widget.setValue(default)
-            widget.setAccessibleName(name)
-            widget.setMinimumHeight(44)
-            region_layout.addWidget(QLabel(label))
-            region_layout.addWidget(widget)
-        self.advanced_layout.addWidget(self.capture_region_frame)
-
-        self.capture_application_frame = QFrame()
-        self.capture_application_frame.setObjectName("SectionCard")
-        application_layout = QVBoxLayout(self.capture_application_frame)
-        application_layout.setContentsMargins(12, 10, 12, 10)
-        application_hint = QLabel(
-            "填写可识别的窗口标题片段；仅 Windows 支持，最小化窗口无法采集。"
-        )
-        application_hint.setObjectName("HelperText")
-        application_hint.setWordWrap(True)
-        application_layout.addWidget(application_hint)
-        self.capture_application_input = QLineEdit()
-        self.capture_application_input.setObjectName("ScreenCaptureApplication")
-        self.capture_application_input.setStyleSheet(STYLE_INPUT)
-        self.capture_application_input.setPlaceholderText("例如 Visual Studio Code")
-        self.capture_application_input.setAccessibleName("截图应用窗口标题")
-        application_layout.addWidget(self.capture_application_input)
-        self.advanced_layout.addWidget(self.capture_application_frame)
-
         interval_label = QLabel("观察间隔（分钟，随机在最小~最大之间）：")
         interval_label.setObjectName("FieldLabel")
         self.advanced_layout.addWidget(interval_label)
@@ -251,10 +188,20 @@ class VisionPage(QFrame):
         self.hint.setAccessibleName("识图设置提示")
         self.advanced_layout.addWidget(self.hint)
 
+        test_row = QHBoxLayout()
+        self.test_connection_btn = QPushButton("测试识图连接")
+        self.test_connection_btn.setAccessibleName("测试识图模型连接")
+        self.test_connection_btn.setProperty("doesNotModifyConfig", True)
+        test_row.addWidget(self.test_connection_btn)
+        self.connection_status = QLabel("尚未测试；使用内置测试图，不会截取桌面")
+        self.connection_status.setProperty("status", "muted")
+        self.connection_status.setAccessibleName("识图模型连接测试状态")
+        self.connection_status.setWordWrap(True)
+        test_row.addWidget(self.connection_status, 1)
+        self.advanced_layout.addLayout(test_row)
+
         layout.addStretch()
         self._on_backend_changed()
-
-        self._on_capture_scope_changed()
 
         self._sync_advanced_visibility()
 
@@ -278,12 +225,8 @@ class VisionPage(QFrame):
         self._on_backend_changed()
 
     def _sync_advanced_visibility(self, *_args) -> None:
-        """未启用且未展开时隐藏高级识图细节，降低首次配置负担。"""
-        show = bool(
-            self.advanced_toggle.isChecked()
-            or self.enable_cb.isChecked()
-            or self.mode_combo.currentData() != "disabled"
-        )
+        """关闭模式隐藏后续表单；选择链路后直接展示对应设置。"""
+        show = self.mode_combo.currentData() != "disabled"
         self.advanced_frame.setVisible(show)
         if show and hasattr(self, "_on_backend_changed"):
             # 恢复后端相关的二次显隐（云端框等）
@@ -334,11 +277,6 @@ class VisionPage(QFrame):
                 "muted",
                 "跟随对话：对话是 MiMo 则云端识图；对话是 Ollama 则本地识图。",
             )
-
-    def _on_capture_scope_changed(self, *_args):
-        scope = self.capture_scope_combo.currentData() or "full_screen"
-        self.capture_region_frame.setVisible(scope == "region")
-        self.capture_application_frame.setVisible(scope == "application")
 
     def apply_config(self, vision_cfg: dict, watcher_cfg: dict):
         vision_cfg = vision_cfg or {}
@@ -395,29 +333,6 @@ class VisionPage(QFrame):
             self.max_min_input.setText(str(max(1, int(max_ms) // 60000)))
         except Exception:
             pass
-        capture = (
-            watcher_cfg.get("capture")
-            if isinstance(watcher_cfg.get("capture"), dict)
-            else {}
-        )
-        scope = str(capture.get("scope") or "full_screen").strip().lower()
-        index = self.capture_scope_combo.findData(scope)
-        self.capture_scope_combo.setCurrentIndex(index if index >= 0 else 0)
-        region = capture.get("region") if isinstance(capture.get("region"), dict) else {}
-        for key, widget, default in (
-            ("x", self.capture_x, 0),
-            ("y", self.capture_y, 0),
-            ("width", self.capture_width, 1280),
-            ("height", self.capture_height, 720),
-        ):
-            try:
-                widget.setValue(int(region.get(key, default)))
-            except (TypeError, ValueError):
-                widget.setValue(default)
-        self.capture_application_input.setText(
-            str(capture.get("application") or "")
-        )
-        self._on_capture_scope_changed()
         self._sync_advanced_visibility()
         self._on_backend_changed()
 
@@ -478,19 +393,6 @@ class VisionPage(QFrame):
             if vision["model"] in ("mimo", ""):
                 vision["model"] = "qwen3.5:4b"
 
-        capture_scope = self.capture_scope_combo.currentData() or "full_screen"
-        capture_region = None
-        capture_application = ""
-        if capture_scope == "region":
-            capture_region = {
-                "x": self.capture_x.value(),
-                "y": self.capture_y.value(),
-                "width": self.capture_width.value(),
-                "height": self.capture_height.value(),
-            }
-        elif capture_scope == "application":
-            capture_application = self.capture_application_input.text().strip()
-
         watcher = {
             "enabled": bool(
                 self.enable_cb.isChecked() and vision_mode != "disabled"
@@ -501,11 +403,6 @@ class VisionPage(QFrame):
             "interval": {
                 "min_ms": min_m * 60000,
                 "max_ms": max_m * 60000,
-            },
-            "capture": {
-                "scope": capture_scope,
-                "region": capture_region,
-                "application": capture_application,
             },
         }
         return {"vision": vision, "watcher": watcher}

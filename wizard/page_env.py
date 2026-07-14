@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QThread, Qt, QTimer, pyqtSignal, pyqtSlot
 
 from wizard.styles import (
     MIN_TARGET_SIZE,
@@ -130,24 +130,41 @@ class EnvCheckPage(QFrame):
 
         self._installing = False
         self._model_items = {}
+        self._checking = False
+        self._check_thread = None
         self._check_timer = QTimer(self)
         self._check_timer.setSingleShot(True)
         self._check_timer.timeout.connect(self._run_checks)
         self._check_timer.start(200)
 
     def log(self, msg):
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(lambda value=str(msg): self.log(value))
+            return
         self.log_area.show()
         self.log_area.append(msg)
 
     def _run_on_ui(self, callback):
         """把后台线程产生的界面更新投递到 Qt 主线程。"""
-        self.ui_call.emit(callback)
+        try:
+            self.ui_call.emit(callback)
+        except RuntimeError:
+            return
 
     @pyqtSlot(object)
     def _dispatch_ui_call(self, callback):
-        callback()
+        try:
+            callback()
+        except RuntimeError as exc:
+            if "has been deleted" not in str(exc):
+                raise
 
     def _set_item_status(self, name, ok: bool, text: str = None):
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(
+                lambda: self._set_item_status(name, ok, text)
+            )
+            return
         _, status, btn, _ = self.items[name]
         if ok:
             set_status(status, "success", text or "就绪")
@@ -167,13 +184,75 @@ class EnvCheckPage(QFrame):
         ]
 
     def _run_checks(self):
-        """执行检测；配置页销毁期间到达的状态更新应安全终止。"""
+        """在后台执行检测，避免配置页首次显示时冻结。"""
+        if self._checking:
+            return
+        self._checking = True
+        self.total_status.setText("正在后台检测…")
+        thread = threading.Thread(
+            target=self._run_checks_worker,
+            name="meapet-wizard-env-check",
+            daemon=True,
+        )
+        self._check_thread = thread
+        thread.start()
+
+    def _run_checks_worker(self) -> None:
         try:
             self._run_checks_impl()
         except RuntimeError as exc:
             if "has been deleted" in str(exc):
                 return
             raise
+        except Exception as exc:
+            self.log(f"环境检测失败：{type(exc).__name__}")
+            self._run_on_ui(
+                lambda: set_status(
+                    self.total_status,
+                    "error",
+                    "环境检测失败，可稍后重新打开配置页或查看日志。",
+                )
+            )
+        finally:
+            self._run_on_ui(self._finish_check_run)
+
+    def _finish_check_run(self) -> None:
+        self._checking = False
+        self._check_thread = None
+
+    def _set_progress(self, value: int) -> None:
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(lambda: self._set_progress(value))
+            return
+        self.total_bar.setValue(value)
+
+    def _set_skipped_status(self, name: str, text: str) -> None:
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(lambda: self._set_skipped_status(name, text))
+            return
+        if name in self.items:
+            _, status, btn, _ = self.items[name]
+            set_status(status, "muted", text)
+            btn.hide()
+
+    def _mark_optional_missing(self, name: str) -> None:
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(lambda: self._mark_optional_missing(name))
+            return
+        _, status, btn, _ = self.items[name]
+        set_status(status, "warning")
+        btn.show()
+
+    def _finish_check_summary(self) -> None:
+        if QThread.currentThread() is not self.thread():
+            self._run_on_ui(self._finish_check_summary)
+            return
+        self.total_bar.setValue(100)
+        set_status(
+            self.total_status,
+            "success",
+            f"检测完成（{PLATFORM['os_label']}）— 缺失项可点“安装”按需获取",
+        )
 
     def _run_checks_impl(self):
         self.log(f"开始检测环境… 平台={PLATFORM['display']}")
@@ -187,14 +266,17 @@ class EnvCheckPage(QFrame):
             step += 1
             pct = int(step / total_steps * 90)
 
-            if name == "Python 3.10+":
+            if name == "Python 3.10–3.12":
                 ver = sys.version_info
-                ok = ver.major == 3 and ver.minor >= 10
+                ok = ver.major == 3 and 10 <= ver.minor <= 12
                 self._set_item_status(
                     name, ok,
                     f"{'✅' if ok else '⚠️'} {ver.major}.{ver.minor}.{ver.micro}"
                 )
-                self.log(f"Python: {sys.version.split()[0]} ({'OK' if ok else '需要 3.10+'})")
+                self.log(
+                    f"Python: {sys.version.split()[0]} "
+                    f"({'OK' if ok else '需要 3.10–3.12'})"
+                )
             elif name == "Ollama":
                 ollama_ok = check_ollama_installed()
                 running, models = check_ollama_running()
@@ -210,16 +292,12 @@ class EnvCheckPage(QFrame):
                     self.log("Ollama: 未安装")
                     self.log(ollama_install_hint().replace("\n", " | "))
                 # 模型检测仅在运行时
-                self._model_items = {}
                 if running:
                     self._check_ollama_models(models)
             elif name == "pywin32":
                 if not PLATFORM["is_windows"]:
                     # 理论上 checklist 已排除；兜底隐藏
-                    if name in self.items:
-                        _, status, btn, _ = self.items[name]
-                        set_status(status, "muted", "非 Windows，已跳过")
-                        btn.hide()
+                    self._set_skipped_status(name, "非 Windows，已跳过")
                     self.log("pywin32: 非 Windows 平台，跳过")
                 else:
                     ok = check_installed("pywin32")
@@ -230,17 +308,13 @@ class EnvCheckPage(QFrame):
                 self._set_item_status(name, ok, "✅ 就绪" if ok else "○ 可选未装（将用 PNG）")
                 if not ok:
                     # 可选：不强制标红按钮也可装
-                    _, status, btn, _ = self.items[name]
-                    set_status(status, "warning")
-                    btn.show()
+                    self._mark_optional_missing(name)
                 self.log(f"live2d-py: {'就绪' if ok else '未装（可选）'}")
             elif name == "PyOpenGL":
                 ok = check_installed("PyOpenGL")
                 self._set_item_status(name, ok, "✅ 就绪" if ok else "○ 可选未装")
                 if not ok:
-                    _, status, btn, _ = self.items[name]
-                    set_status(status, "warning")
-                    btn.show()
+                    self._mark_optional_missing(name)
                 self.log(f"PyOpenGL: {'就绪' if ok else '未装（可选）'}")
             elif name == "requests":
                 ok = check_installed("requests")
@@ -257,7 +331,7 @@ class EnvCheckPage(QFrame):
                 self._set_item_status(name, ok)
                 self.log(f"{name}: {'就绪' if ok else '缺失'}")
 
-            self.total_bar.setValue(pct)
+            self._set_progress(pct)
 
         # 平台提示
         if PLATFORM["is_linux"]:
@@ -269,12 +343,7 @@ class EnvCheckPage(QFrame):
         elif PLATFORM["is_windows"]:
             self.log("Windows 提示: 也可用「启动桌宠.bat」；默认不自动下载组件")
 
-        self.total_bar.setValue(100)
-        set_status(
-            self.total_status,
-            "success",
-            f"检测完成（{PLATFORM['os_label']}）— 缺失项可点“安装”按需获取",
-        )
+        self._finish_check_summary()
         self.log("环境检测完成")
 
     def _add_row(self, name: str, hint: str) -> tuple:
@@ -305,6 +374,11 @@ class EnvCheckPage(QFrame):
 
     def _check_ollama_models(self, existing_models: list):
         """检测 Ollama 模型是否就绪"""
+        if QThread.currentThread() is not self.thread():
+            models = list(existing_models or [])
+            self._run_on_ui(lambda: self._check_ollama_models(models))
+            return
+        self._model_items = {}
         needed = [
             ("qwen3.5:4b", "多模态模型（约 3GB）", "对话+识图用"),
         ]
@@ -352,8 +426,8 @@ class EnvCheckPage(QFrame):
             self.log("⏭ pywin32 仅适用于 Windows，已跳过")
             self._set_installing(False)
             return
-        if name == "Python 3.10+":
-            self.log("请从 https://www.python.org/downloads/ 手动安装 Python 3.10+")
+        if name == "Python 3.10–3.12":
+            self.log("请从 https://www.python.org/downloads/ 手动安装 Python 3.10–3.12")
             QMessageBox.information(
                 self, "手动安装 Python",
                 f"当前平台：{PLATFORM['display']}\n\n"

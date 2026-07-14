@@ -375,7 +375,16 @@ def _normalize_llm_contract(value: object) -> dict:
     direct.setdefault("model", str(llm.get("model") or "").strip())
     direct.setdefault("api_key", str(llm.get("api_key") or "").strip())
     direct.setdefault("temperature", llm.get("temperature", 0.7))
-    direct.setdefault("max_tokens", llm.get("max_tokens", 512))
+    direct.setdefault("max_tokens", llm.get("max_tokens", 4096))
+    # 512 是旧模板的默认值，容易截断正常回复；成对出现时视为旧默认迁移。
+    try:
+        direct_tokens = int(direct.get("max_tokens"))
+        legacy_tokens = int(llm.get("max_tokens", 512))
+    except (TypeError, ValueError):
+        direct_tokens = legacy_tokens = 0
+    if direct_tokens == 512 and legacy_tokens == 512:
+        direct["max_tokens"] = 4096
+        llm["max_tokens"] = 4096
 
     agent = copy.deepcopy(llm.get("agent")) if isinstance(llm.get("agent"), dict) else {}
     kind = str(agent.get("kind") or "").strip().lower()

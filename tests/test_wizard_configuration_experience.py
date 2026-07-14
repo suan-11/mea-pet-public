@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -79,6 +80,7 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         )
 
     def test_model_limits_are_explained_and_new_profiles_default_to_4096(self) -> None:
+        from meapet.config.store import normalize_config
         from wizard.page_llm import LLMPage
 
         page = self._track(LLMPage())
@@ -89,6 +91,16 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         self.assertIn("随机性", copy)
         self.assertIn("最大回复长度", copy)
         self.assertEqual(LLMPage._default_profile("custom")["max_tokens"], 4096)
+        migrated = normalize_config(
+            {
+                "llm": {
+                    "max_tokens": 512,
+                    "direct": {"max_tokens": 512},
+                }
+            }
+        )
+        self.assertEqual(migrated["llm"]["max_tokens"], 4096)
+        self.assertEqual(migrated["llm"]["direct"]["max_tokens"], 4096)
 
     def test_existing_config_is_loaded_before_constructor_returns(self) -> None:
         from wizard.app import SetupWizard
@@ -200,6 +212,33 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
                 self.assertIn("测试", button.text())
                 self.assertTrue(button.accessibleName())
                 self.assertTrue(status.accessibleName())
+
+    def test_connection_test_reports_progress_and_result_without_blocking_ui(self) -> None:
+        from wizard.app import SetupWizard
+        from wizard.connection_test import ConnectionResult
+
+        wizard = self._track(SetupWizard())
+        self._stop_startup_work(wizard)
+        future = Future()
+        button = wizard.llm_page.test_connection_btn
+        status = wizard.llm_page.connection_status
+
+        def submit(coro):
+            coro.close()
+            return future
+
+        with patch("meapet.async_runtime.submit", side_effect=submit):
+            wizard._start_connection_test("direct", button, status)
+
+        self.assertFalse(button.isEnabled())
+        self.assertIn("正在测试", status.text())
+        self.assertTrue(wizard._connection_test_jobs["direct"][1].isActive())
+
+        future.set_result(ConnectionResult(True, "回复模型连接正常。"))
+        wizard._poll_connection_test("direct")
+        self.assertTrue(button.isEnabled())
+        self.assertEqual(status.text(), "回复模型连接正常。")
+        self.assertEqual(status.property("status"), "success")
 
 
 class ConnectionProbeTests(unittest.IsolatedAsyncioTestCase):

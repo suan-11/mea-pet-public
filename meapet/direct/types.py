@@ -46,7 +46,7 @@ class CanonicalChatRequest:
     model: str
     messages: Tuple[Mapping[str, object], ...]
     temperature: float = 0.7
-    max_tokens: int = 512
+    max_tokens: int = 4096
     stream: bool = True
     response_format: Mapping[str, object] | None = None
     extra: Mapping[str, object] = field(default_factory=dict)

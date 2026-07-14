@@ -367,8 +367,6 @@ class MeaPet(
     def _init_watcher(self):
         llm_cfg = self.config.get("llm", {}) or {}
         vision_cfg = self.config.get("vision", {}) or {}
-        watcher_cfg = self.config.get("watcher", {}) or {}
-        capture_cfg = watcher_cfg.get("capture") or {}
         vision_mode = str(vision_cfg.get("mode") or "disabled").strip().lower()
 
         backend = resolve_vision_backend(vision_cfg, llm_cfg)
@@ -412,9 +410,10 @@ class MeaPet(
             api_key=api_key,
             mimo_model=mimo_model,
             mode=vision_mode,
-            capture_scope=capture_cfg.get("scope", "full_screen"),
-            capture_region=capture_cfg.get("region"),
-            capture_application=capture_cfg.get("application", ""),
+            # watcher 截图范围由每次五秒授权框决定；初始始终为全屏。
+            capture_scope="full_screen",
+            capture_region=None,
+            capture_application="",
         )
         self._watcher.result_ready.connect(self._on_watch_result)
         self._watcher.error.connect(self._on_watch_error)

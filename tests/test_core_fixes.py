@@ -348,7 +348,7 @@ class TestPlatformDetect(unittest.TestCase):
         for key in ("os_key", "os_label", "arch", "display", "is_windows", "is_linux", "is_macos"):
             self.assertIn(key, info)
         names = [n for n, _, _ in platform_checklist()]
-        self.assertIn("Python 3.10+", names)
+        self.assertIn("Python 3.10–3.12", names)
         self.assertIn("requests", names)
         if info["is_windows"]:
             self.assertIn("pywin32", names)
