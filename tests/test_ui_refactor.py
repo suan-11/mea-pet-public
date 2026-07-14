@@ -297,13 +297,13 @@ class UiRefactorTests(unittest.TestCase):
         wizard.tts_page.enable_cb.setChecked(False)
 
         wizard.llm_page.radio_ds.setChecked(True)
-        wizard.key_page_ds.key_input.clear()
+        wizard.llm_page.direct_api_key_input.clear()
         wizard._refresh_required_tabs()
         self.assertFalse(wizard.tabs.tabIcon(wizard.TAB_CHAT).isNull())
         self.assertIn("缺少", wizard.tabs.tabToolTip(wizard.TAB_CHAT))
         self.assertIn("对话", wizard.config_status.text())
 
-        wizard.key_page_ds.key_input.setText("deepseek-test-key")
+        wizard.llm_page.direct_api_key_input.setText("deepseek-test-key")
         wizard._refresh_required_tabs()
         self.assertTrue(wizard.tabs.tabIcon(wizard.TAB_CHAT).isNull())
         self.assertNotIn("对话", wizard.config_status.text())
@@ -338,8 +338,7 @@ class UiRefactorTests(unittest.TestCase):
 
         wizard = self._track(SetupWizard())
         pages = (
-            wizard.key_page_ds,
-            wizard.key_page_mimo,
+            wizard.llm_page,
             wizard.tts_page,
             wizard.vision_page,
         )

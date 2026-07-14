@@ -158,17 +158,13 @@ class TestWizardPackageImports(unittest.TestCase):
             self.assertIn(key, info)
 
     def test_wizard_pages_reexport(self):
-        from wizard.pages import (
-            EnvCheckPage,
-            LLMPage,
-            ApiKeyPage,
-            TTSPage,
-            VisionPage,
-            SummaryPage,
-        )
+        import wizard.pages as pages
+        from wizard.pages import BackendPage, EnvCheckPage, LLMPage, TTSPage, VisionPage
 
-        for cls in (EnvCheckPage, LLMPage, ApiKeyPage, TTSPage, VisionPage, SummaryPage):
+        for cls in (EnvCheckPage, LLMPage, BackendPage, TTSPage, VisionPage):
             self.assertTrue(isinstance(cls, type), msg=str(cls))
+        self.assertFalse(hasattr(pages, "ApiKeyPage"))
+        self.assertFalse(hasattr(pages, "SummaryPage"))
 
     def test_wizard_submodules_import(self):
         from wizard import platform_info, styles, env_utils, app

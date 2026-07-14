@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLabel, QMessageBox
 from PyQt5.QtTest import QSignalSpy
 
 
@@ -45,7 +47,7 @@ class TestWizardConversationConfig(unittest.TestCase):
         page.model_input.setText("custom-reply-model")
         page.temperature_input.setValue(0.35)
         page.max_tokens_input.setValue(2048)
-        self.wizard.key_page_ds.key_input.setText("$CUSTOM_MODEL_KEY")
+        page.direct_api_key_input.setText("$CUSTOM_MODEL_KEY")
 
         config = self.wizard.collect_config()
 
@@ -65,6 +67,109 @@ class TestWizardConversationConfig(unittest.TestCase):
         )
         self.assertEqual(config["llm"]["api_base"], "https://models.example.test/v1")
         self.assertEqual(config["llm"]["model"], "custom-reply-model")
+
+    def test_collect_preserves_fields_not_owned_by_the_wizard(self):
+        self.wizard._existing_config = {
+            "live2d": {
+                "enabled": False,
+                "scale": 0.42,
+                "model_dir": "D:/custom/live2d",
+                "custom_live2d_key": "keep-live2d",
+            },
+            "display": {
+                "scale": 0.73,
+                "fps": 17,
+                "size_factor": 1.4,
+                "font_scale": 1.0,
+                "reduced_motion": False,
+                "custom_display_key": "keep-display",
+            },
+            "character": {
+                "name": "自定义角色",
+                "default_outfit": "99",
+                "default_direction": "B",
+            },
+            "sprite_dir": "D:/custom/sprites",
+            "plugin_config": {"enabled": True, "value": 42},
+        }
+        self.wizard.font_scale_slider.setValue(125)
+        self.wizard.reduced_motion_cb.setChecked(True)
+
+        config = self.wizard.collect_config()
+
+        self.assertEqual(config["live2d"]["enabled"], False)
+        self.assertEqual(config["live2d"]["scale"], 0.42)
+        self.assertEqual(
+            config["live2d"]["custom_live2d_key"],
+            "keep-live2d",
+        )
+        self.assertEqual(config["display"]["scale"], 0.73)
+        self.assertEqual(config["display"]["fps"], 17)
+        self.assertEqual(config["display"]["size_factor"], 1.4)
+        self.assertEqual(config["display"]["font_scale"], 1.25)
+        self.assertTrue(config["display"]["reduced_motion"])
+        self.assertEqual(config["character"]["name"], "自定义角色")
+        self.assertEqual(config["sprite_dir"], "D:/custom/sprites")
+        self.assertEqual(
+            config["plugin_config"],
+            {"enabled": True, "value": 42},
+        )
+
+    def test_agent_validation_continues_through_tts_and_vision(self):
+        backend = self.wizard.backend_page
+        backend.agent_radio.setChecked(True)
+        backend.agent_base_url.setText("https://agent.example.test")
+        self.wizard.tts_page.enable_cb.setChecked(True)
+        self.wizard.tts_page.set_engine("mimo")
+        self.wizard.tts_page.mimo_api_key_input.clear()
+        vision = self.wizard.vision_page
+        vision.enable_cb.setChecked(True)
+        vision.mode_combo.setCurrentIndex(vision.mode_combo.findData("relay"))
+
+        issues = self.wizard._configuration_issues()
+
+        self.assertIn("MiMo TTS API Key", issues[self.wizard.TAB_VOICE])
+        self.assertIn(
+            "Agent 模式须由 Agent 直接读图",
+            issues[self.wizard.TAB_VISION],
+        )
+
+    def test_direct_api_key_has_one_editable_source(self):
+        page = self.wizard.llm_page
+        self.wizard.backend_page.direct_radio.setChecked(True)
+        page.set_backend("deepseek")
+        page.direct_api_key_input.setText("single-source-key")
+
+        config = self.wizard.collect_config()
+
+        self.assertEqual(
+            config["llm"]["direct"]["api_key"],
+            "single-source-key",
+        )
+        self.assertEqual(config["llm"]["api_key"], "single-source-key")
+
+    def test_provider_switch_restores_each_provider_draft(self):
+        page = self.wizard.llm_page
+        page.set_backend("deepseek")
+        page.endpoint_input.setText("https://private.deepseek.test/v1")
+        page.model_input.setText("private-deepseek-model")
+        page.direct_api_key_input.setText("deepseek-draft-key")
+
+        page.set_backend("mimo")
+        self.assertEqual(page.endpoint_input.text(), "https://api.xiaomimimo.com/v1")
+        self.assertEqual(page.model_input.text(), "mimo-v2.5")
+        self.assertEqual(page.direct_api_key_input.text(), "")
+
+        page.endpoint_input.setText("https://private.mimo.test/v1")
+        page.direct_api_key_input.setText("mimo-draft-key")
+        page.set_backend("deepseek")
+
+        self.assertEqual(
+            page.endpoint_input.text(),
+            "https://private.deepseek.test/v1",
+        )
+        self.assertEqual(page.model_input.text(), "private-deepseek-model")
+        self.assertEqual(page.direct_api_key_input.text(), "deepseek-draft-key")
 
     def test_agent_mode_preserves_direct_profile_and_collects_control_listener(self):
         self.wizard._existing_config = {
@@ -240,6 +345,133 @@ class TestWizardConversationConfig(unittest.TestCase):
         emitted = spy[0][0]
         self.assertEqual(emitted["llm"]["mode"], "agent")
         self.assertIn("direct", emitted["llm"])
+
+    def test_incomplete_configuration_requires_explicit_save_confirmation(self):
+        self.wizard.backend_page.agent_radio.setChecked(True)
+        self.wizard.backend_page.agent_base_url.clear()
+
+        with (
+            unittest.mock.patch("wizard.app.os.path.isfile", return_value=False),
+            unittest.mock.patch(
+                "wizard.app.QMessageBox.question",
+                return_value=QMessageBox.Cancel,
+            ) as question,
+            unittest.mock.patch("meapet.config.store.save_config") as save,
+            unittest.mock.patch("wizard.app.QMessageBox.information"),
+        ):
+            self.wizard._save()
+
+        question.assert_called_once()
+        save.assert_not_called()
+
+    def test_custom_config_path_is_loaded_and_used_for_save(self):
+        from wizard.app import SetupWizard
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "profile.json"
+            path.write_text(
+                '{"display":{"font_scale":1.3},'
+                '"llm":{"mode":"direct","backend":"custom",'
+                '"direct":{"provider":"custom","protocol":"openai_chat",'
+                '"api_base":"https://profile.example/v1","host":"",'
+                '"model":"profile-model","api_key":"",'
+                '"temperature":0.4,"max_tokens":700}}}',
+                encoding="utf-8",
+            )
+            wizard = SetupWizard(config_path=str(path))
+            self.addCleanup(wizard.deleteLater)
+            wizard._load_timer.stop()
+            wizard.llm_page._status_timer.stop()
+            wizard.env_page._check_timer.stop()
+            for timer in wizard.tts_page._startup_timers:
+                timer.stop()
+            wizard._load_existing_config()
+
+            self.assertEqual(wizard.config_path, str(path))
+            self.assertEqual(wizard.font_scale_slider.value(), 130)
+            self.assertEqual(wizard.llm_page.model_input.text(), "profile-model")
+
+            with (
+                unittest.mock.patch("meapet.config.store.save_config") as save,
+                unittest.mock.patch("wizard.app.QMessageBox.information"),
+            ):
+                wizard._save()
+
+            self.assertEqual(save.call_args.args[1], str(path))
+
+    def test_dirty_window_confirms_before_discarding_changes(self):
+        self.wizard.show()
+        QApplication.processEvents()
+        self.assertFalse(self.wizard.is_dirty)
+        self.wizard.llm_page.model_input.setText("unsaved-model")
+        self.assertTrue(self.wizard.is_dirty)
+        event = SimpleNamespace(
+            accept=unittest.mock.Mock(),
+            ignore=unittest.mock.Mock(),
+        )
+
+        with unittest.mock.patch(
+            "wizard.app.QMessageBox.question",
+            return_value=QMessageBox.Cancel,
+        ) as question:
+            self.wizard.closeEvent(event)
+
+        question.assert_called_once()
+        event.ignore.assert_called_once_with()
+        event.accept.assert_not_called()
+        self.wizard._dirty = False
+
+    def test_required_environment_failure_marks_environment_tab(self):
+        required = next(
+            name
+            for name, _hint, is_required in self.wizard.env_page._checklist
+            if is_required
+        )
+
+        self.wizard.env_page._set_item_status(required, False, "缺失")
+        QApplication.processEvents()
+        self.assertFalse(
+            self.wizard.tabs.tabIcon(self.wizard.TAB_ENV).isNull()
+        )
+
+        self.wizard.env_page._set_item_status(required, True, "就绪")
+        QApplication.processEvents()
+        self.assertTrue(
+            self.wizard.tabs.tabIcon(self.wizard.TAB_ENV).isNull()
+        )
+
+    def test_display_copy_distinguishes_live_and_restart_settings(self):
+        copy = " ".join(
+            label.text()
+            for label in self.wizard.display_page.findChildren(QLabel)
+        )
+        self.assertIn("桌宠重启后应用", copy)
+        self.assertIn("减少动画保存后立即应用", copy)
+
+    def test_desktop_opens_wizard_with_active_config_path_and_values(self):
+        from meapet.desktop.window_chrome import PetWindowChromeMixin
+
+        signal = SimpleNamespace(connect=unittest.mock.Mock())
+        opened = SimpleNamespace(config_saved=signal, show=unittest.mock.Mock())
+        host = SimpleNamespace(
+            _config_path="D:/profiles/meapet.json",
+            config={"llm": {"mode": "agent"}},
+            _apply_runtime_config=unittest.mock.Mock(),
+            _show_bubble=unittest.mock.Mock(),
+        )
+
+        with unittest.mock.patch(
+            "wizard.app.SetupWizard",
+            return_value=opened,
+        ) as factory:
+            PetWindowChromeMixin._reopen_setup_wizard(host)
+
+        factory.assert_called_once_with(
+            config_path="D:/profiles/meapet.json",
+            initial_config=host.config,
+        )
+        signal.connect.assert_called_once_with(host._apply_runtime_config)
+        opened.show.assert_called_once_with()
 
 
 class TestWizardCaptureScope(unittest.TestCase):
