@@ -298,7 +298,8 @@ class CaptureScopeConsentDialog(QDialog):
         set_scaled_stylesheet(self, CONSENT_DIALOG_STYLE)
         self.setAccessibleName(accessible_name)
         self.setAccessibleDescription(
-            "最终截图范围由本机用户选择，仅本次有效；选择范围时暂停倒计时"
+            "最终截图范围由本机用户选择，仅本次有效；"
+            "手动更改截图方式后关闭自动取消倒计时"
         )
 
         self.remaining_seconds = max(1, int(timeout_seconds))

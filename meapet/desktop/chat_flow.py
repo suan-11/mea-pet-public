@@ -1297,12 +1297,8 @@ class PetChatFlowMixin:
                         pass
         if pending is not None:
             text, minimum_ms, mood = pending
-            bubble_ms = minimum_ms
-            if valid_audio:
-                bubble_ms = bubble_duration_for_audio(
-                    self._get_wav_duration_ms(wav_path),
-                    minimum_ms,
-                )
+            audio_ms = self._get_wav_duration_ms(wav_path) if valid_audio else 0
+            bubble_ms = bubble_duration_for_audio(audio_ms, minimum_ms)
             self.show_reply(text, mood, duration_ms=bubble_ms)
         if valid_audio:
             self._play_audio(wav_path)
