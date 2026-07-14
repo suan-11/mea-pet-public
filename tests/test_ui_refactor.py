@@ -1248,11 +1248,52 @@ class UiRefactorTests(unittest.TestCase):
 
     def test_cloud_capture_consent_includes_scope_and_uses_five_seconds(self) -> None:
         from meapet.desktop.dialogs import CloudCaptureScopeConsentDialog
+        from meapet.ui_theme import get_ui_font_scale, set_ui_font_scale
 
+        previous_scale = get_ui_font_scale()
+        set_ui_font_scale(1.0)
+        self.addCleanup(set_ui_font_scale, previous_scale)
         dialog = self._track(CloudCaptureScopeConsentDialog())
         self.assertEqual(dialog.remaining_seconds, 5)
         self.assertEqual(dialog.scope_combo.currentData(), "full_screen")
         self.assertIn("云端", dialog.windowTitle())
+        self.assertLessEqual(dialog.width(), 460)
+        self.assertLess(dialog.height(), 430)
+        self.assertTrue(dialog.region_frame.isHidden())
+        self.assertTrue(dialog.application_frame.isHidden())
+        self.assertTrue(dialog.validation_label.isHidden())
+
+        stylesheet = dialog.styleSheet()
+        for selector in (
+            "QDialog#CaptureScopeConsentRoot",
+            "QFrame#SectionCard",
+            "QComboBox",
+            "QLineEdit",
+            "QSpinBox",
+            "QLabel#ConsentValidation",
+            "QComboBox::down-arrow",
+            "QSpinBox::up-arrow",
+            "QSpinBox::down-arrow",
+        ):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, stylesheet)
+
+        dialog.show()
+        dialog._timer.stop()
+        QApplication.processEvents()
+        compact_height = dialog.height()
+        dialog.scope_combo.setCurrentIndex(
+            dialog.scope_combo.findData("region")
+        )
+        QApplication.processEvents()
+        self.assertFalse(dialog.region_frame.isHidden())
+        self.assertGreater(dialog.height(), compact_height)
+
+        dialog.scope_combo.setCurrentIndex(
+            dialog.scope_combo.findData("full_screen")
+        )
+        QApplication.processEvents()
+        self.assertEqual(dialog.height(), compact_height)
 
     def test_watcher_cloud_confirmation_uses_themed_safe_dialog(self) -> None:
         from meapet.desktop.dialogs import CaptureApproval

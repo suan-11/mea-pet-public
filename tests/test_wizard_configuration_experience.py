@@ -8,11 +8,18 @@ import tempfile
 import unittest
 from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtWidgets import QApplication, QComboBox, QLabel, QMessageBox
+from PyQt5.QtWidgets import (
+    QApplication,
+    QAbstractSpinBox,
+    QComboBox,
+    QLabel,
+    QMessageBox,
+)
 
 
 class WizardConfigurationExperienceTests(unittest.TestCase):
@@ -168,6 +175,58 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
             llm._refresh_ollama_status()
         thread.assert_called_once()
         thread.return_value.start.assert_called_once_with()
+
+    def test_python_313_is_a_valid_core_runtime_with_a_local_vits_advisory(self) -> None:
+        from wizard.platform_info import (
+            PYTHON_CHECK_NAME,
+            platform_checklist,
+            python_runtime_compatibility,
+        )
+
+        ok, status = python_runtime_compatibility(
+            SimpleNamespace(major=3, minor=13, micro=3)
+        )
+
+        self.assertTrue(ok)
+        self.assertIn("3.13.3", status)
+        self.assertIn("VITS", status)
+        self.assertEqual(PYTHON_CHECK_NAME, "Python 3.10+")
+        names = [name for name, _hint, _required in platform_checklist()]
+        self.assertIn(PYTHON_CHECK_NAME, names)
+        self.assertNotIn("Python 3.10–3.12", names)
+
+        too_old, old_status = python_runtime_compatibility(
+            SimpleNamespace(major=3, minor=9, micro=19)
+        )
+        self.assertFalse(too_old)
+        self.assertIn("3.10+", old_status)
+
+    def test_wizard_spin_boxes_use_the_dark_theme_and_accessible_height(self) -> None:
+        from meapet.ui_theme import MIN_TARGET_SIZE
+        from wizard.app import SetupWizard
+        from wizard.styles import WIZARD_STYLESHEET
+
+        wizard = self._track(SetupWizard())
+        self._stop_startup_work(wizard)
+        spin_boxes = wizard.findChildren(QAbstractSpinBox)
+
+        self.assertGreaterEqual(len(spin_boxes), 5)
+        self.assertTrue(
+            all(widget.minimumHeight() >= MIN_TARGET_SIZE for widget in spin_boxes)
+        )
+        for selector in (
+            "QSpinBox,",
+            "QDoubleSpinBox",
+            "QSpinBox::up-button",
+            "QSpinBox::down-button",
+            "QDoubleSpinBox::up-button",
+            "QDoubleSpinBox::down-button",
+            "QSpinBox::up-arrow",
+            "QSpinBox::down-arrow",
+            "QComboBox::down-arrow",
+        ):
+            with self.subTest(selector=selector):
+                self.assertIn(selector, WIZARD_STYLESHEET)
 
     def test_slow_gsv_probe_is_not_scheduled_when_page_opens(self) -> None:
         from wizard.page_tts import TTSPage

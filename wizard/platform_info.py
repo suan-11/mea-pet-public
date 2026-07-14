@@ -8,6 +8,28 @@ import sys
 from typing import List, Tuple
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+PYTHON_CHECK_NAME = "Python 3.10+"
+
+
+def python_runtime_compatibility(version_info=None) -> tuple[bool, str]:
+    """区分桌宠核心运行能力与本地 VITS 的推荐 Python 范围。"""
+    version = version_info or sys.version_info
+    try:
+        major = int(version.major)
+        minor = int(version.minor)
+        micro = int(version.micro)
+    except (AttributeError, TypeError, ValueError):
+        return False, "无法识别 Python 版本（需要 3.10+）"
+
+    version_text = f"{major}.{minor}.{micro}"
+    if major != 3 or minor < 10:
+        return False, f"{version_text}（需要 Python 3.10+）"
+    if minor >= 13:
+        return (
+            True,
+            f"{version_text}（桌宠可运行；本地 VITS 推荐 3.10–3.12）",
+        )
+    return True, version_text
 
 def detect_platform() -> dict:
     """检测当前运行平台，供环境检测与按需安装使用。"""
@@ -72,7 +94,11 @@ PLATFORM = detect_platform()
 def platform_checklist() -> list:
     """按平台返回环境检测项 [(name, hint, required), ...]。"""
     items = [
-        ("Python 3.10–3.12", "运行桌宠的基础", True),
+        (
+            PYTHON_CHECK_NAME,
+            "桌宠核心运行环境；本地 VITS 推荐 3.10–3.12",
+            True,
+        ),
         ("pip", "Python 包管理器", True),
         ("PyQt5", "窗口界面库", True),
         ("requests", "HTTP 请求库（兼容）", True),
