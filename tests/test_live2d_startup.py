@@ -200,6 +200,22 @@ class Live2DStartupTests(unittest.TestCase):
             QApplication.processEvents()
             self.assertEqual(ready, ["ready"])
 
+    def test_closing_host_cancels_pending_live2d_startup_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as model_dir:
+            host = self._host(model_dir)
+            sprite_patch, model_patch, init_patch = self._patch_renderers()
+            with sprite_patch, model_patch, init_patch:
+                host.init_renderer()
+
+            timer = host._live2d_startup_timer
+            self.assertIsNotNone(timer)
+            self.assertTrue(timer.isActive())
+
+            host.close()
+            QApplication.processEvents()
+
+            self.assertFalse(timer.isActive())
+
     def test_windows_live2d_stays_mapped_without_opacity_or_visibility_reset(self) -> None:
         with tempfile.TemporaryDirectory() as model_dir:
             host = self._host(model_dir)
