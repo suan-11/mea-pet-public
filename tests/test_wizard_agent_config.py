@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,7 +38,6 @@ class TestWizardConversationConfig(unittest.TestCase):
             initial_config=template,
         )
         self.wizard._load_timer.stop()
-        self.wizard.llm_page._status_timer.stop()
         self.wizard.env_page._check_timer.stop()
         for timer in self.wizard.tts_page._startup_timers:
             timer.stop()
@@ -51,9 +51,8 @@ class TestWizardConversationConfig(unittest.TestCase):
         page = self.wizard.llm_page
         self.wizard.backend_page.direct_radio.setChecked(True)
         page.set_backend("deepseek")
-        page.set_protocol("openai_responses")
         page.endpoint_input.setText("https://models.example.test/v1")
-        page.model_input.setText("custom-reply-model")
+        page.model_combo.setEditText("custom-reply-model")
         page.temperature_input.setValue(0.35)
         page.max_tokens_input.setValue(2048)
         page.direct_api_key_input.setText("$CUSTOM_MODEL_KEY")
@@ -65,7 +64,7 @@ class TestWizardConversationConfig(unittest.TestCase):
             config["llm"]["direct"],
             {
                 "provider": "deepseek",
-                "protocol": "openai_responses",
+                "protocol": "openai_chat",
                 "api_base": "https://models.example.test/v1",
                 "host": "",
                 "model": "custom-reply-model",
@@ -181,28 +180,19 @@ class TestWizardConversationConfig(unittest.TestCase):
         )
         self.assertEqual(config["llm"]["api_key"], "single-source-key")
 
-    def test_provider_switch_restores_each_provider_draft(self):
+    def test_set_backend_does_not_autopopulate_form_fields(self):
+        """Unified form: set_backend only affects get_backend(), not UI fields."""
         page = self.wizard.llm_page
+        page.endpoint_input.setText("https://custom.endpoint/v1")
+        page.model_combo.setEditText("custom-model")
+        page.direct_api_key_input.setText("custom-key")
+
         page.set_backend("deepseek")
-        page.endpoint_input.setText("https://private.deepseek.test/v1")
-        page.model_input.setText("private-deepseek-model")
-        page.direct_api_key_input.setText("deepseek-draft-key")
-
-        page.set_backend("mimo")
-        self.assertEqual(page.endpoint_input.text(), "https://api.xiaomimimo.com/v1")
-        self.assertEqual(page.model_input.text(), "mimo-v2.5")
-        self.assertEqual(page.direct_api_key_input.text(), "")
-
-        page.endpoint_input.setText("https://private.mimo.test/v1")
-        page.direct_api_key_input.setText("mimo-draft-key")
-        page.set_backend("deepseek")
-
-        self.assertEqual(
-            page.endpoint_input.text(),
-            "https://private.deepseek.test/v1",
-        )
-        self.assertEqual(page.model_input.text(), "private-deepseek-model")
-        self.assertEqual(page.direct_api_key_input.text(), "deepseek-draft-key")
+        self.assertEqual(page.get_backend(), "deepseek")
+        # Fields must remain unchanged — no provider-specific defaults
+        self.assertEqual(page.endpoint_input.text(), "https://custom.endpoint/v1")
+        self.assertEqual(page.model_combo.currentText(), "custom-model")
+        self.assertEqual(page.direct_api_key_input.text(), "custom-key")
 
     def test_agent_mode_preserves_direct_profile_and_collects_control_listener(self):
         self.wizard._existing_config = {
@@ -418,7 +408,6 @@ class TestWizardConversationConfig(unittest.TestCase):
             wizard = SetupWizard(config_path=str(path))
             self.addCleanup(wizard.deleteLater)
             wizard._load_timer.stop()
-            wizard.llm_page._status_timer.stop()
             wizard.env_page._check_timer.stop()
             for timer in wizard.tts_page._startup_timers:
                 timer.stop()
@@ -426,7 +415,7 @@ class TestWizardConversationConfig(unittest.TestCase):
 
             self.assertEqual(wizard.config_path, str(path))
             self.assertEqual(wizard.font_scale_slider.value(), 130)
-            self.assertEqual(wizard.llm_page.model_input.text(), "profile-model")
+            self.assertEqual(wizard.llm_page.model_combo.currentText(), "profile-model")
 
             with (
                 unittest.mock.patch("meapet.config.store.save_config") as save,
@@ -455,7 +444,6 @@ class TestWizardConversationConfig(unittest.TestCase):
             wizard = SetupWizard(config_path=str(path))
             self.addCleanup(wizard.deleteLater)
             wizard._load_timer.stop()
-            wizard.llm_page._status_timer.stop()
             wizard.env_page._check_timer.stop()
             for timer in wizard.tts_page._startup_timers:
                 timer.stop()
@@ -497,7 +485,7 @@ class TestWizardConversationConfig(unittest.TestCase):
         self.wizard.show()
         QApplication.processEvents()
         self.assertFalse(self.wizard.is_dirty)
-        self.wizard.llm_page.model_input.setText("unsaved-model")
+        self.wizard.llm_page.model_combo.setEditText("unsaved-model")
         self.assertTrue(self.wizard.is_dirty)
         event = SimpleNamespace(
             accept=unittest.mock.Mock(),

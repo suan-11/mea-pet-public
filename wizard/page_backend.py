@@ -75,6 +75,9 @@ class BackendPage(QFrame):
             "按后端与 Agent 会话隔离；零表示不恢复本地时间线"
         )
         self.timeline_turns.setMinimumHeight(MIN_TARGET_SIZE)
+        self.timeline_turns.setStyleSheet(
+            "QSpinBox { padding: 0px 34px 0px 8px; }"
+        )
         timeline_row.addWidget(self.timeline_turns)
         timeline_row.addStretch()
         layout.addLayout(timeline_row)

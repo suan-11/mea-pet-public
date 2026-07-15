@@ -554,13 +554,6 @@ class SetupWizard(QWidget):
         self.env_page.requirements_changed.connect(
             self._refresh_required_tabs
         )
-        for radio in (
-            self.llm_page.radio_ollama,
-            self.llm_page.radio_ds,
-            self.llm_page.radio_mimo,
-            self.llm_page.radio_custom,
-        ):
-            radio.toggled.connect(self._on_llm_backend_changed)
         self.backend_page.direct_radio.toggled.connect(
             self._on_conversation_mode_changed
         )
@@ -573,7 +566,7 @@ class SetupWizard(QWidget):
         self.llm_page.endpoint_input.textChanged.connect(
             self._refresh_required_tabs
         )
-        self.llm_page.model_input.textChanged.connect(
+        self.llm_page.model_combo.currentTextChanged.connect(
             self._refresh_required_tabs
         )
         self.llm_page.direct_api_key_input.textChanged.connect(
@@ -662,12 +655,8 @@ class SetupWizard(QWidget):
         else:
             if not self.llm_page.endpoint_input.text().strip():
                 issues[self.TAB_CHAT].append("API 地址")
-            if not self.llm_page.model_input.text().strip():
+            if not self.llm_page.model_combo.currentText().strip():
                 issues[self.TAB_CHAT].append("模型 ID")
-            if llm_backend == "deepseek" and not llm_key:
-                issues[self.TAB_CHAT].append("DeepSeek API Key")
-            elif llm_backend == "mimo" and not llm_key:
-                issues[self.TAB_CHAT].append("MiMo API Key")
 
         if (
             self.tts_page.enable_cb.isChecked()

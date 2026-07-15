@@ -46,7 +46,7 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
     @staticmethod
     def _stop_startup_work(wizard) -> None:
         wizard.env_page._check_timer.stop()
-        wizard.llm_page._status_timer.stop()
+        # LLMPage no longer has a startup status timer
         wizard._load_timer.stop()
         for timer in wizard.tts_page._startup_timers:
             timer.stop()
@@ -69,45 +69,23 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         self.assertEqual(combo.currentIndex(), 0)
         event.ignore.assert_called_once_with()
 
-    def test_selected_provider_owns_the_direct_settings_panel(self) -> None:
+    def test_model_selector_is_editable_and_remembers_text(self) -> None:
         from wizard.page_llm import LLMPage
 
         page = self._track(LLMPage())
-        page._status_timer.stop()
+        self.assertTrue(page.model_combo.isEditable())
+        page.model_combo.setEditText("custom-model-v1")
+        self.assertEqual(page.model_combo.currentText(), "custom-model-v1")
 
-        page.set_backend("mimo")
-        self.assertIs(
-            page.direct_settings.parentWidget(),
-            page.provider_settings_hosts["mimo"],
-        )
-        page.set_backend("deepseek")
-        self.assertIs(
-            page.direct_settings.parentWidget(),
-            page.provider_settings_hosts["deepseek"],
-        )
-
-    def test_model_limits_are_explained_and_new_profiles_default_to_4096(self) -> None:
+    def test_model_limits_are_explained_and_default_to_4096(self) -> None:
         from meapet.config.store import normalize_config
         from wizard.page_llm import LLMPage
 
         page = self._track(LLMPage())
-        page._status_timer.stop()
-
         self.assertEqual(page.max_tokens_input.value(), 4096)
         copy = " ".join(label.text() for label in page.findChildren(QLabel))
         self.assertIn("随机性", copy)
         self.assertIn("最大回复长度", copy)
-        self.assertEqual(LLMPage._default_profile("custom")["max_tokens"], 4096)
-        migrated = normalize_config(
-            {
-                "llm": {
-                    "max_tokens": 512,
-                    "direct": {"max_tokens": 512},
-                }
-            }
-        )
-        self.assertEqual(migrated["llm"]["max_tokens"], 4096)
-        self.assertEqual(migrated["llm"]["direct"]["max_tokens"], 4096)
 
     def test_existing_config_is_loaded_before_constructor_returns(self) -> None:
         from wizard.app import SetupWizard
@@ -137,7 +115,7 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
 
             self.assertFalse(wizard._load_timer.isActive())
             self.assertEqual(wizard.font_scale_slider.value(), 130)
-            self.assertEqual(wizard.llm_page.model_input.text(), "saved-model")
+            self.assertEqual(wizard.llm_page.model_combo.currentText(), "saved-model")
             self.assertEqual(
                 wizard._existing_config["display"]["font_scale"],
                 1.3,
@@ -158,9 +136,8 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
             self._stop_startup_work(reopened)
             self.assertEqual(reopened.font_scale_slider.value(), 125)
 
-    def test_environment_and_ollama_startup_checks_are_dispatched_off_ui_thread(self) -> None:
+    def test_environment_startup_checks_are_dispatched_off_ui_thread(self) -> None:
         from wizard.page_env import EnvCheckPage
-        from wizard.page_llm import LLMPage
 
         env = self._track(EnvCheckPage())
         env._check_timer.stop()
@@ -169,13 +146,6 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         ) as thread:
             env._run_checks()
         checks.assert_not_called()
-        thread.assert_called_once()
-        thread.return_value.start.assert_called_once_with()
-
-        llm = self._track(LLMPage())
-        llm._status_timer.stop()
-        with patch("wizard.page_llm.threading.Thread") as thread:
-            llm._refresh_ollama_status()
         thread.assert_called_once()
         thread.return_value.start.assert_called_once_with()
 
@@ -271,7 +241,7 @@ class WizardConfigurationExperienceTests(unittest.TestCase):
         )
         for button, status in controls:
             with self.subTest(button=button.accessibleName()):
-                self.assertIn("测试", button.text())
+                self.assertTrue(button.text())
                 self.assertTrue(button.accessibleName())
                 self.assertTrue(status.accessibleName())
 

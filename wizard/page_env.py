@@ -1,8 +1,6 @@
 """配置向导各页面"""
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
 import threading
 
@@ -26,13 +24,11 @@ from wizard.styles import (
 from wizard.platform_info import (
     PLATFORM,
     PYTHON_CHECK_NAME,
-    ollama_install_hint,
     platform_checklist,
     python_runtime_compatibility,
 )
 from wizard.env_utils import (
-    pip_install, check_installed, download_file,
-    check_ollama_running, check_ollama_installed, pull_ollama_model,
+    pip_install, check_installed,
 )
 
 # 兼容页面内可能使用的短名
@@ -95,11 +91,7 @@ class EnvCheckPage(QFrame):
             btn.setMinimumSize(76, MIN_TARGET_SIZE)
             btn.setAccessibleName(f"安装 {name}")
             btn.hide()
-            # 连接安装按钮
-            if name == "Ollama":
-                btn.clicked.connect(self.install_ollama)
-            else:
-                btn.clicked.connect(lambda checked, n=name: self.install_package(n))
+            btn.clicked.connect(lambda checked, n=name: self.install_package(n))
             row.addWidget(btn)
 
             self.items[name] = (name_label, status, btn, hint)
@@ -136,7 +128,6 @@ class EnvCheckPage(QFrame):
         self.layout.addWidget(self.log_area)
 
         self._installing = False
-        self._model_items = {}
         self._checking = False
         self._check_thread = None
         self._check_timer = QTimer(self)
@@ -284,22 +275,8 @@ class EnvCheckPage(QFrame):
                     f"({'OK' if ok else '需要 3.10+'})"
                 )
             elif name == "Ollama":
-                ollama_ok = check_ollama_installed()
-                running, models = check_ollama_running()
-                if running:
-                    model_list = ", ".join(models[:3]) or "无模型"
-                    self._set_item_status(name, True, f"✅ 运行中 ({model_list})")
-                    self.log(f"Ollama: 运行中，模型 {model_list}")
-                elif ollama_ok:
-                    self._set_item_status(name, True, "✅ 已安装，未运行")
-                    self.log("Ollama: 已安装但未运行（可手动 ollama serve）")
-                else:
-                    self._set_item_status(name, False, "❌ 未安装")
-                    self.log("Ollama: 未安装")
-                    self.log(ollama_install_hint().replace("\n", " | "))
-                # 模型检测仅在运行时
-                if running:
-                    self._check_ollama_models(models)
+                # Ollama check removed — model selection is now provider-agnostic
+                pass
             elif name == "pywin32":
                 if not PLATFORM["is_windows"]:
                     # 理论上 checklist 已排除；兜底隐藏
@@ -378,42 +355,15 @@ class EnvCheckPage(QFrame):
         self.items[name] = (name_label, status, btn, hint)
         return name_label, status, btn
 
-    def _check_ollama_models(self, existing_models: list):
-        """检测 Ollama 模型是否就绪"""
-        if QThread.currentThread() is not self.thread():
-            models = list(existing_models or [])
-            self._run_on_ui(lambda: self._check_ollama_models(models))
-            return
-        self._model_items = {}
-        needed = [
-            ("qwen3.5:4b", "多模态模型（约 3GB）", "对话+识图用"),
-        ]
-        has_model = any("qwen3.5" in m for m in existing_models)
-
-        for model_name, hint, purpose in needed:
-            _, status, btn = self._add_row(f"  {model_name}", hint)
-            if has_model:
-                set_status(status, "success", "就绪")
-                btn.hide()
-            else:
-                set_status(status, "error", f"未拉取（{purpose}）")
-                btn.show()
-                btn.clicked.connect(lambda checked, m=model_name, s=status: self._pull_model(m, s))
-            self._model_items[model_name] = (status, btn)
-
     def _set_installing(self, busy: bool):
-        """安装中禁用/启用所有按钮"""
+        """Disable/enable all install buttons while installing."""
         self._installing = busy
         for name in self.items:
             _, _, btn, _ = self.items[name]
             btn.setEnabled(not busy)
-        # 也禁用模型拉取按钮
-        for mn in self._model_items:
-            _, btn = self._model_items[mn]
-            btn.setEnabled(not busy)
         self.total_bar.setVisible(busy)
         if busy:
-            self.total_bar.setRange(0, 100)  # 重置可能被脉冲模式改过的范围
+            self.total_bar.setRange(0, 100)
             self.total_bar.setValue(0)
 
     def install_package(self, name: str):
@@ -474,91 +424,8 @@ class EnvCheckPage(QFrame):
 
         threading.Thread(target=task, daemon=True).start()
 
-    def install_ollama(self):
-        """按平台引导安装 Ollama；仅 Windows 提供可选 exe 下载，其它平台给手动命令。"""
-        from PyQt5.QtWidgets import QMessageBox
-
-        if not PLATFORM["is_windows"]:
-            styled_message_box(
-                self,
-                title=f"在 {PLATFORM['os_label']} 上安装 Ollama",
-                text=(
-                    ollama_install_hint()
-                    + "\n\n本向导不会在非 Windows 平台自动下载安装包。"
-                ),
-                icon=QMessageBox.Information,
-            )
-            self.log(ollama_install_hint().replace("\n", " | "))
-            return
-
-        ret = styled_message_box(
-            self,
-            title="按需下载确认",
-            text=(
-                "检测到 Windows。将下载 OllamaSetup.exe（约 300MB）并静默安装。\n"
-                "默认不会自动下载，仅在你确认后进行。\n继续？"
-            ),
-            icon=QMessageBox.Question,
-            buttons=QMessageBox.Yes | QMessageBox.No,
-            default_button=QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            self.log("已取消 Ollama 下载")
-            return
-        self._set_installing(True)
-        self.total_bar.setValue(0)
-        self.total_bar.setVisible(True)
-        self.log("📦 正在下载 Ollama（Windows，约 300MB）…")
-
-        def dl_progress(pct):
-            self._run_on_ui(
-                lambda value=pct: self._set_dl_progress(value)
-            )
-
-        def task():
-            dest = os.path.join(os.path.dirname(os.path.abspath(__file__)), "OllamaSetup.exe")
-            ok = download_file(
-                "https://ollama.com/download/OllamaSetup.exe",
-                dest, dl_progress
-            )
-            if ok:
-                self._run_on_ui(lambda: self.log("下载完成，正在安装…"))
-                try:
-                    result = subprocess.run([dest, "/S"], timeout=120)
-                    if result.returncode != 0:
-                        raise RuntimeError(f"安装程序退出码 {result.returncode}")
-                    self._run_on_ui(
-                        lambda: self._finish_ollama_install(
-                            True, "✅ Ollama 安装成功！重启后生效"
-                        )
-                    )
-                    return
-                except Exception as e:
-                    message = f"❌ 安装失败：{e}"
-                    self._run_on_ui(
-                        lambda text=message: self._finish_ollama_install(False, text)
-                    )
-                    return
-            else:
-                self._run_on_ui(
-                    lambda: self._finish_ollama_install(
-                        False, "❌ 下载失败，请手动从 ollama.com 下载安装"
-                    )
-                )
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _set_dl_progress(self, pct: int):
-        """下载进度更新（主线程回调），支持无 Content-Length 的脉冲模式"""
-        if pct < 0:
-            # 无 Content-Length → 脉冲样式
-            self.total_bar.setRange(0, 0)  # 不确定范围 → 自动脉冲动画
-        else:
-            self.total_bar.setRange(0, 100)
-            self.total_bar.setValue(pct)
-
     def _install_done(self, name: str, ok: bool):
-        """安装完成后恢复界面"""
+        """Restore UI after an install completes."""
         self._set_installing(False)
         if ok:
             self._set_item_status(name, True)
@@ -566,67 +433,6 @@ class EnvCheckPage(QFrame):
         else:
             set_status(self.total_status, "error", f"{name} 安装失败")
         self.total_bar.setVisible(False)
-
-    def _finish_ollama_install(self, ok: bool, message: str):
-        """在主线程完成 Ollama 安装状态更新。"""
-        self.log(message)
-        self._install_done("Ollama", ok)
-
-    def _pull_model(self, model: str, status_label):
-        """用户显式点击后才拉取 Ollama 模型（后台线程，带进度）"""
-        from PyQt5.QtWidgets import QMessageBox
-        ret = styled_message_box(
-            self,
-            title="按需下载确认",
-            text=(
-                f"将通过 ollama pull 下载模型 {model}（可能数 GB）。\n"
-                "默认不会自动拉取，仅在你确认后进行。\n继续？"
-            ),
-            icon=QMessageBox.Question,
-            buttons=QMessageBox.Yes | QMessageBox.No,
-            default_button=QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            self.log(f"已取消拉取 {model}")
-            return
-        self._set_installing(True)
-        self.total_bar.setValue(0)
-        self.total_bar.setVisible(True)
-        self.log(f"📦 正在拉取 {model}（这可能需要很久，取决于你的网速）…")
-
-        def task():
-            def on_log(line: str):
-                self._run_on_ui(
-                    lambda text=line: self.log(f"  {text}")
-                )
-                # 尝试解析进度百分比
-                import re
-                m = re.search(r'(\d+)%', line)
-                if m:
-                    pct = int(m.group(1))
-                    self._run_on_ui(
-                        lambda value=pct: self.total_bar.setValue(value)
-                    )
-
-            ok = pull_ollama_model(model, log_callback=on_log)
-            self._run_on_ui(
-                lambda model_name=model, succeeded=ok, label=status_label:
-                self._pull_done(model_name, succeeded, label)
-            )
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _pull_done(self, model: str, ok: bool, status_label):
-        """模型拉取完成"""
-        self._set_installing(False)
-        self.total_bar.setVisible(False)
-        if ok:
-            set_status(status_label, "success", "就绪")
-            self.log(f"✅ {model} 拉取完成")
-            set_status(self.total_status, "success", f"{model} 就绪")
-        else:
-            self.log(f"❌ {model} 拉取失败，稍后可以手动运行: ollama pull {model}")
-            set_status(self.total_status, "error", f"{model} 拉取失败")
 
 
 # ═══════════════════════════════════════

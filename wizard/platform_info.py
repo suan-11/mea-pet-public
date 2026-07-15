@@ -110,25 +110,7 @@ def platform_checklist() -> list:
     # Live2D / OpenGL 全平台可选
     items.append(("live2d-py", "Live2D 模型渲染（可选，失败则用 PNG）", False))
     items.append(("PyOpenGL", "OpenGL 渲染（可选，Live2D 相关）", False))
-    items.append(("Ollama", "本地 AI 后端（可选）", False))
+    # Ollama entry removed — model selection is now provider-agnostic
     return items
 
 
-def ollama_install_hint() -> str:
-    """当前平台安装 Ollama 的说明（不自动下载）。"""
-    if PLATFORM["is_windows"]:
-        return (
-            "Windows：可从 https://ollama.com/download 下载安装包，\n"
-            "或在本页点「安装」按需下载 OllamaSetup.exe（需确认）。"
-        )
-    if PLATFORM["is_macos"]:
-        return (
-            "macOS：推荐 `brew install ollama`，\n"
-            "或从 https://ollama.com/download 下载官方包。本向导不自动下载。"
-        )
-    # linux / wsl
-    return (
-        "Linux：推荐按官网脚本手动安装：\n"
-        "  curl -fsSL https://ollama.com/install.sh | sh\n"
-        "或使用发行版包管理器。本向导默认不自动下载。"
-    )

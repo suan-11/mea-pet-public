@@ -314,7 +314,6 @@ class UiRefactorTests(unittest.TestCase):
 
         timers = (
             wizard.env_page._check_timer,
-            wizard.llm_page._status_timer,
             wizard._load_timer,
             *wizard.tts_page._startup_timers,
         )
@@ -330,19 +329,20 @@ class UiRefactorTests(unittest.TestCase):
         wizard = self._track(SetupWizard())
         wizard.tts_page.enable_cb.setChecked(False)
 
-        wizard.llm_page.radio_ds.setChecked(True)
-        wizard.llm_page.direct_api_key_input.clear()
+        wizard.llm_page.endpoint_input.clear()
+        wizard.llm_page.model_combo.setEditText("")
         wizard._refresh_required_tabs()
         self.assertFalse(wizard.tabs.tabIcon(wizard.TAB_CHAT).isNull())
         self.assertIn("缺少", wizard.tabs.tabToolTip(wizard.TAB_CHAT))
         self.assertIn("对话", wizard.config_status.text())
 
-        wizard.llm_page.direct_api_key_input.setText("deepseek-test-key")
+        wizard.llm_page.endpoint_input.setText("https://api.openai.com/v1")
+        wizard.llm_page.model_combo.setEditText("gpt-4o")
         wizard._refresh_required_tabs()
         self.assertTrue(wizard.tabs.tabIcon(wizard.TAB_CHAT).isNull())
         self.assertNotIn("对话", wizard.config_status.text())
 
-        wizard.llm_page.radio_ollama.setChecked(True)
+        # TTS MiMo key check — this does not depend on LLM provider anymore
         wizard.tts_page.enable_cb.setChecked(True)
         wizard.tts_page.set_engine("mimo")
         wizard.tts_page.mimo_api_key_input.clear()
