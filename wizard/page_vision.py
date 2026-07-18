@@ -115,10 +115,13 @@ class VisionPage(QFrame):
         self.model_label.setObjectName("FieldLabel")
         self.advanced_layout.addWidget(self.model_label)
         self.model_combo = WheelSafeComboBox()
+        self.model_input = QLineEdit()
         self.model_combo.setObjectName("VisionModel")
+        self.model_input.setPlaceholderText("minicpm-v")
+        self.model_input.setText("minicpm-v")
+        self.model_input.setStyleSheet(STYLE_INPUT)
         self.model_combo.setAccessibleName("本地视觉模型")
-        self.model_combo.addItem("qwen3.5:4b（多模态，推荐）", "qwen3.5:4b")
-        self.advanced_layout.addWidget(self.model_combo)
+        self.advanced_layout.addWidget(self.model_input)
 
         self.host_label = QLabel("Ollama 地址（可空=用对话配置）：")
         self.host_label.setObjectName("FieldLabel")
@@ -244,8 +247,10 @@ class VisionPage(QFrame):
         self.main_model_vision_cb.setVisible(is_inherit)
         self.backend_label.setVisible(is_relay)
         self.backend_combo.setVisible(is_relay)
+
         self.model_label.setVisible(is_relay and (is_ollama or is_auto))
-        self.model_combo.setVisible(is_relay and (is_ollama or is_auto))
+        self.model_input.setVisible(is_relay and (is_ollama or is_auto))
+
         self.host_label.setVisible(is_relay and is_ollama)
         self.host_input.setVisible(is_relay and is_ollama)
         # 云端 key
@@ -308,11 +313,8 @@ class VisionPage(QFrame):
         self.backend_combo.setCurrentIndex(idx)
         del blocker
 
-        model = vision_cfg.get("model") or "qwen3.5:4b"
-        for i in range(self.model_combo.count()):
-            if self.model_combo.itemData(i) == model:
-                self.model_combo.setCurrentIndex(i)
-                break
+        model = vision_cfg.get("model") or "minicpm-v"
+        self.model_input.setText(model)
 
         host = (vision_cfg.get("host") or "").strip()
         if host:
@@ -368,7 +370,7 @@ class VisionPage(QFrame):
                 self.main_model_vision_cb.isChecked()
             ),
             "backend": vision_backend_field if vision_mode == "relay" else "",
-            "model": self.model_combo.currentData() or "qwen3.5:4b",
+            "model": self.model_input.text().strip() or "minicpm-v",
             "host": self.host_input.text().strip(),
             "api_key": self.api_key_input.text().strip(),
             "api_base": self.api_base_input.text().strip(),
