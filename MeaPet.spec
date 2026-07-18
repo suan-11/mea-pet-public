@@ -12,6 +12,7 @@ a = Analysis(
         ('voice_cache', 'voice_cache'),
         ('GPT-Sovits', 'GPT-Sovits'),
         ('config.example.json', '.'),
+        ('vits_models','vits_models'),
     ],
     hiddenimports=[
         # certifi CA bundle (belt-and-suspenders for httpx SSL verification)
