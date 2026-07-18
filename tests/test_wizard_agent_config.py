@@ -194,6 +194,32 @@ class TestWizardConversationConfig(unittest.TestCase):
         self.assertEqual(page.model_combo.currentText(), "custom-model")
         self.assertEqual(page.direct_api_key_input.text(), "custom-key")
 
+    def test_restored_provider_does_not_override_an_edited_endpoint(self):
+        """Changing a restored Ollama URL must save the newly detected backend."""
+        page = self.wizard.llm_page
+        self.wizard.backend_page.direct_radio.setChecked(True)
+        page.apply_direct_profile(
+            {
+                "provider": "ollama",
+                "api_base": "http://127.0.0.1:11434/v1",
+                "model": "qwen",
+            }
+        )
+
+        page.endpoint_input.setText("https://api.deepseek.com/v1")
+
+        config = self.wizard.collect_config()
+        self.assertEqual(config["llm"]["direct"]["provider"], "deepseek")
+        self.assertEqual(config["llm"]["backend"], "deepseek")
+
+    def test_editing_endpoint_clears_an_explicit_provider_override(self):
+        page = self.wizard.llm_page
+        page.set_backend("ollama")
+        page.endpoint_input.setText("https://api.deepseek.com/v1")
+        page.endpoint_input.textEdited.emit(page.endpoint_input.text())
+
+        self.assertEqual(page.get_backend(), "deepseek")
+
     def test_agent_mode_preserves_direct_profile_and_collects_control_listener(self):
         self.wizard._existing_config = {
             "llm": {

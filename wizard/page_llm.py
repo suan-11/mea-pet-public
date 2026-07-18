@@ -68,7 +68,7 @@ class LLMPage(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._provider_override = None  # set by set_backend() for config restore
+        self._provider_override = None  # optional explicit provider selection
         self._fetch_running = False
         self.setObjectName("PageCard")
         self.setStyleSheet(STYLE_PAGE_CARD)
@@ -261,6 +261,7 @@ class LLMPage(QFrame):
         layout.addStretch()
 
         # Signals
+        self.endpoint_input.textEdited.connect(self._clear_provider_override)
         self.fetch_models_btn.clicked.connect(self._start_fetch_models)
         self.models_fetched.connect(self._apply_fetched_models)
 
@@ -273,13 +274,16 @@ class LLMPage(QFrame):
         return _detect_provider_from_url(self.endpoint_input.text())
 
     def set_backend(self, backend: str) -> None:
-        """Restore a previously saved provider.
+        """Explicitly select a provider.
 
-        Sets the internal override so get_backend() returns the saved value
-        even if the current URL would auto-detect something else.
+        The explicit selection lasts until the user edits the API address.
         """
         backend = (backend or "custom").lower()
         self._provider_override = backend
+
+    def _clear_provider_override(self, _endpoint: str) -> None:
+        """Let a user-edited address choose its provider automatically."""
+        self._provider_override = None
 
     # ── Fetch models ─────────────────────────────────────────
 
@@ -467,7 +471,12 @@ class LLMPage(QFrame):
         }
 
     def apply_direct_profile(self, profile: dict) -> None:
-        """Restore form fields from a previously saved profile."""
+        """Restore form fields from a previously saved profile.
+
+        Provider is deliberately derived from the address after restore.  A
+        restored provider must not pin a later user-edited address to its old
+        backend.
+        """
         profile = profile or {}
         endpoint = profile.get("api_base") or profile.get("host") or ""
         self.endpoint_input.setText(str(endpoint))
@@ -485,8 +494,6 @@ class LLMPage(QFrame):
         except (TypeError, ValueError):
             self.max_tokens_input.setValue(4096)
 
-        backend = str(profile.get("provider") or "custom").lower()
-        self.set_backend(backend)
 
     # ── Helpers ───────────────────────────────────────────────
 
