@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 
 # ====================== 全局配置项 ======================
-LOG_LEVEL = "TRACK"           # 默认含可见对话/TTS 文本；协议级调试仅在 LOG_LEVEL = "TRACK" 时输出
+CONSOLE_LOG_LEVEL = "TRACK"   # 控制台默认级别 协议级调试仅在 CONSOLE_LOG_LEVEL = "TRACK" 时输出
+FILE_LOG_LEVEL = "DEBUG"     # 文件默认级别 设为 DEBUG 则 TRACK 不落盘
 
 # 日志路径：在 PyInstaller 打包模式下 __file__ 指向只读临时目录，
 # 因此使用 get_data_dir() 重定向到 ~/.meapet/logs/。
@@ -140,16 +141,16 @@ def get_color_logger(name="app", log_dir=LOG_DIR, keep_days=LOG_KEEP_DAYS,
     :param name:          logger 名称
     :param log_dir:       日志文件目录
     :param keep_days:     保留天数
-    :param console_level: 控制台输出级别（字符串），None 则使用全局 LOG_LEVEL
-    :param file_level:    文件输出级别（字符串），None 则使用全局 LOG_LEVEL
+    :param console_level: 控制台输出级别（字符串），None 则使用全局 CONSOLE_LOG_LEVEL
+    :param file_level:    文件输出级别（字符串），None 则使用全局 FILE_LOG_LEVEL
     :param enable_file:   是否启用文件输出
     :return:              logging.Logger 实例
     """
     # ---------- 确定级别 ----------
     if console_level is None:
-        console_level = LOG_LEVEL
+        console_level = CONSOLE_LOG_LEVEL
     if file_level is None:
-        file_level = LOG_LEVEL
+        file_level = FILE_LOG_LEVEL
 
     level_map = {
         "TRACK": TRACK,
