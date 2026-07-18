@@ -67,7 +67,7 @@ class DirectProtocolConfig:
     protocol: str
     base_url: str
     api_key: str = ""
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = 300.0
     verify_tls: bool = True
     ca_file: str = ""
 
@@ -140,6 +140,7 @@ class _SseEvent:
 async def _iter_sse(response: httpx.Response) -> AsyncIterator[_SseEvent]:
     event_name = "message"
     data_lines: list[str] = []
+    raw_line_count = 0
     async for line in response.aiter_lines():
         if line == "":
             if data_lines:
@@ -149,16 +150,50 @@ async def _iter_sse(response: httpx.Response) -> AsyncIterator[_SseEvent]:
             continue
         if line.startswith(":"):
             continue
-        field_name, separator, value = line.partition(":")
-        if not separator:
-            continue
-        value = value[1:] if value.startswith(" ") else value
-        if field_name == "event":
-            event_name = value or "message"
-        elif field_name == "data":
+        # 前 10 行原始内容诊断日志，确认实际响应格式
+        if raw_line_count < 20:
+            log.track(
+                lambda l=line, n=raw_line_count: (
+                    f"[sse] raw line #{n}: "
+                    f"first_500={l[:500]!r}"
+                )
+            )
+            raw_line_count += 1
+        if line.startswith("data:"):
+            value = line[5:].lstrip()
             data_lines.append(value)
+        elif line.startswith("event:"):
+            event_name = line[6:].strip() or "message"
+        elif line.startswith("id:"):
+            pass  # event id 暂不处理
+        elif line.startswith("{") or line.startswith("["):
+            # 非标准格式：纯 JSON 行（无 data: 前缀），直接作为 data
+            data_lines.append(line)
     if data_lines:
         yield _SseEvent(event_name, "\n".join(data_lines))
+
+
+async def _iter_sse_with_timeout(
+    response: httpx.Response,
+    *,
+    event_timeout: float = 60.0,
+) -> AsyncIterator[_SseEvent]:
+    """包装 _iter_sse，对每个事件设独立超时。超时后静默结束流。"""
+    it = _iter_sse(response).__aiter__()
+    while True:
+        try:
+            sse = await asyncio.wait_for(
+                it.__anext__(),
+                timeout=event_timeout,
+            )
+            yield sse
+        except asyncio.TimeoutError:
+            log.info(
+                f"[direct] SSE 事件超时 ({event_timeout:.0f}s)，视为流结束"
+            )
+            return
+        except StopAsyncIteration:
+            return
 
 
 def _http_error(status_code: int) -> DirectProtocolError:
@@ -300,6 +335,7 @@ def _openai_chat_spec(
         "max_tokens": request.max_tokens,
         "stream": request.stream,
         "stream_options": {"include_usage": True},
+        "think": False,
     }
     if request.response_format is not None:
         body["response_format"] = dict(request.response_format)
@@ -323,11 +359,14 @@ def _ollama_spec(
         "model": request.model,
         "messages": _ollama_messages(request),
         "stream": request.stream,
-        "keep_alive": "30s",
+        "keep_alive": "5m",
         "think": False,
         "options": {
             "temperature": request.temperature,
             "num_predict": request.max_tokens,
+            "num_ctx": 8192,
+            "top_p": 0.85,
+            "repeat_penalty": 1.1,
         },
     }
     if request.response_format is not None:
@@ -357,6 +396,7 @@ def _responses_spec(
         "temperature": request.temperature,
         "max_output_tokens": request.max_tokens,
         "stream": request.stream,
+        "think":False,
     }
     if request.response_format is not None:
         body["text"] = {"format": dict(request.response_format)}
@@ -554,10 +594,16 @@ class DirectProtocolClient:
                 text_chars = 0
                 if spec.stream_kind == "ollama_chat":
                     if "ndjson" not in content_type_l and "jsonl" not in content_type_l:
-                        raise DirectProtocolError(
-                            "protocol",
-                            "Ollama 未返回预期的 NDJSON 流。",
-                        )
+                        if "json" not in content_type_l:
+                            log.warning(
+                                f"[direct] Ollama 返回非预期 Content-Type: "
+                                f"{content_type}，将尝试按 NDJSON 解析"
+                            )
+                        else:
+                            log.info(
+                                f"[direct] Ollama 返回 Content-Type: {content_type}，"
+                                f"按 JSON Lines 处理"
+                            )
                     async for event in self._stream_ollama(response):
                         event_count += 1
                         if isinstance(event, TextDelta):
@@ -624,7 +670,7 @@ class DirectProtocolClient:
         response: httpx.Response,
     ) -> AsyncIterator[object]:
         done = False
-        async for sse in _iter_sse(response):
+        async for sse in _iter_sse_with_timeout(response):
             if sse.data.strip() == "[DONE]":
                 done = True
                 yield StreamDone()
@@ -638,16 +684,37 @@ class DirectProtocolClient:
                 delta = choice.get("delta")
                 if isinstance(delta, Mapping):
                     reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    content = delta.get("content")
+                    # OpenAI Chat 兼容流中 reasoning 字段的处理策略：
+                    # 1. Ollama qwen3.5 等：content=""（空字符串），
+                    #    实际文本在 reasoning 中 → 兜底为 TextDelta。
+                    # 2. DeepSeek R1 等：content=None（key 缺失或 JSON null），
+                    #    reasoning_content 是思考过程 → 保持为 ReasoningDelta。
+                    if content is not None and not content and reasoning:
+                        content = reasoning
+                        reasoning = None
                     if isinstance(reasoning, str) and reasoning:
                         yield ReasoningDelta(reasoning)
-                    content = delta.get("content")
                     if isinstance(content, str) and content:
                         yield TextDelta(content)
+                # 部分 SSE 实现（如 Ollama）不发 [DONE]，只靠 finish_reason 标记结尾
+                finish_reason = choice.get("finish_reason")
+                if finish_reason is not None and isinstance(finish_reason, str):
+                    log.track(
+                        lambda r=finish_reason: (
+                            f"[openai_chat] finish_reason={r} 提前终止 SSE 流"
+                        )
+                    )
+                    done = True
+                    yield StreamDone(finish_reason)
+                    break
             usage = payload.get("usage")
             if isinstance(usage, Mapping):
                 yield UsageEvent(dict(usage))
         if not done:
-            raise DirectProtocolError("protocol", "模型 SSE 流意外结束。")
+            # _iter_sse_with_timeout 超时返回或连接正常结束但无 [DONE] 标记
+            yield StreamDone("end")
+        await response.aclose()
 
     async def _stream_responses(
         self,
@@ -718,21 +785,50 @@ class DirectProtocolClient:
         response: httpx.Response,
     ) -> AsyncIterator[object]:
         done = False
+        lines_read = 0
+        error_lines = 0
         async for line in response.aiter_lines():
             if not line.strip():
                 continue
+            lines_read += 1
+            # 首行原始日志（带 data: 前缀等），用于诊断 SSE 与 NDJSON 格式混用
+            if lines_read <= 3:
+                log.track(
+                    lambda l=line: f"[ollama] raw line #{lines_read}: {l[:300]}"
+                )
+            if line.startswith("data:"):
+                line = line[5:].lstrip()
+                error_lines += 1
+                if error_lines <= 3:
+                    log.track(
+                        lambda l=line, n=error_lines: (
+                            f"[ollama] stripped data: prefix #{n}, "
+                            f"json_len={len(l)} first_100={l[:100]}"
+                        )
+                    )
             payload = self._decode_json(line)
             if payload.get("error"):
                 raise DirectProtocolError("backend", "Ollama 未能完成回复。")
             message = payload.get("message")
+            content_found = False
             if isinstance(message, Mapping):
                 thinking = message.get("thinking")
                 if isinstance(thinking, str) and thinking:
                     yield ReasoningDelta(thinking)
                 content = message.get("content")
+                # 部分模型可能把内容放在顶层 response 字段
+                if not content:
+                    content = payload.get("response")
                 if isinstance(content, str) and content:
+                    content_found = True
                     yield TextDelta(content)
             if bool(payload.get("done")):
+                log.track(
+                    lambda m=bool(message), c=content_found, l=lines_read: (
+                        f"[ollama] done=True lines={l} "
+                        f"has_message={m} has_content={c}"
+                    )
+                )
                 usage = {
                     key: payload[key]
                     for key in (
@@ -748,4 +844,16 @@ class DirectProtocolClient:
                 yield StreamDone(str(payload.get("done_reason") or ""))
                 break
         if not done:
+            # 读到了行但没有 done 标记 → 可能是非流式单行 JSON
+            if lines_read > 0:
+                log.info(
+                    "[direct] Ollama 流未含 done 标记，但已读取 "
+                    f"{lines_read} 行，视为完毕"
+                )
+                return
             raise DirectProtocolError("protocol", "Ollama NDJSON 流意外结束。")
+        log.track(
+            lambda l=lines_read, e=error_lines: (
+                f"[ollama] stream finished lines={l} data_prefix_lines={e}"
+            )
+        )

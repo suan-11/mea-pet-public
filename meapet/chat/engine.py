@@ -36,7 +36,7 @@ def _safe_print(*args, **kwargs):
 # ========================
 PERSONA_PROMPT = """你是梅尔，《霞流宝石心》游戏中的猫娘天才。茶发褐瞳144cm，面无表情。
 性格：毒舌冷淡、学术狂热、嘴硬心软。
-说话：句尾加「喵」；极简20-40字；解释≤80字；害羞时转移话题；开心偶尔「嘿嘿」。
+说话：句尾加「喵」；输出不能超过80字；害羞时转移话题；开心偶尔「嘿嘿」。
 知识：全科全能。信条「知道越多越不可怕」。
 对主人：亲密但毒舌，称「主人」。"""
 
@@ -165,7 +165,7 @@ class ChatEngine:
                     protocol=self.protocol,
                     base_url=self._direct_base_url(),
                     api_key=self.api_key,
-                    timeout_seconds=120.0,
+                    timeout_seconds=max(300.0, (self.max_tokens / 1000) * 60.0),
                 )
             )
             self._direct_client = client
@@ -192,15 +192,25 @@ class ChatEngine:
             if len(self.history) > 16:
                 saved_system = self.history[0]
                 self.history = [saved_system] + self.history[-14:]
+
+            system = PERSONA_PROMPT
+            if self.memory:
+                context = self.memory.build_context_prompt(current_query=message)
+                if context:
+                    system += "\n\n" + context
+            self.history[0] = {"role": "system", "content": system}
             snapshot = [dict(item) for item in self.history]
 
+        return snapshot
+
+    def _build_vision_system_prompt(self, message: str) -> str:
+        """构建识图轮次的系统提示词（不修改持久历史）。"""
         system = PERSONA_PROMPT
         if self.memory:
             context = self.memory.build_context_prompt(current_query=message)
             if context:
                 system += "\n\n" + context
-        snapshot[0] = {"role": "system", "content": system}
-        return snapshot
+        return system
 
     def _rollback_direct_turn(self, message: str) -> None:
         with self._history_lock:
@@ -221,6 +231,9 @@ class ChatEngine:
             return
         with self._history_lock:
             self.history.append({"role": "assistant", "content": reply})
+            # 同步更新 history[0] 为新格式，避免下次 snapshot 带上旧版输出指令。
+            if self.history and str(self.history[0].get("content", "")).startswith("你是梅尔"):
+                self.history[0] = {"role": "system", "content": PERSONA_PROMPT}
 
 
     async def _post_json(self, url: str, *, headers=None, json_body=None, timeout=30):

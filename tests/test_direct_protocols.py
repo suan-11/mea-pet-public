@@ -230,7 +230,9 @@ class TestDirectProtocolClient(unittest.IsolatedAsyncioTestCase):
         )
         return [event async for event in adapter.stream(_request())]
 
-    async def test_openai_chat_uses_chat_completions_sse_and_keeps_reasoning_internal(self):
+    async def test_openai_chat_uses_chat_completions_sse_and_falls_back_reasoning_to_content(self):
+        """Ollama qwen3.5 等模型将实际文本放在 reasoning 字段，
+        content 始终为空。此时 reasoning 应兜底到 TextDelta。"""
         from meapet.direct.types import ReasoningDelta, StreamDone, TextDelta
 
         seen = {}
@@ -245,7 +247,8 @@ class TestDirectProtocolClient(unittest.IsolatedAsyncioTestCase):
                 content=_sse(
                     {
                         "choices": [
-                            {"delta": {"reasoning_content": "private thought"}}
+                            {"delta": {"reasoning_content": "private thought",
+                                       "content": ""}}
                         ]
                     },
                     {"choices": [{"delta": {"content": "你"}}]},
@@ -279,17 +282,20 @@ class TestDirectProtocolClient(unittest.IsolatedAsyncioTestCase):
                 "max_tokens": 777,
                 "stream": True,
                 "stream_options": {"include_usage": True},
+                "think": False,
             },
         )
+        # content 为空时 reasoning 兜底到 TextDelta → "private thought你好"
         self.assertEqual(
             "".join(event.delta for event in events if isinstance(event, TextDelta)),
-            "你好",
+            "private thought你好",
         )
+        # reasoning 被消费后不再有 ReasoningDelta
         self.assertEqual(
             "".join(
                 event.delta for event in events if isinstance(event, ReasoningDelta)
             ),
-            "private thought",
+            "",
         )
         self.assertIsInstance(events[-1], StreamDone)
 
@@ -332,7 +338,7 @@ class TestDirectProtocolClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["messages"], list(_request().messages))
         self.assertTrue(body["stream"])
         self.assertFalse(body["think"])
-        self.assertEqual(body["keep_alive"], "30s")
+        self.assertEqual(body["keep_alive"], "5m")
         self.assertEqual(body["options"]["temperature"], 0.35)
         self.assertEqual(body["options"]["num_predict"], 777)
         self.assertEqual(

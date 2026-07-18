@@ -447,13 +447,13 @@ class PetChatFlowMixin:
         if hasattr(self, '_chat_poll'):
             self._chat_poll.stop()
 
-        # 超时保护（匹配 Ollama 读取超时 120s + 缓冲）
+        # 超时保护（匹配 HTTP 读取超时 300s + 缓冲）
         if hasattr(self, '_chat_timeout'):
             self._chat_timeout.stop()
         self._chat_timeout = QTimer(self)
         self._chat_timeout.setSingleShot(True)
         self._chat_timeout.timeout.connect(self._on_chat_timeout)
-        self._chat_timeout.start(130000)
+        self._chat_timeout.start(330000)
 
         try:
             self._chat_worker = self._make_chat_worker(message)
@@ -1189,7 +1189,14 @@ class PetChatFlowMixin:
         context = getattr(self, "_active_turn_context", None)
         if context is not None and not self._turn_context_is_current(context):
             return
-        log.warning("[chat] ChatWorker 超时，释放锁")
+        worker = getattr(self, '_chat_worker', None)
+        engine = getattr(self, 'chat_engine', None)
+        backend = getattr(engine, 'backend', '?')
+        model = getattr(engine, 'model', '?')
+        log.warning(
+            f"[chat] ChatWorker 超时 backend={backend} model={model} "
+            f"worker_alive={worker is not None and worker.isRunning()}"
+        )
         set_awaiting_reply_state(self, False)
         self._show_bubble(status_language.chat_timeout(), 3000)
         self._position_bubble()

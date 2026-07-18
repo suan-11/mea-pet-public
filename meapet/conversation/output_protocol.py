@@ -269,6 +269,9 @@ def _without_partial_close_tag(text: str, close_tag: str) -> str:
 class MeaPetOutputStreamParser:
     """从任意分块的模型输出中提取可增量展示的文本事件。"""
 
+    # 标签最长约 32 字节，窗口足够覆盖跨块边界
+    _BOUNDARY_WINDOW = 48
+
     def __init__(self) -> None:
         self._raw = ""
         self._started_count = 0
@@ -276,6 +279,9 @@ class MeaPetOutputStreamParser:
         self._display_lengths: dict[int, int] = {}
         self._done_emitted = False
         self._closed = False
+        self._starts: list[tuple[int, int]] = []  # (start, end) of each <MEAPET_SEGMENT>
+        self._last_scan = 0  # bytes of self._raw already scanned for starts
+        self._last_close_count = 0  # count of </MEAPET_SEGMENT seen (avoid re-scan)
 
     def feed(self, chunk: object) -> Tuple[object, ...]:
         if self._closed:
@@ -286,14 +292,33 @@ class MeaPetOutputStreamParser:
         self._raw += value
         events = []
 
-        starts = list(_SEGMENT_START_RE.finditer(self._raw))
-        while self._started_count < len(starts):
+        # --- 增量扫描 <MEAPET_SEGMENT> 标签 ---
+        # 从 last_scan 前回退一个窗口，确保跨块边界的标签也能被匹配
+        scan_from = max(0, self._last_scan - self._BOUNDARY_WINDOW)
+        new_portion = self._raw[scan_from:]
+        if new_portion:
+            for match in _SEGMENT_START_RE.finditer(new_portion):
+                abs_end = scan_from + match.end()
+                # 只记录尚未收录的标签（比较结尾位置）
+                if not self._starts or abs_end > self._starts[-1][1]:
+                    self._starts.append(
+                        (scan_from + match.start(), abs_end)
+                    )
+            self._last_scan = len(self._raw)
+
+        # 为新发现的 segment 发出 SegmentStarted
+        while self._started_count < len(self._starts):
             events.append(SegmentStarted(self._started_count))
             self._started_count += 1
 
-        for index, start in enumerate(starts):
-            next_start = starts[index + 1].start() if index + 1 < len(starts) else len(self._raw)
-            body = self._raw[start.end():next_start]
+        # --- 提取所有已知 segment 的 display 增量 ---
+        for index, (start_pos, end_pos) in enumerate(self._starts):
+            next_start = (
+                self._starts[index + 1][0]
+                if index + 1 < len(self._starts)
+                else len(self._raw)
+            )
+            body = self._raw[end_pos:next_start]
             display_open = _DISPLAY_OPEN_RE.search(body)
             if not display_open:
                 continue
@@ -308,13 +333,18 @@ class MeaPetOutputStreamParser:
                 events.append(SegmentTextDelta(index, visible[previous:]))
                 self._display_lengths[index] = len(visible)
 
-        blocks = list(_SEGMENT_BLOCK_RE.finditer(self._raw))
-        while self._completed_count < len(blocks):
-            index = self._completed_count
-            segment, _issues = _segment_from_block(blocks[index].group(1), index)
-            events.append(SegmentCompleted(segment))
-            self._completed_count += 1
+        # --- 跟踪 </MEAPET_SEGMENT> 完整闭标签的出现次数，避免全量正则重扫 ---
+        close_count = self._raw.upper().count("</MEAPET_SEGMENT>")
+        if close_count > self._last_close_count:
+            self._last_close_count = close_count
+            blocks = list(_SEGMENT_BLOCK_RE.finditer(self._raw))
+            while self._completed_count < len(blocks):
+                index = self._completed_count
+                segment, _issues = _segment_from_block(blocks[index].group(1), index)
+                events.append(SegmentCompleted(segment))
+                self._completed_count += 1
 
+        # --- MEAPET_DONE 只检查一次 ---
         if not self._done_emitted and _DONE_RE.search(self._raw):
             events.append(ProtocolCompleted())
             self._done_emitted = True
