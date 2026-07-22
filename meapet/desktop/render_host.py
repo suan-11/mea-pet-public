@@ -492,7 +492,8 @@ class PetRenderHostMixin:
         widget = self._l2d_model.create_widget(self)
         self.sprite_label = widget
         widget.head_patted.connect(self._on_head_patted)
-        widget.tail_patted.connect(self._on_tail_patted)
+        widget.lower_left_patted.connect(self._on_lower_left_patted)
+        widget.lower_right_patted.connect(self._on_lower_right_patted)
         widget.chat_requested.connect(self._start_chat)
         widget.first_frame_ready.connect(self._on_live2d_first_frame)
         widget.initialization_failed.connect(

@@ -37,6 +37,8 @@ class _Live2DWidgetStub(QWidget):
         super().__init__(parent)
         self.head_patted = _SignalStub()
         self.tail_patted = _SignalStub()
+        self.lower_left_patted = _SignalStub()
+        self.lower_right_patted = _SignalStub()
         self.first_frame_ready = _SignalStub()
         self.initialization_failed = _SignalStub()
         self.chat_requested = _SignalStub()
@@ -113,6 +115,12 @@ class _RenderHost(PetRenderHostMixin, QWidget):
         pass
 
     def _on_tail_patted(self) -> None:
+        pass
+
+    def _on_lower_left_patted(self) -> None:
+        pass
+
+    def _on_lower_right_patted(self) -> None:
         pass
 
     def _start_chat(self) -> None:

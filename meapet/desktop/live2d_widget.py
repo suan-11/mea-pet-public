@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import sys
 import math
+import time
 import traceback
 from pathlib import Path
 
@@ -130,9 +131,10 @@ class Live2DModel:
 class Live2DWidget(QOpenGLWidget):
     """透明 Live2D 渲染窗口"""
 
-    # 信号：摸头(head) / 摸尾巴(tail)
+    # 信号：触摸分区（上半 / 左下 / 右下）
     head_patted = pyqtSignal()
-    tail_patted = pyqtSignal()
+    lower_left_patted = pyqtSignal()
+    lower_right_patted = pyqtSignal()
     chat_requested = pyqtSignal()
     first_frame_ready = pyqtSignal()
     initialization_failed = pyqtSignal(str)
@@ -156,9 +158,6 @@ class Live2DWidget(QOpenGLWidget):
         self.setAttribute(Qt.WA_AlwaysStackOnTop, True) # 确保在最上层渲染
         self.setStyleSheet("background: transparent; border: none;")
 
-        # 2. 【删除】手动设置 Win32 分层窗口的代码（这会导致 OpenGL 黑底）
-        # if sys.platform == "win32": ... (全部删除)
-
         # 鼠标追踪
         self.setMouseTracking(True)
         self._ready = False
@@ -175,16 +174,13 @@ class Live2DWidget(QOpenGLWidget):
         self._mouse_x = 0
         self._mouse_y = 0
         self._press_pos = None
-
-        # 【新增】窗口拖拽状态
+        self._press_time = 0.0
         self._dragging_window = False
         self._drag_pointer_origin = None
         self._drag_window_origin = None
 
         self.resize(525, 735)
 
-        # 3. 【删除】这行代码，否则鼠标事件无法触发
-        # self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -329,11 +325,12 @@ class Live2DWidget(QOpenGLWidget):
         self.update()
 
     def mousePressEvent(self, event):
-        
+
         super().mousePressEvent(event)
         # 仅当左键按下时，记录初始位置
         if event.button() == Qt.LeftButton:
             self._press_pos = (event.x(), event.y())
+            self._press_time = time.time()
             parent = self.parentWidget()
             self._drag_pointer_origin = event.globalPos()
             self._drag_window_origin = parent.pos() if parent is not None else None
@@ -372,7 +369,6 @@ class Live2DWidget(QOpenGLWidget):
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
 
-        # 1. 释放左键时，重置拖拽状态
         if event.button() == Qt.LeftButton:
             parent = self.parentWidget()
             flush_move = getattr(parent, "_flush_drag_position", None)
@@ -381,28 +377,46 @@ class Live2DWidget(QOpenGLWidget):
             self._drag_pointer_origin = None
             self._drag_window_origin = None
 
-            # 2. 【核心逻辑】如果刚才发生了窗口拖拽，直接清空状态，绝对不触发互动
+            # 如果发生了窗口拖拽，不触发互动
             if self._dragging_window:
                 self._dragging_window = False
                 self._press_pos = None
                 event.accept()
                 return
 
-            # 3. 如果没有拖拽窗口，且是有效的点击，才判断是否触发互动
+            # 有效的点击（非拖拽）→ 分区判定
             if self.l2d.model and self._press_pos is not None:
                 px, py = self._press_pos
                 dist = math.sqrt((event.x() - px)**2 + (event.y() - py)**2)
+                press_duration = time.time() - self._press_time
 
-                # 移动距离小于 8px 视为点击
-                if dist < 8:
-                    if py < self.height() * 0.5:
+                if dist < 35 and press_duration < 0.4:
+                    w, h = self.width(), self.height()
+                    if w <= 0 or h <= 0:
+                        self._press_pos = None
+                        event.accept()
+                        return
+
+                    # 归一化坐标 [-1, 1]，Y 翻转：Qt 顶部=0，Live2D 底部=-1
+                    nx = (event.x() / w) * 2.0 - 1.0
+                    ny = -((event.y() / h) * 2.0 - 1.0)
+
+                    # 超出模型渲染区域 → 不触发
+                    if nx < -0.35 or nx > 0.55 or ny < -0.45 or ny > 0.85:
+                        self._press_pos = None
+                        event.accept()
+                        return
+
+                    if ny > 0.00:
                         self.l2d.model.StartMotion("Idle", 0, live2d.MotionPriority.FORCE)
                         self.head_patted.emit()
+                    elif nx < 0.0:
+                        self.l2d.model.StartMotion("Angry", 0, live2d.MotionPriority.FORCE)
+                        self.lower_left_patted.emit()
                     else:
                         self.l2d.model.StartMotion("Angry", 0, live2d.MotionPriority.FORCE)
-                        self.tail_patted.emit()
+                        self.lower_right_patted.emit()
 
-            # 4. 清空按下位置
             self._press_pos = None
             event.accept()
 

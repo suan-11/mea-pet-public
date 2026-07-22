@@ -195,9 +195,7 @@ def get_color_logger(name="app", log_dir=LOG_DIR, keep_days=LOG_KEEP_DAYS,
             file_handler.namer = _daily_namer
 
             file_formatter = logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(message)s",
-                # 若需输出 logger 名称，请替换
-                # "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+                "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S"
             )
             file_handler.setFormatter(file_formatter)

@@ -31,7 +31,6 @@ tts_debug.log
 chat_errors.log
 
 # 运行时缓存 / 下载物
-voice_cache/
 audio_cache/
 wheels/
 OllamaSetup.exe
