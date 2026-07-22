@@ -1,24 +1,14 @@
-"""配置中心使用的轻量连接探测；所有网络与推理均在后台执行。"""
+"""配置中心使用的轻量连接探测；所有网络与推理均在后台执行。
+
+Import 全部按需延迟到函数内部，避免模块级加载时触发不必要的深层依赖链
+（如 MeaTTS → TTS engine mixins → translators 等），在 PyInstaller 冻结
+环境中任一深层依赖加载失败都会导致整个模块无法导入。
+"""
 
 from __future__ import annotations
 
-import copy
 from contextlib import suppress
 from dataclasses import dataclass
-
-from meapet.agent.factory import create_agent_adapter_from_config
-from meapet.config.store import (
-    normalize_config,
-    normalize_mimo_model_id,
-    resolve_direct_api_key,
-    resolve_vision_api_base,
-    resolve_vision_api_key,
-    resolve_vision_backend,
-    resolve_vision_host,
-)
-from meapet.direct.client import DirectProtocolClient, DirectProtocolConfig
-from meapet.direct.types import CanonicalChatRequest, StreamDone, TextDelta
-from meapet.tts.service import MeaTTS
 
 
 # 1×1 PNG；识图测试从不截取用户桌面。
@@ -53,6 +43,9 @@ async def _probe_direct_profile(
     *,
     with_image: bool = False,
 ) -> ConnectionResult:
+    from meapet.direct.client import DirectProtocolClient, DirectProtocolConfig
+    from meapet.direct.types import CanonicalChatRequest, StreamDone, TextDelta
+
     client = None
     received = False
     stream = None
@@ -114,6 +107,9 @@ async def _probe_direct_profile(
 
 
 async def _probe_direct(config: dict) -> ConnectionResult:
+    import copy
+    from meapet.config.store import resolve_direct_api_key
+
     llm = config.get("llm") if isinstance(config.get("llm"), dict) else {}
     profile = copy.deepcopy(
         llm.get("direct") if isinstance(llm.get("direct"), dict) else {}
@@ -123,6 +119,9 @@ async def _probe_direct(config: dict) -> ConnectionResult:
 
 
 async def _probe_agent(config: dict) -> ConnectionResult:
+    import copy
+    from meapet.agent.factory import create_agent_adapter_from_config
+
     adapter = None
     try:
         adapter = create_agent_adapter_from_config(copy.deepcopy(config))
@@ -139,6 +138,9 @@ async def _probe_agent(config: dict) -> ConnectionResult:
 
 
 async def _probe_tts(config: dict) -> ConnectionResult:
+    import copy
+    from meapet.tts.service import MeaTTS
+
     try:
         tts = MeaTTS(copy.deepcopy(config))
         if not tts.enabled:
@@ -158,6 +160,14 @@ async def _probe_tts(config: dict) -> ConnectionResult:
 
 
 async def _probe_vision(config: dict) -> ConnectionResult:
+    import copy
+    from meapet.config.store import (
+        resolve_direct_api_key,
+        resolve_vision_api_base,
+        resolve_vision_host,
+        resolve_vision_api_key,
+    )
+
     llm = config.get("llm") if isinstance(config.get("llm"), dict) else {}
     vision = (
         config.get("vision") if isinstance(config.get("vision"), dict) else {}
@@ -180,15 +190,18 @@ async def _probe_vision(config: dict) -> ConnectionResult:
         profile["api_key"] = resolve_direct_api_key(llm)
         return await _probe_direct_profile(profile, with_image=True)
 
-    backend = resolve_vision_backend(vision, llm)
+    # 从 vision 或 llm 配置中解析识图后端，仅支持 mimo / ollama
+    _supported_vision_backends = {"ollama", "mimo"}
+    backend = str(
+        vision.get("backend") or llm.get("backend") or "ollama"
+    ).strip().lower()
+    if backend not in _supported_vision_backends:
+        backend = "ollama"
     if backend == "mimo":
         profile = {
             "protocol": "openai_chat",
             "api_base": resolve_vision_api_base(vision, llm),
-            "model": normalize_mimo_model_id(
-                str(vision.get("model") or "mimo-v2.5"),
-                for_vision=True,
-            ),
+            "model": str(vision.get("model") or "mimo-v2.5"),
             "api_key": resolve_vision_api_key(vision, llm),
         }
     else:
@@ -203,6 +216,9 @@ async def _probe_vision(config: dict) -> ConnectionResult:
 
 async def probe_connection(target: str, config: dict) -> ConnectionResult:
     """探测指定配置区域；调用方负责把协程提交到后台事件循环。"""
+    import copy
+    from meapet.config.store import normalize_config
+
     normalized_target = str(target or "").strip().lower()
     normalized = normalize_config(copy.deepcopy(config or {}))
     probes = {

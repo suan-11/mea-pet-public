@@ -46,26 +46,22 @@ class TtsPageVitsMixin:
                 "VITS 模型文件缺失（不会自动下载，请手动放置或点下方安装）",
             )
 
+    def _is_pet_exe(self, py_exe: str) -> bool:
+        """判断是否为打包版 MeaPet.exe（非真正 Python 解释器）。"""
+        if not (getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")):
+            return False
+        try:
+            return os.path.realpath(py_exe) == os.path.realpath(sys.executable)
+        except Exception:
+            return False
+
     def _setup_vits_env(self):
         """On explicit user click, detect / create the VITS Python environment.
 
-        In frozen mode this is skipped because ``sys.executable`` is the
-        pet exe, not a real Python interpreter — spawning subprocesses
-        would start a duplicate MeaPet instance.
+        In frozen mode ``sys.executable`` is the pet exe, not a real Python
+        interpreter — we skip subprocess calls that point to it and search
+        for a real system Python instead.
         """
-        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-            styled_message_box(
-                self,
-                title="Not available in packaged build",
-                text=(
-                    "VITS environment setup requires a real Python interpreter.\n\n"
-                    "This feature is not available in the packaged version. "
-                    "Please use MiMo cloud TTS instead, or run the source "
-                    "version with Python directly."
-                ),
-                icon=QMessageBox.Information,
-            )
-            return
         ret = styled_message_box(
             self,
             title="按需安装确认",
@@ -91,6 +87,9 @@ class TtsPageVitsMixin:
 
         def _check_torch(py_exe: str) -> tuple[bool, str]:
             """检查指定 Python 能否 import torch，返回 (成功, 版本或错误信息)"""
+            # 打包版中 sys.executable 是 MeaPet.exe，不能当 Python 用
+            if self._is_pet_exe(py_exe):
+                return False, "frozen"
             try:
                 r = subprocess.run(
                     [py_exe, "-c", "import torch; print(torch.__version__)"],
@@ -149,7 +148,12 @@ class TtsPageVitsMixin:
             return ok
 
         def _pip_run(py_exe: str, args: list, timeout_sec: int = 600) -> int:
-            """通用 pip install（实时输出+超时保护，干净环境）"""
+            """通用 pip install（实时输出+超时保护，干净环境）
+
+            冻结模式且 py_exe 是 pet exe 时直接返回失败，避免启动重复进程。
+            """
+            if self._is_pet_exe(py_exe):
+                return 1
             _pip_env = _clean_env.copy()
             _pip_env["PYTHONUNBUFFERED"] = "1"  # 关掉子进程缓冲，每行实时可见
             proc = subprocess.Popen(
@@ -279,8 +283,16 @@ class TtsPageVitsMixin:
 
         def task():
             try:
-                # 创建 venv
-                subprocess.run([_sys.executable, "-m", "venv", venv_path],
+                # 创建 venv（冻结模式用 PATH 上的系统 Python 代替 pet exe）
+                _master_py = _sys.executable
+                if self._is_pet_exe(_master_py):
+                    import shutil as _shutil
+                    _master_py = (
+                        _shutil.which("python")
+                        or _shutil.which("python3")
+                        or _master_py
+                    )
+                subprocess.run([_master_py, "-m", "venv", venv_path],
                              capture_output=True, timeout=60)
                 py_path = _os.path.join(venv_path, "Scripts", "python.exe")
                 if not _os.path.isfile(py_path):
@@ -310,7 +322,13 @@ class TtsPageVitsMixin:
         threading.Thread(target=task, daemon=True).start()
 
     def _ensure_vits_deps(self, py_exe: str, log):
-        """确保 VITS 所需的基础依赖已安装（soundfile, numpy, scipy 等），非阻塞"""
+        """确保 VITS 所需的基础依赖已安装（soundfile, numpy, scipy 等），非阻塞
+
+        打包版中 pet exe 不是真正 Python，跳过子进程检查。
+        """
+        if self._is_pet_exe(py_exe):
+            log("  ⚠ 打包版中无法检查 VITS 依赖（pet exe 不是 Python 解释器）")
+            return
         import subprocess, threading
         needed = []
         _checks = {

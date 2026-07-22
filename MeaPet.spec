@@ -13,6 +13,9 @@ a = Analysis(
         ('GPT-Sovits', 'GPT-Sovits'),
         ('config.example.json', '.'),
         ('vits_models','vits_models'),
+        ('vits_core', 'vits_core'),
+        ('vits_requirements.txt', '.'),
+        ('dic', 'dic'),
     ],
     hiddenimports=[
         # certifi CA bundle (belt-and-suspenders for httpx SSL verification)

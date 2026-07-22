@@ -303,7 +303,7 @@ class ConnectionProbeTests(unittest.IsolatedAsyncioTestCase):
             }
         }
         with patch(
-            "wizard.connection_test.DirectProtocolClient",
+            "meapet.direct.client.DirectProtocolClient",
             return_value=Client(),
         ):
             result = await probe_connection("direct", config)
@@ -343,7 +343,7 @@ class ConnectionProbeTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         with patch(
-            "wizard.connection_test.DirectProtocolClient",
+            "meapet.direct.client.DirectProtocolClient",
             return_value=Client(),
         ):
             result = await probe_connection("vision", config)
@@ -371,7 +371,7 @@ class ConnectionProbeTests(unittest.IsolatedAsyncioTestCase):
             }
         }
         with patch(
-            "wizard.connection_test.create_agent_adapter_from_config",
+            "meapet.agent.factory.create_agent_adapter_from_config",
             return_value=adapter,
         ):
             result = await probe_connection("agent", config)
@@ -389,7 +389,7 @@ class ConnectionProbeTests(unittest.IsolatedAsyncioTestCase):
             return_value=("/tmp/connection-test.wav", "zh")
         )
         config = {"tts": {"enabled": True, "engine": "mimo"}}
-        with patch("wizard.connection_test.MeaTTS", return_value=tts):
+        with patch("meapet.tts.service.MeaTTS", return_value=tts):
             result = await probe_connection("tts", config)
 
         self.assertTrue(result.ok, result.message)

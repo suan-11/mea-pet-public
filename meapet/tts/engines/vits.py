@@ -24,10 +24,16 @@ class TtsVitsMixin:
             self, "python_exe", None
         )
         if not vits_python:
-            log.warning(
-                "[frozen] No real Python interpreter for VITS inference. "
-                "Skipping local TTS."
-            )
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                log.error(
+                    "VITS TTS 不可用：未配置 VITS Python 路径。"
+                    "请在配置向导的「语音设置」中设置后重试。"
+                )
+            else:
+                log.warning(
+                    "[frozen] No real Python interpreter for VITS inference. "
+                    "Skipping local TTS."
+                )
             return None, ""
         log.info("VITS inference...")
         t1 = time.time()
