@@ -183,6 +183,7 @@ class Live2DWidget(QOpenGLWidget):
 
         self.installEventFilter(self)
 
+
     def eventFilter(self, obj, event):
         # 窗口不使用 QWidget mask，避免动态模型越过旧边界时被裁断。
         if obj == self and event.type() == QEvent.MouseButtonPress:
@@ -325,7 +326,6 @@ class Live2DWidget(QOpenGLWidget):
         self.update()
 
     def mousePressEvent(self, event):
-
         super().mousePressEvent(event)
         # 仅当左键按下时，记录初始位置
         if event.button() == Qt.LeftButton:

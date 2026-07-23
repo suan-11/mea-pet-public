@@ -4,6 +4,8 @@ A Windows-first (Linux-compatible) PyQt5 transparent desktop companion. It integ
 
 MeaPet draws a clear boundary: character presentation, chat bubbles, TTS, screenshot authorization, and local state are managed by MeaPet. When using an Agent as the reply backend, the model, long-term memory, and internal tools are managed by the Agent.
 
+**Mobile Version**: [mea-pet-mobile](https://github.com/llz121517/mea-pet-mobile) (Lightweight mobile client with core features)
+
 ## Current Capabilities
 
 | Capability | Description |
