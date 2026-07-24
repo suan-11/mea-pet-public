@@ -262,12 +262,22 @@ class ScreenWatcher(QThread):
         """外部更新冷落时长"""
         self.idle_minutes = minutes
 
-    def stop(self, timeout_ms: int = 3000) -> bool:
-        """请求线程停止，并报告是否已在超时时间内退出。"""
+    def stop(self, timeout_ms: int = 0) -> bool:
+        """请求线程停止。
+
+        默认不 join（``timeout_ms=0``），避免在 Qt 主线程上 ``QThread.wait``
+        造成配置切换/退出路径未响应。需要同步等待时显式传入正超时。
+        """
         self._stop = True
-        if self.isRunning():
-            return bool(self.wait(timeout_ms))
-        return True
+        if not self.isRunning():
+            return True
+        try:
+            timeout = max(0, int(timeout_ms))
+        except (TypeError, ValueError):
+            timeout = 0
+        if timeout <= 0:
+            return False
+        return bool(self.wait(timeout))
 
     def prepare_start(self) -> bool:
         """在重新启动前复位停止标志；仍在运行时拒绝启动。"""

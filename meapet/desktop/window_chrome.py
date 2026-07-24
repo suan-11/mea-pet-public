@@ -127,19 +127,28 @@ class PetWindowChromeMixin:
             self._watcher_timer.stop()
         except Exception:
             pass
+        # 退出路径只发取消/停止信号，不在 GUI 线程 join worker 或 QThread，
+        # 避免 MCP/watcher/TTS 叠加 wait 把窗口卡成“未响应”。
         if hasattr(self, "_watcher") and self._watcher is not None:
             try:
-                self._watcher.stop()
-                self._watcher.wait(3000)
+                self._watcher.stop(timeout_ms=0)
+            except TypeError:
+                try:
+                    self._watcher.stop()
+                except Exception:
+                    pass
             except Exception:
                 pass
         for attr in ["_chat_worker", "_tts_worker", "_speak_worker"]:
             w = getattr(self, attr, None)
-            if w is not None:
-                try:
-                    w.wait(3000)
-                except Exception:
-                    pass
+            if w is None:
+                continue
+            try:
+                terminate = getattr(w, "terminate", None)
+                if callable(terminate):
+                    terminate()
+            except Exception:
+                pass
         if hasattr(self, "tray"):
             try:
                 self.tray.hide()
@@ -537,7 +546,6 @@ class PetWindowChromeMixin:
         if worker is not None and callable(getattr(worker, "terminate", None)):
             try:
                 worker.terminate()
-                worker.wait(1000)
             except Exception:
                 pass
 

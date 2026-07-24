@@ -130,12 +130,14 @@ class TestRuntimeConfigurationSwitch(unittest.TestCase):
         class Worker:
             def __init__(self, events):
                 self.events = events
+                self.wait_calls = 0
 
             def terminate(self):
                 self.events.append("terminate:worker")
 
-            @staticmethod
-            def wait(_timeout):
+            def wait(self, _timeout):
+                self.wait_calls += 1
+                self.events.append("wait:worker")
                 return True
 
             def deleteLater(self):
@@ -177,6 +179,7 @@ class TestRuntimeConfigurationSwitch(unittest.TestCase):
                 self.events.append((text, duration, mood))
 
         host = Host()
+        worker = host._chat_worker
         applied = host._apply_runtime_config(
             {
                 "llm": {
@@ -197,6 +200,11 @@ class TestRuntimeConfigurationSwitch(unittest.TestCase):
             ["init:chat", "init:control"],
         )
         self.assertIn(("新配置已应用。", 3500, None), host.events)
+        # GUI must not join the old worker Future (would freeze the event loop).
+        self.assertEqual(worker.wait_calls, 0)
+        self.assertNotIn("wait:worker", host.events)
+        self.assertIn("terminate:worker", host.events)
+        self.assertIn("delete:worker", host.events)
 
     def test_unsupported_follow_backend_falls_back_to_local_vision(self):
         from meapet.config.store import (
@@ -718,10 +726,34 @@ class TestWatcherPrivacyAndLifecycle(unittest.TestCase):
         from meapet.watcher.screen import ScreenWatcher
 
         watcher = ScreenWatcher()
+        # Default stop is non-blocking (no QThread.wait) so GUI callers stay responsive.
         self.assertTrue(watcher.stop())
         self.assertTrue(watcher._stop)
         self.assertTrue(watcher.prepare_start())
         self.assertFalse(watcher._stop)
+
+    def test_memory_defers_embedding_cache_until_search(self):
+        """MeaMemory() must not preload every embedding on the GUI startup path."""
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from meapet import memory as memory_pkg
+        from meapet.memory import db as memory_db
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "mea_memory.db")
+            with mock.patch.object(memory_db, "DB_PATH", db_path), mock.patch.object(
+                memory_pkg.db, "DB_PATH", db_path
+            ):
+                mem = memory_db.MeaMemory()
+                self.assertFalse(mem._emb_cache_loaded)
+                mem.add_memory("主人喜欢红茶", importance=3)
+                self.assertFalse(mem._emb_cache_loaded)
+                hits = mem.search_memories("红茶", limit=3)
+                self.assertTrue(mem._emb_cache_loaded)
+                self.assertTrue(any("红茶" in (h.get("content") or "") for h in hits))
+                mem.close()
 
     def test_watch_output_parser_has_no_backend_probe(self):
         from meapet.chat.engine import ChatEngine

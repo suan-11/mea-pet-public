@@ -310,6 +310,17 @@ class TestControlAsgiSurface(unittest.TestCase):
         self.assertEqual(future.result_calls, 1)
         self.assertFalse(runtime.running)
 
+        # Default stop is non-blocking (no Future.result) so GUI callers
+        # never stall the Qt event loop.
+        future2 = Future()
+        runtime._future = future2
+        server2 = SimpleNamespace(should_exit=False)
+        runtime._server = server2
+        runtime.stop()
+        self.assertTrue(server2.should_exit)
+        self.assertEqual(future2.result_calls, 0)
+        self.assertFalse(runtime.running)
+
     def test_configured_client_ca_requires_a_client_certificate(self):
         from meapet.control.broker import CompanionControlBroker
         from meapet.control.transport import (
