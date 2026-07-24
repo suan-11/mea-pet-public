@@ -40,11 +40,11 @@ jobs:
           
         # 2. 恢复官方源（如果之前用 sed 改过，这里重新覆盖为官方源）
         sudo bash -c 'cat > /etc/apt/sources.list <<EOF
-deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-updates main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-backports main restricted universe multiverse
-deb http://security.ubuntu.com/ubuntu $(lsb_release -cs)-security main restricted universe multiverse
-EOF'
+        deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse
+        deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-updates main restricted universe multiverse
+        deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-backports main restricted universe multiverse
+        deb http://security.ubuntu.com/ubuntu $(lsb_release -cs)-security main restricted universe multiverse
+        EOF'
           
         # 3. 更新源并安装依赖
         sudo apt-get update
