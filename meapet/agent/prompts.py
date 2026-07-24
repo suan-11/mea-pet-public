@@ -36,7 +36,7 @@ VOICE_TRANSLATION_INSTRUCTION = """【朗读语言（已开启：优先模型输
 - 若前端只读摘要中 prefer_model_voice_translation=true，且给出了 voice_target_language：
   - voice_language 必须使用该目标语对应的 BCP-47（例如 ja / ja-JP、en、zh-CN）。
   - voice_text 必须是该语言的完整朗读稿，语义与 DISPLAY 等价，不得增删事实。
-  - 禁止出现“voice_language 标为日语/英语，但 voice_text 仍是中文”的情况。
+  - 禁止出现"voice_language 标为日语/英语，但 voice_text 仍是中文"的情况。
 - 若你无法产出合格的目标语朗读：把 voice_language 标成与 DISPLAY 相同的语言（如 zh-CN），
   voice_text 使用与 DISPLAY 相同语言的文本，由前端非 LLM 机器翻译回落处理。"""
 
@@ -85,10 +85,14 @@ def frontend_context_json(request: AgentTurnRequest) -> str:
     )
 
 
-def gateway_user_message(request: AgentTurnRequest) -> str:
-    """为只有单一 message 字段的 Agent Gateway 组合当前轮输入。"""
+def build_user_message(request: AgentTurnRequest) -> str:
+    """为 OpenAI Chat Completions 组合当前轮输入（system prompt + user text）。"""
     return (
         f"{build_output_instruction(request)}\n"
         f"前端只读摘要：{frontend_context_json(request)}\n\n"
         f"用户当前请求：\n{request.user_text}"
     )
+
+
+# 向后兼容别名（旧名，原用于 Hermes Gateway）
+gateway_user_message = build_user_message

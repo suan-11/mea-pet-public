@@ -8,18 +8,24 @@ from .base import (
     TurnCompleted,
     TurnFailed,
 )
-from .hermes import HermesAdapter, HermesCapabilities, HermesConfig
+from .openai_adapter import (
+    OpenAIAdapter,
+    OpenAIConfig,
+    OpenAICapabilities,
+)
+from .factory import create_agent_adapter_from_config
 from .presentation import AgentTurnPresentation
 
 __all__ = [
     "AgentTurnRequest",
     "AgentTurnPresentation",
     "FormatRepairRequired",
-    "HermesAdapter",
-    "HermesCapabilities",
-    "HermesConfig",
+    "OpenAIAdapter",
+    "OpenAIConfig",
+    "OpenAICapabilities",
     "ToolStatus",
     "TurnCancelled",
     "TurnCompleted",
     "TurnFailed",
+    "create_agent_adapter_from_config",
 ]
