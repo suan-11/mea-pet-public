@@ -91,4 +91,8 @@ jobs:
         export MAKEFLAGS="-j1"
         export QT_QPA_PLATFORM=offscreen
         python -X faulthandler -m pytest -q
-        xvfb-run python -m pytest -q -k "not test_context_menu_uses_readable_type_and_row_height"
+        # 使用 -n 0 关闭并行，但用 --forked 让每个测试在子进程中运行
+        # 需要先安装 pytest-forked
+        pip install pytest-forked
+        xvfb-run python -m pytest -q --forked
+
