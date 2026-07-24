@@ -34,6 +34,9 @@ jobs:
 
     - name: Install system dependencies (PyQt5 / OpenGL)
       run: |
+        sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak
+        sudo sed -i 's@http://archive.ubuntu.com/@https://mirrors.aliyun.com/@g' /etc/apt/sources.list
+        sudo sed -i 's@http://security.ubuntu.com/@https://mirrors.aliyun.com/@g' /etc/apt/sources.list
         sudo apt-get update
         sudo apt-get install -y \
           libgl1 \
