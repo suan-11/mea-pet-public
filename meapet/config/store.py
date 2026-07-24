@@ -31,13 +31,13 @@ from meapet.vision.policy import normalize_vision_mode
 
 
 # 通用环境变量（不再区分后端）
-ENV_LLM_KEY = ("MEAPET_API_KEY",)
+ENV_LLM_KEY = ("OPENAI_API_KEY", "MEAPET_API_KEY")
 ENV_TTS_KEY = ("MIMO_API_KEY", "XIAOMIMIMO_API_KEY", "MEAPET_API_KEY")
 ENV_TRANSLATE_KEY = ("TRANSLATE_API_KEY",)
 ENV_VISION_KEY = ("MIMO_API_KEY", "XIAOMIMIMO_API_KEY", "MEAPET_API_KEY")
 
-# 默认地址（仅作 fallback，不再特指 Ollama）
-DEFAULT_API_BASE = "http://127.0.0.1:11434/v1"
+# 默认 OpenAI 兼容地址
+DEFAULT_API_BASE = "https://api.openai.com/v1"
 
 _ENV_PLACEHOLDERS = ("", "$ENV", "${ENV}", "env", "ENV")
 
@@ -186,7 +186,11 @@ def save_config(config: dict, path: Optional[str] = None) -> None:
 
 
 def resolve_llm_api_key(llm_cfg: dict) -> str:
-    """解析 LLM API Key，不再依赖 backend。"""
+    """解析 LLM API Key，优先 agent.api_key > llm.api_key > env。"""
+    agent = llm_cfg.get("agent") if isinstance(llm_cfg.get("agent"), dict) else {}
+    agent_key = resolve_secret(agent.get("api_key", ""), ENV_LLM_KEY)
+    if agent_key:
+        return agent_key
     return resolve_secret(llm_cfg.get("api_key", ""), ENV_LLM_KEY)
 
 
@@ -302,18 +306,19 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 
 def _normalize_llm_contract(value: object) -> dict:
-    """补齐 direct/agent 显式结构，同时保留当前运行路径使用的旧字段。
+    """补齐 direct/agent 显式结构，统一使用 OpenAI 标准协议。
 
-    不再区分后端类型，统一使用 OpenAI 标准协议。
+    移除旧的 hermes/openclaw kind 分支，agent 段现在只包含
+    OpenAI 兼容字段：base_url / api_key / model / temperature /
+    max_tokens / timeout_seconds / history_turns / tls。
     """
     llm = copy.deepcopy(value) if isinstance(value, dict) else {}
-    backend = str(llm.get("backend") or "custom").strip().lower() or "custom"
     requested_mode = str(llm.get("mode") or "").strip().lower()
     if requested_mode not in {"direct", "agent"}:
         requested_mode = "direct"  # 默认 direct
 
+    # ---- direct 段 ----
     direct = copy.deepcopy(llm.get("direct")) if isinstance(llm.get("direct"), dict) else {}
-    # 固定 provider 为 custom，protocol 为 openai_chat
     direct.setdefault("provider", "custom")
     direct.setdefault("protocol", "openai_chat")
     direct.setdefault("api_base", str(llm.get("api_base") or "").strip())
@@ -321,13 +326,11 @@ def _normalize_llm_contract(value: object) -> dict:
     direct.setdefault("api_key", str(llm.get("api_key") or "").strip())
     direct.setdefault("temperature", llm.get("temperature", 0.7))
     direct.setdefault("max_tokens", llm.get("max_tokens", 4096))
-    # model: 顶层 llm.model 有值时优先覆盖 direct.model
     llm_model = str(llm.get("model") or "").strip()
     if llm_model:
         direct["model"] = llm_model
     else:
         direct.setdefault("model", "")
-    # 512 是旧模板的默认值，容易截断正常回复；成对出现时视为旧默认迁移。
     try:
         direct_tokens = int(direct.get("max_tokens"))
         legacy_tokens = int(llm.get("max_tokens", 512))
@@ -337,30 +340,51 @@ def _normalize_llm_contract(value: object) -> dict:
         direct["max_tokens"] = 4096
         llm["max_tokens"] = 4096
 
+    # ---- agent 段（OpenAI 兼容） ----
     agent = copy.deepcopy(llm.get("agent")) if isinstance(llm.get("agent"), dict) else {}
-    kind = str(agent.get("kind") or "").strip().lower()
-    if kind not in {"hermes", "openclaw"}:
-        kind = "hermes"  # 默认 hermes
-    default_url = (
-        "ws://127.0.0.1:18789"
-        if kind == "openclaw"
-        else "http://127.0.0.1:8642"
-    )
-    agent["kind"] = kind
-    agent.setdefault(
-        "base_url",
-        str(llm.get("bridge_url") or default_url).strip() or default_url,
-    )
-    agent.setdefault("auth_token", "")
-    agent.setdefault("session_id", "")
-    agent.setdefault("session_key", "")
+
+    # base_url 解析优先级：llm.api_base > llm.host > agent.base_url > default
+    # 注意：旧配置中 agent.base_url 指向 Hermes Gateway（:8642）而非 LLM，
+    # 因此 llm 顶层地址必须优先，避免迁移后仍指向旧 Gateway 端口。
+    default_url = "https://api.openai.com/v1"
+    agent_base = str(llm.get("api_base") or "").strip()
+    if not agent_base:
+        agent_base = str(llm.get("host") or "").strip()
+    if not agent_base:
+        agent_base = str(agent.get("base_url") or "").strip()
+    if not agent_base:
+        agent_base = default_url
+    agent["base_url"] = agent_base
+
+    # api_key：agent.api_key > llm.api_key
+    agent.setdefault("api_key", str(llm.get("api_key") or "").strip())
+
+    # model：agent.model > llm.model > direct.model > fallback
+    agent_model = str(agent.get("model") or "").strip()
+    if not agent_model:
+        agent_model = llm_model or str(direct.get("model") or "").strip()
+    if not agent_model:
+        agent_model = "gpt-4o-mini"
+    agent["model"] = agent_model
+
+    # 通用参数
+    agent.setdefault("temperature", llm.get("temperature", 0.7))
+    agent.setdefault("max_tokens", llm.get("max_tokens", 4096))
+    agent.setdefault("timeout_seconds", 120.0)
     agent.setdefault("history_turns", 5)
-    agent.setdefault("allow_insecure_ws", False)
-    agent.setdefault("identity_path", "")
+
+    # TLS
     tls = copy.deepcopy(agent.get("tls")) if isinstance(agent.get("tls"), dict) else {}
     tls.setdefault("verify", True)
     tls.setdefault("ca_file", "")
     agent["tls"] = tls
+
+    # 清理旧字段（不再需要）
+    for legacy_key in (
+        "kind", "auth_token", "session_id", "session_key",
+        "allow_insecure_ws", "identity_path", "bridge_url",
+    ):
+        agent.pop(legacy_key, None)
 
     llm["mode"] = requested_mode
     llm["direct"] = direct
@@ -486,7 +510,6 @@ def normalize_config(config: dict) -> dict:
 
     # watcher 统一结构（interval 内嵌，不再用顶层 watcher_interval）
     w_in = cfg.get("watcher") if isinstance(cfg.get("watcher"), dict) else {}
-    # 兼容旧顶层 watcher_interval
     if "interval" not in w_in or not isinstance(w_in.get("interval"), dict):
         top_wi = cfg.get("watcher_interval") if isinstance(cfg.get("watcher_interval"), dict) else {}
         if top_wi:
@@ -496,7 +519,6 @@ def normalize_config(config: dict) -> dict:
                 "max_ms": int(top_wi.get("max_ms", DEFAULT_WATCHER_INTERVAL["max_ms"])),
             }
     w = normalize_watcher(w_in)
-    # normalize_watcher 已含 interval；强制安全底线
     w["require_confirm"] = True
     w["confirm_once_session"] = False
     watcher_out = copy.deepcopy(w_in)
@@ -552,7 +574,6 @@ def normalize_config(config: dict) -> dict:
     if "mode" in vision:
         vision_mode = normalize_vision_mode(vision.get("mode"))
     else:
-        # 旧 watcher 会独立调用视觉模型，因此只能忠实迁移为 relay。
         legacy_enabled = bool(
             vision.get("enabled", watcher_out.get("enabled", False))
         )
@@ -566,7 +587,6 @@ def normalize_config(config: dict) -> dict:
         watcher_out["enabled"] = False
     cfg["vision"] = vision
     cfg["watcher"] = watcher_out
-    # 保留旧 watcher_interval 和未知字段，避免规范化时删除用户配置。
     return cfg
 
 
@@ -585,7 +605,8 @@ def scrub_secrets(config: dict) -> dict:
             direct["api_key"] = ""
         agent = out["llm"].get("agent")
         if isinstance(agent, dict):
-            agent["auth_token"] = ""
+            agent["api_key"] = ""
+            agent["auth_token"] = ""  # 兼容旧字段
     if "tts" in out and isinstance(out["tts"], dict):
         out["tts"]["api_key"] = ""
         out["tts"]["translate_api_key"] = ""
@@ -622,4 +643,3 @@ def secret_status(config: dict) -> Dict[str, str]:
         "vision": src(vision.get("api_key", ""), vis_key, ENV_VISION_KEY),
         "llm_preview": mask_secret(llm_key) if llm_key else "",
     }
-
