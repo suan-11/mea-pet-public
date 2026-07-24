@@ -407,9 +407,14 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
         source = (ROOT / "meapet" / "tools" / "vits_infer.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("\nimport utils\n", source)
+        # External Python must run this script without the meapet package
+        # (frozen builds only extract tools/ as loose files under _internal).
+        self.assertIn("import commons", source)
+        self.assertIn("from models import SynthesizerTrn", source)
         self.assertNotIn("import meapet.utils as utils", source)
-        self.assertNotIn("from meapet.paths import project_root", source)
+        self.assertNotIn("from meapet.tts", source)
+        self.assertNotIn("\nimport meapet.", source)
+        self.assertNotIn("\nfrom meapet.", source)
 
     def test_default_voice_cache_is_project_relative(self):
         from meapet.tts.service import MeaTTS

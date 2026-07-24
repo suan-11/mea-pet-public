@@ -135,7 +135,9 @@ class TtsPageGsvMixin:
             "以后想加声音了，随时回来装就行。</p>"
             "<hr>"
             "<p>"
-            "模型文件已打包在项目里，不需要额外下载。</p>"
+            "GSV 模型权重可随项目分发；推理必须使用外部 GPT-SoVITS 整合包里的 "
+            "runtime\\python.exe（打包版 MeaPet.exe 不能当 Python 用）。"
+            "若只想开箱说话，请改用 VITS（进程内）或 MiMo 云端语音。</p>"
         )
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QHBoxLayout
         dialog = QDialog(self)

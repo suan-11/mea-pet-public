@@ -17,9 +17,9 @@ from meapet.log import get_color_logger
 
 log = get_color_logger("memory")
 
-from meapet.paths import project_path
+from meapet.paths import data_path
 
-DB_PATH = project_path("mea_memory.db")
+DB_PATH = data_path("mea_memory.db")
 SCHEMA_VERSION = 5  # v5: jieba 词级 embedding 替代 trigram hash
 VECTOR_DIM = 2048   # 词级 hash 空间更大减少碰撞
 MAX_MEMORIES = 2000 # 记忆总量软上限

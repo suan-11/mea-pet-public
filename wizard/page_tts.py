@@ -331,8 +331,12 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
 
         layout.addWidget(self.gsv_container)
 
-        packaged_hint = QLabel("语音模型已打包，开箱即用。")
+        packaged_hint = QLabel(
+            "打包版：VITS 可进程内合成（模型随包分发）；"
+            "GPT-SoVITS 仍需本机整合包 Python；也可用 MiMo 云端语音。"
+        )
         packaged_hint.setObjectName("HelperText")
+        packaged_hint.setWordWrap(True)
         layout.addWidget(packaged_hint)
 
         # 翻译只是目标语朗读或“不受 TTS 支持”时的显式兜底。

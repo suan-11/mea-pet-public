@@ -7,7 +7,19 @@ import shutil
 import sys
 from typing import List, Tuple
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+def _default_config_path() -> str:
+    try:
+        from meapet.config.store import config_path
+
+        return config_path("config.json")
+    except Exception:
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config.json",
+        )
+
+
+CONFIG_PATH = _default_config_path()
 PYTHON_CHECK_NAME = "Python 3.10+"
 
 

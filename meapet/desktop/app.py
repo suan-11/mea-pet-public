@@ -176,7 +176,8 @@ class MeaPet(
             log.warning(f"[init] 碰撞区域设置失败: {e}")
 
         try:
-            cache_dir = str(PROJECT_ROOT / "audio_cache")
+            from meapet.paths import data_path
+            cache_dir = data_path("audio_cache")
             stats = cleanup_audio_cache(cache_dir, max_files=40, max_age_hours=48.0)
             if stats.get("removed"):
                 log.info(
@@ -527,7 +528,7 @@ def main():
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    from meapet.paths import get_data_dir
+    from meapet.paths import get_data_dir, migrate_legacy_home_data
     boot_log = _Path(get_data_dir()) / "meapet_boot.log"
 
     try:
@@ -538,8 +539,14 @@ def main():
     except Exception:
         pass
 
+    try:
+        for note in migrate_legacy_home_data():
+            log.info(f"[boot] {note}")
+    except Exception as exc:
+        log.warning(f"[boot] legacy data migration skipped: {exc}")
+
     log.info(f"[boot] python={sys.version.split()[0]} exe={sys.executable}")
-    log.info(f"[boot] cwd={os.getcwd()} root={PROJECT_ROOT}")
+    log.info(f"[boot] cwd={os.getcwd()} root={PROJECT_ROOT} data={get_data_dir()}")
     log.info(f"[boot] FORCE_PNG={os.environ.get('MEAPET_FORCE_PNG', '')}")
 
     try:

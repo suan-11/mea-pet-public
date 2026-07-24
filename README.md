@@ -48,6 +48,33 @@ QT_QPA_PLATFORM=xcb python pet.py
 
 The configuration wizard can also be reopened from the pet's right-click menu ("Open Settings…") at any time. After saving, the new backend takes effect immediately; any in-flight generations from the old backend are cancelled.
 
+### Windows binary (PyInstaller onedir)
+
+Build from a venv that has app deps + PyInstaller (VITS needs `numpy<2` and `setuptools==69.5.1` if you ship local VITS):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+```
+
+Output: `dist/MeaPet/MeaPet.exe` + `dist/MeaPet/_internal/`.
+
+Portable layout (user-writable data lives under `_internal` with the bundle):
+
+| Path under `_internal` | Role |
+|------------------------|------|
+| `config.json` / `config.example.json` | User config (example is the template) |
+| `mea_memory.db` | SQLite memory / affection |
+| `audio_cache/`, `logs/` | Runtime cache and logs |
+| `sprites/`, `live2d/`, `vits_models/`, `vits_core/`, `dic/` | Bundled assets |
+
+Speech engines in the packaged build:
+
+- **VITS**: in-process (torch + `vits_core` inside the app). No external Python required when models are present.
+- **MiMo**: cloud TTS (API key).
+- **GPT-SoVITS**: still needs a separate GPT-SoVITS runtime `python.exe`; never point it at `MeaPet.exe`.
+
+Do not ship a developer `config.json` that contains API keys. Only `config.example.json` is packaged as a template. Do not commit `dist/` or `build/`.
+
 ## Reply Backends
 
 ### Direct Model API

@@ -11,7 +11,12 @@ from typing import Optional
 from meapet.config.normalizers import normalize_gsv_ref_language
 from meapet.paths import project_root
 from meapet.log import get_color_logger
-from meapet.tts.common import LANG_TTS, MOOD_TO_REF
+from meapet.tts.common import (
+    LANG_TTS,
+    MOOD_TO_REF,
+    hidden_subprocess_kwargs,
+    resolve_external_python,
+)
 
 log = get_color_logger("tts")
 
@@ -39,16 +44,16 @@ class TtsGsvMixin:
                     text_lang: str | None = None) -> Optional[tuple[str, str]]:
         """GPT-SoVITS backend inference.
 
-        In frozen mode (PyInstaller), ``self.python_exe`` may be empty or
-        point to the pet exe — skip subprocess calls to avoid spawning a
-        duplicate MeaPet instance.
+        Requires a real external Python runtime. Never launches MeaPet.exe.
         """
-        if not self.python_exe:
+        python_exe = resolve_external_python(getattr(self, "python_exe", None))
+        if not python_exe:
             log.warning(
-                "[frozen] No real Python interpreter for GSV inference. "
-                "Skipping local TTS; use MiMo cloud TTS instead."
+                "No real Python interpreter for GSV inference. "
+                "Skipping local GSV; use in-process VITS or MiMo cloud TTS."
             )
             return None, ""
+        self.python_exe = python_exe
         reference_language = _gsv_language_label(ref_lang)
         synthesis_language = _gsv_language_label(text_lang or ref_lang)
         # 获取参考音频
@@ -86,6 +91,7 @@ class TtsGsvMixin:
                 capture_output=True,
                 timeout=self.timeout,
                 cwd=project_root(),
+                **hidden_subprocess_kwargs(),
             )
             elapsed = time.time() - t1
             # 用 replace 忽略无法解码的字节（GPT-SoVITS 可能会输出 GBK 编码的中文日志）

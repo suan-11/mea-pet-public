@@ -47,9 +47,10 @@ def safe_print(*args, **kwargs):
 def log_error(context: str, message: str, log_dir: str = None):
     """仅在有错误时写入日志，避免无意义的磁盘 I/O；内容脱敏"""
     if log_dir is None:
-        from meapet.paths import project_root
-        log_dir = project_root()
+        from meapet.paths import get_data_dir
+        log_dir = get_data_dir()
     try:
+        os.makedirs(log_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(os.path.join(log_dir, "chat_errors.log"), "a", encoding="utf-8") as f:
             f.write(f"[{ts}] [{context}] {redact_text(str(message))}\n")

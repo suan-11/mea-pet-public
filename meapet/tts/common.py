@@ -1,4 +1,6 @@
 """TTS shared utilities and constants (used by tts.py and engine mixins)."""
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
@@ -9,7 +11,58 @@ log = get_color_logger("tts")
 
 def _is_frozen() -> bool:
     """Check if running in a PyInstaller-frozen environment."""
-    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    try:
+        from meapet.paths import is_frozen
+
+        return is_frozen()
+    except Exception:
+        return bool(getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"))
+
+
+def is_pet_executable(path: str | None) -> bool:
+    """True when *path* is the frozen MeaPet launcher (not a real Python)."""
+    if not path:
+        return False
+    try:
+        if not _is_frozen():
+            return False
+        return os.path.realpath(path) == os.path.realpath(sys.executable)
+    except Exception:
+        return False
+
+
+def resolve_external_python(path: str | None) -> str:
+    """Return *path* only when it is a real on-disk interpreter, else ``\"\"``."""
+    raw = (path or "").strip()
+    if not raw:
+        return ""
+    if is_pet_executable(raw):
+        return ""
+    if not os.path.isfile(raw):
+        return ""
+    return raw
+
+
+def hidden_subprocess_kwargs() -> dict:
+    """Kwargs so Windows console Python does not flash a black terminal window.
+
+    Prefer ``CREATE_NO_WINDOW`` (Win 3.7+). Also set STARTUPINFO as a belt-and-
+    suspenders for older hosts. No-op on non-Windows.
+    """
+    if os.name != "nt":
+        return {}
+    kwargs: dict = {}
+    create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if create_no_window:
+        kwargs["creationflags"] = create_no_window
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    except Exception:
+        pass
+    return kwargs
 
 
 _LFS_POINTER_HEADER = b"version https://git-lfs.github.com/spec/v1"

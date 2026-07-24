@@ -11,13 +11,10 @@ from pathlib import Path
 CONSOLE_LOG_LEVEL = "TRACK"   # 控制台默认级别 协议级调试仅在 CONSOLE_LOG_LEVEL = "TRACK" 时输出
 FILE_LOG_LEVEL = "DEBUG"     # 文件默认级别 设为 DEBUG 则 TRACK 不落盘
 
-# 日志路径：在 PyInstaller 打包模式下 __file__ 指向只读临时目录，
-# 因此使用 get_data_dir() 重定向到 ~/.meapet/logs/。
-if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-    from meapet.paths import get_data_dir as _get_data_dir
-    LOG_DIR = os.path.join(_get_data_dir(), "logs")
-else:
-    LOG_DIR = str(Path(__file__).resolve().parent.parent / "logs")
+# 日志路径：打包便携模式下与配置/缓存同在 get_data_dir()（_internal）。
+from meapet.paths import get_data_dir as _get_data_dir
+
+LOG_DIR = os.path.join(_get_data_dir(), "logs")
 LOG_KEEP_DAYS = 7            # 保留最近几天的日志文件
 # ====================================================
 

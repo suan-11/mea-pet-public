@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from meapet.paths import project_path
+from meapet.paths import data_path, project_path
 
 import os
 import sys
@@ -23,6 +23,9 @@ from meapet.tts.common import (
     auto_install_gsv_deps,
     is_git_lfs_pointer,
     is_model_artifact_ready,
+    is_pet_executable,
+    resolve_external_python,
+    _is_frozen,
 )
 from meapet.tts.common import _get_import_name as _get_import_name
 from meapet.tts.engines.gsv import TtsGsvMixin
@@ -48,11 +51,13 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.enabled = tts_cfg.get("enabled", True)
 
         # ═══ GPT-SoVITS runtime Python 路径 ═══
-        # 优先使用配置文件或环境变量；若均未设置，自动检测常见安装路径
-        self.python_exe = tts_cfg.get("python_exe", "") or \
-            os.environ.get("GSV_PYTHON", "")
+        # 优先使用配置文件或环境变量；若均未设置，自动检测常见安装路径。
+        # 打包版里 sys.executable 是 MeaPet.exe，绝不能当 Python 用。
+        self.python_exe = resolve_external_python(
+            tts_cfg.get("python_exe", "") or os.environ.get("GSV_PYTHON", "")
+        )
 
-        if not self.python_exe or not os.path.isfile(self.python_exe):
+        if not self.python_exe:
             # 自动检测常见安装路径（引导安装解压的 GPT-SoVITS 整合包）
             _home = os.path.expanduser("~")
             _candidates = [
@@ -62,9 +67,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 r"C:\Program Files\GPT-SoVITS\runtime\python.exe",
                 # 用户目录下的解压版
                 os.path.join(_home, "GPT-SoVITS-v2pro", "runtime", "python.exe"),
-                # 当前脚本的解释器（GUI 同进程）
-                sys.executable,
             ]
+            if not _is_frozen():
+                # 源码模式才允许回退到当前解释器
+                _candidates.append(sys.executable)
             # 扫描常见 conda 环境（setup_wizard 创建或手动安装的）
             for _conda_root in (_home, r"C:\ProgramData", r"C:\Users"):
                 for _maybe in (
@@ -74,30 +80,36 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                     os.path.join(_conda_root, "anaconda3", "python.exe"),
                 ):
                     _candidates.append(_maybe)
-            # 去重 + 按存在过滤
+            # 去重 + 按存在过滤；跳过 pet exe
             _seen = set()
             for _p in _candidates:
-                _rp = os.path.realpath(_p) if os.path.isfile(_p) else None
-                if _rp and _rp not in _seen:
-                    _seen.add(_rp)
-                    self.python_exe = _p
-                    log.info(f"Detected GPT-SoVITS: {_p}")
-                    break
+                if is_pet_executable(_p) or not os.path.isfile(_p):
+                    continue
+                _rp = os.path.realpath(_p)
+                if _rp in _seen:
+                    continue
+                _seen.add(_rp)
+                self.python_exe = _p
+                log.info(f"Detected GPT-SoVITS: {_p}")
+                break
             if not self.python_exe:
-                if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-                    self.python_exe = ""
+                if _is_frozen():
                     log.warning(
                         "[frozen] No real Python found for GSV inference. "
-                        "Local TTS subprocess calls will be skipped."
+                        "Use in-process VITS or MiMo cloud TTS, or configure "
+                        "an external GPT-SoVITS runtime Python."
                     )
                 else:
-                    self.python_exe = sys.executable
-                    log.warning(f"No GPT-SoVITS found, falling back to: {self.python_exe}")
+                    self.python_exe = resolve_external_python(sys.executable)
+                    if self.python_exe:
+                        log.warning(
+                            f"No GPT-SoVITS found, falling back to: {self.python_exe}"
+                        )
 
-        # 验证 python_exe 是否存在
-        if not os.path.isfile(self.python_exe):
-            log.warning(f"python_exe 不存在: {self.python_exe}")
-            self.python_exe = sys.executable
+        # 最终再校验：绝不能保留 pet exe
+        self.python_exe = resolve_external_python(self.python_exe)
+        if not self.python_exe:
+            log.warning("python_exe unset or invalid for local GSV subprocess TTS")
 
         # 推理脚本路径
         from meapet.paths import project_root
@@ -164,11 +176,11 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.speed = tts_cfg.get("speed", 1.0)
         self.sample_steps = tts_cfg.get("sample_steps", 8)
 
-        # 输出目录
-        self.output_dir = tts_cfg.get(
-            "output_dir",
-            project_path("audio_cache")
-        )
+        # 输出目录（可写缓存，便携打包落在 _internal）
+        raw_output = tts_cfg.get("output_dir") or data_path("audio_cache")
+        if not os.path.isabs(raw_output):
+            raw_output = os.path.normpath(os.path.join(base_dir, raw_output))
+        self.output_dir = raw_output
         os.makedirs(self.output_dir, exist_ok=True)
 
         # 子进程超时（秒）
@@ -220,7 +232,18 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.engine = engine
         self._vits_mode = engine == "vits" or tts_cfg.get("vits_mode", False)
         self._mimo_mode = engine == "mimo"
-        self._vits_python = tts_cfg.get("vits_python", "") or self.python_exe
+        # 外部 VITS Python 优先：向导里配置的 vits_python / 可用解释器。
+        # 只有在没有外部解释器时，打包版才默认走进程内 torch。
+        configured_vits_python = resolve_external_python(
+            tts_cfg.get("vits_python", "")
+        )
+        if "vits_inprocess" in tts_cfg:
+            self._vits_inprocess = bool(tts_cfg.get("vits_inprocess"))
+        else:
+            self._vits_inprocess = bool(_is_frozen() and not configured_vits_python)
+        self._vits_python = configured_vits_python or (
+            "" if self._vits_inprocess else self.python_exe
+        )
         self.voice_lang = (tts_cfg.get("voice_lang") or "jp")
 
         # MiMo 云端 TTS（与对话共用 Key / api_base，也可单独覆盖）
@@ -298,22 +321,45 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             return self._deps_ready
 
         if self._vits_mode:
-            checks = {
-                "python": os.path.isfile(self._vits_python),
-                "script": os.path.isfile(
-                    project_path("meapet", "tools", "vits_infer.py")
-                ),
-                "model": is_model_artifact_ready(
-                    project_path("vits_models", "G_latest.pth")
-                ),
-                "config": os.path.isfile(
-                    project_path("vits_models", "finetune_speaker.json")
-                ),
-            }
-            self._deps_ready = all(checks.values())
+            model_ok = is_model_artifact_ready(
+                project_path("vits_models", "G_latest.pth")
+            )
+            config_ok = os.path.isfile(
+                project_path("vits_models", "finetune_speaker.json")
+            )
+            core_ok = os.path.isdir(project_path("vits_core"))
+            script_ok = os.path.isfile(
+                project_path("meapet", "tools", "vits_infer.py")
+            )
+            external_py = resolve_external_python(self._vits_python)
+            # 外部 Python 可用时优先按子进程路径验收；否则验收进程内资源。
+            prefer_subprocess = bool(external_py) and (
+                not self._vits_inprocess or bool(external_py)
+            )
+            if prefer_subprocess and external_py:
+                checks = {
+                    "mode": "subprocess",
+                    "python": True,
+                    "script": script_ok,
+                    "model": model_ok,
+                    "config": config_ok,
+                }
+                # 子进程脚本缺失时仍可回退进程内
+                self._deps_ready = model_ok and config_ok and (script_ok or core_ok)
+            else:
+                checks = {
+                    "mode": "inprocess",
+                    "core": core_ok,
+                    "model": model_ok,
+                    "config": config_ok,
+                }
+                self._deps_ready = all(
+                    [core_ok, model_ok, config_ok]
+                )
             log.info(
                 "Health (vits): "
                 + " ".join(f"{name}={ok}" for name, ok in checks.items())
+                + (f" python={os.path.basename(external_py)}" if external_py else "")
             )
             return self._deps_ready
 

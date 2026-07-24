@@ -31,29 +31,54 @@ class TtsPageVitsMixin:
         if dir_path:
             input_field.setText(dir_path)
 
+    def _is_pet_exe(self, py_exe: str) -> bool:
+        """判断是否为打包版 MeaPet.exe（非真正 Python 解释器）。"""
+        try:
+            from meapet.tts.common import is_pet_executable
+
+            return is_pet_executable(py_exe)
+        except Exception:
+            if not (getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")):
+                return False
+            try:
+                return os.path.realpath(py_exe) == os.path.realpath(sys.executable)
+            except Exception:
+                return False
+
+    @staticmethod
+    def _path_is_pet_exe(py_exe: str) -> bool:
+        """Static-safe pet-exe check (works when mixin methods are unbound)."""
+        try:
+            from meapet.tts.common import is_pet_executable
+
+            return is_pet_executable(py_exe)
+        except Exception:
+            if not (getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")):
+                return False
+            try:
+                return os.path.realpath(py_exe) == os.path.realpath(sys.executable)
+            except Exception:
+                return False
+
     def _check_vits(self):
         """检查 VITS 模型是否就绪"""
-        base = os.path.dirname(CONFIG_PATH)
-        model_path = os.path.join(base, "vits_models", "G_latest.pth")
-        config_path = os.path.join(base, "vits_models", "finetune_speaker.json")
+        from meapet.paths import project_path
+
+        model_path = project_path("vits_models", "G_latest.pth")
+        config_path = project_path("vits_models", "finetune_speaker.json")
         if os.path.exists(model_path) and os.path.exists(config_path):
             model_size = os.path.getsize(model_path) / 1e6
-            set_status(self.vits_status, "success", f"VITS 模型就绪（{model_size:.0f} MB）")
+            set_status(
+                self.vits_status,
+                "success",
+                f"VITS 模型就绪（{model_size:.0f} MB；打包版默认进程内合成）",
+            )
         else:
             set_status(
                 self.vits_status,
                 "error",
                 "VITS 模型文件缺失（不会自动下载，请手动放置或点下方安装）",
             )
-
-    def _is_pet_exe(self, py_exe: str) -> bool:
-        """判断是否为打包版 MeaPet.exe（非真正 Python 解释器）。"""
-        if not (getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")):
-            return False
-        try:
-            return os.path.realpath(py_exe) == os.path.realpath(sys.executable)
-        except Exception:
-            return False
 
     def _setup_vits_env(self):
         """On explicit user click, detect / create the VITS Python environment.
@@ -88,7 +113,7 @@ class TtsPageVitsMixin:
         def _check_torch(py_exe: str) -> tuple[bool, str]:
             """检查指定 Python 能否 import torch，返回 (成功, 版本或错误信息)"""
             # 打包版中 sys.executable 是 MeaPet.exe，不能当 Python 用
-            if self._is_pet_exe(py_exe):
+            if TtsPageVitsMixin._path_is_pet_exe(py_exe):
                 return False, "frozen"
             try:
                 r = subprocess.run(
@@ -152,7 +177,7 @@ class TtsPageVitsMixin:
 
             冻结模式且 py_exe 是 pet exe 时直接返回失败，避免启动重复进程。
             """
-            if self._is_pet_exe(py_exe):
+            if TtsPageVitsMixin._path_is_pet_exe(py_exe):
                 return 1
             _pip_env = _clean_env.copy()
             _pip_env["PYTHONUNBUFFERED"] = "1"  # 关掉子进程缓冲，每行实时可见
@@ -285,7 +310,7 @@ class TtsPageVitsMixin:
             try:
                 # 创建 venv（冻结模式用 PATH 上的系统 Python 代替 pet exe）
                 _master_py = _sys.executable
-                if self._is_pet_exe(_master_py):
+                if TtsPageVitsMixin._path_is_pet_exe(_master_py):
                     import shutil as _shutil
                     _master_py = (
                         _shutil.which("python")
@@ -326,7 +351,7 @@ class TtsPageVitsMixin:
 
         打包版中 pet exe 不是真正 Python，跳过子进程检查。
         """
-        if self._is_pet_exe(py_exe):
+        if TtsPageVitsMixin._path_is_pet_exe(py_exe):
             log("  ⚠ 打包版中无法检查 VITS 依赖（pet exe 不是 Python 解释器）")
             return
         import subprocess, threading
