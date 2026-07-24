@@ -156,11 +156,12 @@ class MeaMemory:
             pass
         self._lock = threading.RLock()
         self._emb_cache: Dict[int, List[Tuple[int, float]]] = {}
+        # 启动时不预热全量 embedding，避免 MeaPet.__init__ 在 app.exec_ 前
+        # 同步扫表导致首帧“未响应”。首次检索/维护时再加载。
+        self._emb_cache_loaded = False
         self._init_tables()
         self._migrate_schema()
         self._ensure_defaults()
-        self._load_emb_cache()
-        log.debug(f"[DB] 嵌入缓存已加载 ({len(self._emb_cache)} 条)")
 
     # ── 私有：加锁执行 ──
     def _write(self, func, *args, **kwargs):
@@ -168,8 +169,19 @@ class MeaMemory:
             return func(*args, **kwargs)
 
     # ── 嵌入缓存 ──
+    def _ensure_emb_cache(self) -> None:
+        """惰性加载 embedding 缓存（幂等，可在锁内外调用）。"""
+        if self._emb_cache_loaded:
+            return
+        with self._lock:
+            if self._emb_cache_loaded:
+                return
+            count = self._load_emb_cache()
+            self._emb_cache_loaded = True
+            log.debug(f"[DB] 嵌入缓存已加载 ({count} 条)")
+
     def _load_emb_cache(self):
-        """从数据库加载全部 embedding 到内存缓存。"""
+        """从数据库加载全部 embedding 到内存缓存。调用方需持锁或接受竞态窗口。"""
         with self._lock:
             c = self.conn.cursor()
             c.execute("SELECT id, embedding FROM memories")
@@ -951,6 +963,7 @@ class MeaMemory:
         tags: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         t0 = time.perf_counter()
+        self._ensure_emb_cache()
         query_emb = _compute_embedding(query)
         conditions = []
         params = []
@@ -1078,6 +1091,7 @@ class MeaMemory:
         t0 = time.perf_counter()
         now = time.time()
         log.debug("[LIFY] 开始生命周期维护")
+        self._ensure_emb_cache()
 
         # 1. 重要性衰减（幂等：用 last_decay 做衰减检查点，避免重复衰减）
         decay_count = 0
@@ -1571,5 +1585,6 @@ class MeaMemory:
             c.execute("DELETE FROM conversation_turns")
             self.conn.commit()
             self._emb_cache.clear()
+            self._emb_cache_loaded = True
         self._ensure_defaults()
         log.debug("[DB] 所有数据已重置，缓存已清空")

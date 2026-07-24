@@ -425,14 +425,34 @@ class CompanionMcpRuntime:
         self._server = uvicorn.Server(uvicorn_config)
         await self._server.serve()
 
-    def stop(self, timeout_seconds: float = 5.0) -> None:
+    def stop(self, timeout_seconds: float = 0.0) -> None:
+        """Request MCP server shutdown.
+
+        Default is non-blocking so Qt GUI callers (config apply / quit /
+        token rotate) never stall the event loop on ``Future.result``.
+        Pass ``timeout_seconds > 0`` only from non-GUI threads that must join.
+        """
         if self._server is not None:
             self._server.should_exit = True
         future = self._future
-        if future is not None:
-            try:
-                future.result(timeout=max(0.0, float(timeout_seconds)))
-            except Exception:
-                pass
+        # Drop references first so ``running`` becomes False immediately and
+        # a subsequent start() can schedule a new serve task.
         self._future = None
         self._server = None
+        if future is None:
+            return
+        try:
+            timeout = max(0.0, float(timeout_seconds))
+        except (TypeError, ValueError):
+            timeout = 0.0
+        if timeout <= 0.0:
+            # Fire-and-forget: cancel if still pending; do not block the caller.
+            try:
+                future.cancel()
+            except Exception:
+                pass
+            return
+        try:
+            future.result(timeout=timeout)
+        except Exception:
+            pass

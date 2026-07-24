@@ -37,13 +37,21 @@ class PetConfigBridgeMixin:
             log.error(f"[config] 保存失败: {e}")
 
     def _apply_runtime_config(self, config: dict) -> bool:
-        """在主线程原子切换活动后端；失败时不自动回退另一后端。"""
+        """在主线程切换活动后端；失败时不自动回退另一后端。
+
+        停止旧 worker / MCP / watcher 时只做 cancel / should_exit，
+        不在 GUI 线程 ``Future.result`` / ``QThread.wait``，避免配置保存
+        路径把窗口卡成“未响应”。
+        """
         worker = getattr(self, "_chat_worker", None)
         if worker is not None:
             try:
-                worker.terminate()
-                worker.wait(1000)
-                worker.deleteLater()
+                terminate = getattr(worker, "terminate", None)
+                if callable(terminate):
+                    terminate()
+                delete_later = getattr(worker, "deleteLater", None)
+                if callable(delete_later):
+                    delete_later()
             except Exception:
                 pass
         self._chat_worker = None
@@ -113,7 +121,13 @@ class PetConfigBridgeMixin:
             except Exception:
                 pass
         try:
-            self._watcher.stop()
+            # 默认非阻塞：只置停止标志，不 join QThread。
+            self._watcher.stop(timeout_ms=0)
+        except TypeError:
+            try:
+                self._watcher.stop()
+            except Exception:
+                pass
         except Exception:
             pass
 
