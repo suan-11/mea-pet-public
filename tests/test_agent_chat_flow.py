@@ -117,7 +117,7 @@ class TestAgentImageAttachment(unittest.TestCase):
 
     def test_hermes_sends_images_as_openai_content_parts(self):
         from meapet.agent.base import AgentTurnRequest, ImageAttachment
-        from meapet.agent.hermes import HermesAdapter, HermesConfig
+        
 
         adapter = HermesAdapter(
             HermesConfig(base_url="http://127.0.0.1:8642")
@@ -193,7 +193,7 @@ class TestAgentFactory(unittest.TestCase):
 
     def test_factory_builds_official_openclaw_gateway_adapter(self):
         from meapet.agent.factory import create_agent_adapter_from_config
-        from meapet.agent.openclaw import OpenClawAdapter
+        
         from meapet.config.store import normalize_config
 
         config = normalize_config(
