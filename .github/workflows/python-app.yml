@@ -33,26 +33,25 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install system dependencies (PyQt5 / OpenGL)
-    - name: Install system dependencies (PyQt5 / OpenGL)
-        run: |
-          # 1. 清理本地 apt 缓存（解决缓存损坏导致的 exit code 100）
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
+      run: |
+        # 1. 清理本地 apt 缓存（解决缓存损坏导致的 exit code 100）
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/*
           
-          # 2. 恢复官方源（如果之前用 sed 改过，这里重新覆盖为官方源）
-          sudo bash -c 'cat > /etc/apt/sources.list <<EOF
+        # 2. 恢复官方源（如果之前用 sed 改过，这里重新覆盖为官方源）
+        sudo bash -c 'cat > /etc/apt/sources.list <<EOF
 deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-updates main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-backports main restricted universe multiverse
 deb http://security.ubuntu.com/ubuntu $(lsb_release -cs)-security main restricted universe multiverse
 EOF'
           
-          # 3. 更新源并安装依赖
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgl1 \
-            mesa-common-dev \
-            libosmesa6-dev \
+        # 3. 更新源并安装依赖
+        sudo apt-get update
+        sudo apt-get install -y \
+           libgl1 \
+           mesa-common-dev \
+           libosmesa6-dev \
             freeglut3-dev \
             libglu1-mesa-dev \
             libxkbcommon-x11-0 \
