@@ -68,7 +68,7 @@ jobs:
       timeout-minutes: 10
       run: |
         pip install --upgrade pip setuptools wheel
-        pip install -e ".[linux]"
+        pip install -e ".[linux]" pytest pytest-cov
 
     - name: Install ruff
       run: |
