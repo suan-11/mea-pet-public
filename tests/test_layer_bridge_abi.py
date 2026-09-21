@@ -51,9 +51,13 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # 方案自 2026-09-21 起住在 Athena 状态根，不在仓库里（本文件把它当**机器输入**解析，
 # 因为 I2 规定 §7.1 那张表是导出集合的唯一真值——见下方 `_spec_7_1_rows` 的 docstring）。
-# 失效模式：状态根不存在（干净 clone / 未采纳 Athena 的机器）⇒ 这里 FileNotFoundError **响亮报错**，
-# 故意不写 skip：一道查不出东西的门禁比没有门禁更危险（它生产"已通过"）。
-# 该后果已登记为发布门槛（clean clone 跑不了本文件），不是本文件的缺陷。
+# 状态根缺席**分两种，处理相反**（判据见 `_require_machine_inputs`）：
+#   * CI runner（干净、无状态根）＝**预期缺席**，与"产物不在 CI 构建"同型 ⇒ skip 并留明文因由，
+#     不把已知环境限制误报成代码 bug；
+#   * 本地机器缺状态根（把方案挪走 / 未采纳 Athena）＝**真·环境不足** ⇒ 响亮报错，故意不 skip，
+#     因为一道查不出东西的门禁比没有门禁更危险（它生产"已通过"）。
+# 权威一致性判据（§7.1↔构建脚本↔产物）因此始终在**本地 Athena 机器**上强制，而非靠把方案塞进
+# 仓库造出第二处真值（I2 禁此，agents-rules §7）。
 SPEC_MD = Path.home() / ".Athena" / "projects" / "meapet" / "working" / "rust-layer-shell-bridge.md"
 BUILD_SH = REPO_ROOT / "build_layer_shell.sh"
 SHIM_PY = REPO_ROOT / "meapet" / "desktop" / "wayland_layer.py"
@@ -69,26 +73,51 @@ STICKY_MAX_BYTES = 255
 _WAYLAND_VARS = ("WAYLAND_DISPLAY", "WAYLAND_SOCKET")
 
 
+def _running_on_ci() -> bool:
+    """是否在 CI runner 上（其状态根缺席属**按设计**，见文件顶部注释）。
+
+    判据取 CI 平台通配的 `CI` / `GITHUB_ACTIONS`。显式置 `false`/`0`/空的值不算，
+    否则某台把 CI=false 写进 shell rc 的本地机会被误判成 CI 而静默 skip——那正是本判据
+    最该防的"查不出东西的门禁"。
+    """
+    for var in ("GITHUB_ACTIONS", "CI"):
+        value = os.environ.get(var, "").strip().lower()
+        if value and value not in ("false", "0"):
+            return True
+    return False
+
+
 def _require_machine_inputs() -> None:
-    """把"方案已移出仓库"从一屏 collection traceback 收敛成**一行可执行的 Error**。
+    """把"方案已移出仓库"从一屏 collection traceback 收敛成一条**明确的判决**。
 
     agents-rules §1 三问：
-      * 收益 = 干净 clone / 未采纳 Athena 的机器上跑本文件，得到的是"缺哪个文件、去哪儿取"
-        的明文，而不是 collection 阶段一屏 FileNotFoundError（同一后果，可读性差、易被误当成代码 bug）。
-      * 会崩的条件 = 状态根里的方案 §7.1 表或构建脚本不在场 ⇒ 下面判据直接把本文件判失败。
-      * 兜底 = **故意不写 skip**（skip 会把响亮失败变成静默通过，见文件顶部注释与 pending 登记）。
-        这里只把"响亮"做得更准：抛一个带绝对路径与恢复动作的 Error，仍然让该文件判失败。
+      * 收益 = 缺输入时得到"缺哪个文件、为什么、去哪儿取"的明文，而非 collection 阶段
+        一屏 FileNotFoundError（易被误当代码 bug）。
+      * 会崩的条件 = 状态根里的方案 §7.1 表或构建脚本不在场。
+      * 兜底 = **按缺席性质分两路**：CI runner（预期无状态根）⇒ skip 并留因，判据推迟到本地；
+        本地机器缺状态根（方案被挪走 / 未采纳 Athena）⇒ 抛带绝对路径与恢复动作的 RuntimeError，
+        故意不 skip（skip 会把响亮失败变成静默通过）。两条都不会"无声通过"。
     """
     missing = [p for p in (SPEC_MD, BUILD_SH) if not p.exists()]
-    if missing:
-        lines = "\n".join(f"    - {p}" for p in missing)
-        raise RuntimeError(
-            "test_layer_bridge_abi 需要 Athena 状态根里的**方案**与**构建脚本**当机器输入"
-            "（I2：§7.1 符号表是导出集合的唯一真值）。以下输入本机不存在 ⇒ 环境不足：\n"
-            f"{lines}\n"
-            f"恢复：`athena --project meapet context` 确认本项目已采纳 Athena；"
-            f"方案应位于 {SPEC_MD}。"
+    if not missing:
+        return
+    lines = "\n".join(f"    - {p}" for p in missing)
+    prefix = (
+        "test_layer_bridge_abi 的 §7.1↔构建脚本一致性判据需要 Athena 状态根里的**方案**当机器输入"
+        "（I2：§7.1 符号表是导出集合的唯一真值，不随 clone 分发）。缺失输入：\n"
+        f"{lines}\n"
+    )
+    if _running_on_ci():
+        pytest.skip(
+            prefix
+            + "本机是 CI runner ⇒ 状态根缺席属预期，判据推迟到本地 Athena 机器执行"
+            "（与'产物不在 CI 构建'同型的 skip，非静默通过：跳过原因已随本行打印）。"
         )
+    raise RuntimeError(
+        prefix
+        + "本机非 CI 却缺此输入 ⇒ 真·环境不足（把方案挪走 / 未采纳 Athena，不是代码 bug）。\n"
+        f"恢复：`athena --project meapet context` 确认本项目已采纳 Athena；方案应位于 {SPEC_MD}。"
+    )
 
 
 # --------------------------------------------------------------------------
