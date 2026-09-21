@@ -552,9 +552,25 @@ class PetRenderHostMixin:
         if widget is None:
             raise RuntimeError("Live2D widget not created")
         self._live2d_startup_widget = widget
-        self._ensure_live2d_startup_timer().start(
-            LIVE2D_STARTUP_TIMEOUT_MS
-        )
+        # 超时预算从「事件循环真正开始转」起算，而不是从这里起算（agents-rules §2 终局推演）。
+        #   * 为什么要推迟起表 = QTimer 只能在循环里派发。构造 MeaPet 的同步初始化
+        #     （chat/tts/watcher/DB…）实测可耗时 >LIVE2D_STARTUP_TIMEOUT_MS，于是定时器
+        #     在循环启动的那一刻**就已过期**，第一次迭代即触发 → 控件还没来得及画首帧
+        #     就被判"加载失败"。后果是**响亮但错误**的降级：本机 L3 实测冷启动一次
+        #     复现（初始化 9 s > 5 s ⇒ 回退 PNG），热启动两次都正常 ⇒ 间歇性。
+        #   * 什么条件下它会崩 = 首帧永不到来且 `initialization_failed` 也不发
+        #     （OpenGL 挂死在 paint 内部、把循环本身堵死）⇒ 定时器同样无法触发，
+        #     与改动前**完全一致**（旧写法在这种情况下也同样测不到），不是新增盲区。
+        #   * 兜底 = `singleShot(0)` 是投递给循环的第一个事件，因此 5 s 预算只可能被
+        #     **渲染**耗掉、不可能被初始化耗掉；起表前先看 `_l2d_pending`，
+        #     若首帧/取消已在此之前发生就不起表（避免把已取消的定时器重新点着）。
+        QTimer.singleShot(0, self._arm_live2d_startup_timeout)
+
+    def _arm_live2d_startup_timeout(self) -> None:
+        """事件循环启动后才开始计首帧预算；已不再等待则不起表。"""
+        if not getattr(self, "_l2d_pending", False):
+            return
+        self._ensure_live2d_startup_timer().start(LIVE2D_STARTUP_TIMEOUT_MS)
 
     def _ensure_live2d_startup_timer(self) -> QTimer:
         timer = getattr(self, "_live2d_startup_timer", None)
@@ -685,19 +701,6 @@ class PetRenderHostMixin:
         backend = get_backend()
         self._layer_backend = backend          # ← 只赋值，不创建
 
-        self._layer_timer = QTimer(self)
-        self._layer_timer.setInterval(33)
-        self._layer_timer.timeout.connect(self._push_layer_frame)
-
-        self._layer_panel = LayerDebugPanel(self._set_layer_mode)
-        self._position_layer_panel()
-        self._layer_panel.show()
-
-        self._set_layer_mode(True)             # ← 由它统一创建
-
-
-        self._layer_backend = backend
-
         # 推帧定时器：穿透模式下把离屏渲染结果送到 layer surface
         self._layer_timer = QTimer(self)
         self._layer_timer.setInterval(33)  # ~30fps
@@ -708,7 +711,26 @@ class PetRenderHostMixin:
         self._position_layer_panel()
         self._layer_panel.show()
 
-        self._set_layer_mode(True)
+        self._set_layer_mode(True)             # ← 由它统一创建
+        # 本函数体此前被整段复制过一遍（原 699-711 行），于是 _set_layer_mode(True)
+        # 会调两次 backend.enable()。失效模式与兜底（agents-rules §1 三条）：
+        #   * 会崩的条件 = 任何第二次 enable()：wayland_layer.py 的 enable() 直接
+        #     覆盖 self._ctx 而不销毁旧 ctx，旧 ctx 连同它的 RING_DEPTH 个 memfd
+        #     和一个已 map 的 OVERLAY surface 一起变成孤儿；两个 QTimer 也会各自
+        #     以 33ms 推帧（等于双倍提交——`QTimer(self)` 的父对象是本窗口，引用被
+        #     覆盖不会销毁它，记录 1H 的 L1 探针实测两个定时器都 active）。
+        #     面板**不**双份：`LayerDebugPanel` 是无父 QWidget，引用覆盖后旧实例
+        #     随之回收 —— 老代码的可见后果是双 ctx 与双推帧，不是两只开关窗口。
+        #   * 为什么不能靠 disable() 兜底 = disable() 有 `if self._ctx:` 守卫，
+        #     destroy_context() 之后 _ctx 已是 None，整块（含 layer_shell_cleanup）
+        #     被跳过，门面层没有任何可达路径回收孤儿。
+        #   * 实测 = 2026-09-20 L3：修复前 `niri msg -j layers` 稳定 2 只 meapet、
+        #     /proc/<pid>/fd 里 memfd:meapet-px 恒为 6（2 ctx × RING_DEPTH）；
+        #     门面级复现 enable×2 → destroy → disable 仍是 1 只 surface / 3 个 fd，
+        #     只有直接 layer_shell_cleanup() 才归零。桥接层行为符合 spec §4.7 第 12 行
+        #     （destroy 只释放点名的注册表槽位）＋第 9 行（cleanup 连坐全部存活 ctx），
+        #     所以这里修调用方，不改桥。
+        # 本函数只允许一次 enable：由上面这条 `_set_layer_mode(True)` 单点负责。
 
     def _position_layer_panel(self) -> None:
         """把开关窗口贴到屏幕左下角。"""

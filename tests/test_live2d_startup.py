@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -366,6 +367,138 @@ class PNGStartupTests(unittest.TestCase):
 
         self.assertIn("when_renderer_ready", source)
         self.assertNotIn("QTimer.singleShot(200, _ensure_visible)", source)
+
+
+class Live2DStartupBudgetTests(unittest.TestCase):
+    """首帧超时的**起表时刻**：预算只能被渲染耗掉，不能被初始化耗掉。
+
+    回归的事故（本机 L3 冷启动复现）：定时器原先在 `_start_live2d_renderer` 里
+    同步 `start(5000)`，而 MeaPet 的同步初始化实测可耗时 9 s > 5 s，于是定时器在
+    `app.exec_()` 启动的那一刻就已过期、第一次迭代即触发 ⇒ 控件还没画首帧就被判
+    "Live2D 加载失败，已切回 PNG"。热启动不触发 ⇒ 间歇性。
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        self._hosts = []
+
+    def tearDown(self) -> None:
+        for host in self._hosts:
+            for timer in host.findChildren(QTimer):
+                timer.stop()
+            host.close()
+            host.deleteLater()
+        QApplication.processEvents()
+
+    def _host(self, model_dir: str) -> _RenderHost:
+        host = _RenderHost(model_dir)
+        self._hosts.append(host)
+        return host
+
+    def _start_with_stub_widget(self, host: _RenderHost):
+        """跑真实的 `_start_live2d_renderer`，只把 OpenGL 控件换成普通 QWidget。"""
+
+        def fake_init_live2d() -> None:
+            host.sprite_label = QWidget(host)
+
+        patcher_widget = mock.patch("meapet.desktop.live2d_widget.init_live2d")
+        patcher_model = mock.patch.object(host, "_init_live2d", side_effect=fake_init_live2d)
+        patcher_widget.start()
+        patcher_model.start()
+        self.addCleanup(lambda: (patcher_widget.stop(), patcher_model.stop()))
+        host._start_live2d_renderer()
+
+    @staticmethod
+    def _pump(times: int = 5) -> None:
+        for _ in range(times):
+            QApplication.processEvents()
+
+    def test_budget_is_not_armed_before_the_event_loop_gets_a_turn(self) -> None:
+        """起表前（循环还没转）定时器**不存在**；派发一次后才带着完整预算活着。"""
+        from meapet.desktop.render_host import LIVE2D_STARTUP_TIMEOUT_MS
+
+        host = self._host("")
+        self._start_with_stub_widget(host)
+
+        # 判据的正面：同步阶段连计时器都没构造 ⇒ 它不可能已经开始计数。
+        # 旧写法在这里就已经 isActive() 为真，本断言当场会红。
+        self.assertIsNone(getattr(host, "_live2d_startup_timer", None))
+
+        self._pump()
+
+        timer = getattr(host, "_live2d_startup_timer", None)
+        self.assertIsNotNone(timer, "事件循环启动后应完成起表，否则超时门禁形同虚设")
+        self.assertTrue(timer.isActive())
+        self.assertEqual(timer.interval(), LIVE2D_STARTUP_TIMEOUT_MS)
+        self.assertTrue(timer.isSingleShot())
+
+    def test_budget_is_not_armed_if_live2d_stopped_waiting_first(self) -> None:
+        """首帧/取消抢先发生 ⇒ 延迟起表不得把已作废的定时器重新点着。"""
+        host = self._host("")
+        self._start_with_stub_widget(host)
+        host._l2d_pending = False  # 模拟在 singleShot 派发之前首帧已就绪
+
+        self._pump()
+
+        self.assertIsNone(getattr(host, "_live2d_startup_timer", None))
+
+    def test_gate_still_falls_back_when_the_first_frame_never_arrives(self) -> None:
+        """反向对照：把预算压到 0 后，门禁**确实**触发回退——它不是永不响的空门。"""
+        host = self._host("")
+        with mock.patch("meapet.desktop.render_host.LIVE2D_STARTUP_TIMEOUT_MS", 0):
+            self._start_with_stub_widget(host)
+            with mock.patch.object(host, "_fallback_to_png") as fallback:
+                self._pump()
+
+        fallback.assert_called_once_with("等待 Live2D 首帧超时")
+
+    def test_slow_synchronous_init_does_not_consume_the_budget(self) -> None:
+        """冷启动的复现形态：循环外的同步耗时**吃掉不了**这份预算。
+
+        本机 L3 实测冷启动为"MeaPet 构造 9 s ＋ 预算 5 s"，热启动为"1–2 s"；
+        这里把两者压缩成"睡眠 2.5 × 预算"，判据用 `remainingTime()` 而不是"有没有回退"，
+        因为它不依赖派发用了多少毫秒（agents-rules §8：判决用的量须与所关心的属性单调相关）。
+        """
+        budget_ms = 100
+        host = self._host("")
+        with mock.patch("meapet.desktop.render_host.LIVE2D_STARTUP_TIMEOUT_MS", budget_ms):
+            with mock.patch.object(host, "_fallback_to_png") as fallback:
+                self._start_with_stub_widget(host)
+                time.sleep(budget_ms * 2.5 / 1000.0)  # 同步初始化，事件循环还没转
+                QApplication.processEvents()          # 只派发一次：让延迟起表落地
+
+                timer = host._live2d_startup_timer
+                self.assertTrue(timer.isActive())
+                self.assertGreaterEqual(
+                    timer.remainingTime(),
+                    budget_ms // 2,
+                    "起表时刻就已过期 ⇒ 预算被循环外的同步耗时吃掉了",
+                )
+                fallback.assert_not_called()
+
+    def test_control_pre_loop_arming_loses_the_budget(self) -> None:
+        """对照：**人为复现旧时序**（循环之前就起表）⇒ 预算确实被同步耗时吃掉并触发回退。
+
+        这条不测被测函数的当前形态，而是测本用例集赖以成立的机制：
+        QTimer 在循环停摆期间照样按挂钟过期。没有它，上一条可能只是"永远不会触发"的假绿。
+        不经过 `_start_live2d_renderer`，因此不会有延迟起表的 `singleShot` 混进来——时序确定。
+        """
+        budget_ms = 100
+        host = self._host("")
+        host._use_live2d = True
+        host._l2d_pending = True
+        host.sprite_label = QWidget(host)
+        host._live2d_startup_widget = host.sprite_label
+        host._ensure_live2d_startup_timer().start(budget_ms)
+
+        time.sleep(budget_ms * 2.5 / 1000.0)
+        with mock.patch.object(host, "_fallback_to_png") as fallback:
+            self._pump()
+
+        fallback.assert_called_once_with("等待 Live2D 首帧超时")
 
 
 if __name__ == "__main__":

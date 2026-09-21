@@ -1,0 +1,23 @@
+[package]
+name = "layer-shell-shim"
+version = "0.1.0"
+edition = "2021"
+
+# spec §5.1: artifact name IS the contract (I1) — the build must emit
+# liblayer_shell_shim.so with no rename step.
+[lib]
+name = "layer_shell_shim"
+crate-type = ["cdylib"]
+
+# spec §5.1: dependency closure is EXACTLY these three (+ transitive).
+# No Qt, no glib, no async runtime, no extra protocol crates.
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+libc = "0.2"
+
+# spec §5.1 / §4.8-8: FORBIDDEN — a release-profile `panic` setting that
+# terminates the process instead of unwinding would defeat the §4.3 poison
+# fallback entirely (the host process dies; the pet just vanishes). The §5.3
+# gate greps this file for that setting, so this comment must not spell it
+# out literally. lto/codegen-units may be tuned but must not change §4.3.
