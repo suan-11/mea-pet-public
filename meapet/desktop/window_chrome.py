@@ -536,11 +536,21 @@ class PetWindowChromeMixin:
         menu.addMenu(settings_menu)
 
         menu.addSeparator()
+        about_action = QAction("关于", self)
+        about_action.setIcon(standard_icon("about"))
+        about_action.triggered.connect(self._show_about)
+        menu.addAction(about_action)
+
         quit_action = QAction("退出", self)
         quit_action.setIcon(standard_icon("quit"))
         quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
         return menu
+
+    def _show_about(self):
+        """打开"关于"页面（版本信息与 Live2D 模型来源致谢）。"""
+        from meapet.desktop.dialogs import AboutDialog
+        AboutDialog(self).exec_()
 
     def _show_volume_dialog(self):
         """打开音量调节对话框，保存配置。"""

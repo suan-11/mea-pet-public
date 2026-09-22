@@ -17,6 +17,7 @@ def standard_icon(role: str) -> QIcon:
     style = app.style()
     mapping = {
         "status": QStyle.SP_FileDialogInfoView,
+        "about": QStyle.SP_MessageBoxInformation,
         "watch": QStyle.SP_ComputerIcon,
         "settings": QStyle.SP_FileDialogDetailedView,
         "display": QStyle.SP_DesktopIcon,

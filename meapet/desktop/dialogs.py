@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from meapet import __version__
 from meapet.desktop.capture_selection import select_screen_region
 from meapet.desktop.screen_geometry import resize_dialog_to_content
 from meapet.desktop.theme import CONSENT_DIALOG_STYLE
@@ -940,4 +941,75 @@ class VolumeDialog(QDialog):
                 y = min(max(y, available.top()), max_y)
             self.move(x, y)
         self.cancel_button.setFocus(Qt.OtherFocusReason)
+
+
+class AboutDialog(QDialog):
+    """关于 MeaPet：版本信息，以及 Live2D 模型的来源致谢。
+
+    致谢是硬要求：模型非本项目产出，界面必须点名来源并给出可点开的原始链接。
+    链接以富文本 `QLabel` + `openExternalLinks` 呈现，交给系统浏览器打开，
+    本进程不经手 URL、也不落地任何外部数据。
+    """
+
+    # (显示名, URL)；用户提供的模型出处，作为界面致谢的唯一来源。
+    MODEL_SOURCES = (
+        ("模型展示视频（哔哩哔哩）", "https://www.bilibili.com/video/BV1AoX7BXEaN"),
+        ("模型作者空间（哔哩哔哩）", "https://space.bilibili.com/627916751"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        ensure_application_fonts()
+        self.setObjectName("AboutDialogRoot")
+        self.setWindowTitle("关于 MeaPet")
+        self.setWindowFlags(
+            Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        apply_named_style(self, "CONSENT_DIALOG_STYLE")
+        self.setAccessibleName("关于 MeaPet")
+        self.setAccessibleDescription("显示版本信息与 Live2D 模型来源致谢")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 6, 6, 6)
+        card = QFrame()
+        card.setObjectName("CloudConsentCard")
+        outer.addWidget(card)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        title_label = QLabel("MeaPet")
+        title_label.setObjectName("ConsentTitle")
+        layout.addWidget(title_label)
+
+        version_label = QLabel(f"版本 {__version__}")
+        version_label.setObjectName("FieldLabel")
+        layout.addWidget(version_label)
+
+        credit_title = QLabel("Live2D 模型来源致谢")
+        credit_title.setObjectName("FieldLabel")
+        layout.addWidget(credit_title)
+
+        for display_name, url in self.MODEL_SOURCES:
+            link = QLabel(f'<a href="{url}">{display_name}</a>')
+            link.setObjectName("AboutLink")
+            link.setTextFormat(Qt.RichText)
+            link.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            link.setOpenExternalLinks(True)
+            link.setMinimumHeight(MIN_TARGET_SIZE)
+            layout.addWidget(link)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        self.close_button = QPushButton("关闭")
+        self.close_button.setObjectName("CancelUploadButton")
+        self.close_button.setMinimumHeight(MIN_TARGET_SIZE)
+        self.close_button.clicked.connect(self.reject)
+        buttons.addWidget(self.close_button, 1)
+        layout.addLayout(buttons)
+
+        resize_dialog_to_content(self, QSize(360, 220))
+        self.close_button.setFocus(Qt.OtherFocusReason)
 
