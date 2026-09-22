@@ -3,7 +3,7 @@
 本文件能证明什么（L0/L1/L2，agents-rules §10）
 ------------------------------------------------
 * **产物来源核验**（T7 行的三段式判定，本文件的准入前提）：仓库根那个 `.so` 的
-  `nm -D --defined-only` 集合 == `~/.Athena/projects/meapet/working/rust-layer-shell-bridge.md` §7.1 的 11 个符号。这一步之所以排在
+  `nm -D --defined-only` 集合 == `~/.Athena/projects/meapet/finished/rust-layer-shell-bridge.md` §7.1 的 11 个符号。这一步之所以排在
   一切行为断言之前，是因为该路径**在 P0 之前长期放着旧 C 实现的同名产物**，而
   `*.so` 被 `.gitignore` 排除（不进 VCS）⇒ 行为类断言（`init==-1`、非法参数=NULL、
   double-destroy 不崩……）**对 C 产物同样会通过**。C 产物导出 19 个符号（含 §4.1
@@ -58,7 +58,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #     因为一道查不出东西的门禁比没有门禁更危险（它生产"已通过"）。
 # 权威一致性判据（§7.1↔构建脚本↔产物）因此始终在**本地 Athena 机器**上强制，而非靠把方案塞进
 # 仓库造出第二处真值（I2 禁此，agents-rules §7）。
-SPEC_MD = Path.home() / ".Athena" / "projects" / "meapet" / "working" / "rust-layer-shell-bridge.md"
+SPEC_MD = Path.home() / ".Athena" / "projects" / "meapet" / "finished" / "rust-layer-shell-bridge.md"
 BUILD_SH = REPO_ROOT / "build_layer_shell.sh"
 SHIM_PY = REPO_ROOT / "meapet" / "desktop" / "wayland_layer.py"
 SHIM_SO = REPO_ROOT / "liblayer_shell_shim.so"
