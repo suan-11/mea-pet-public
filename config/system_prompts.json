@@ -54,5 +54,20 @@
   "vision_watch_rules": {
     "description": "桌面观察规则（vision/coordinator.py 原 _WATCH_RULES，含 {SILENT_DISPLAY_TOKEN} 占位符）",
     "prompt": "这是一次用户已授权的桌面观察。\n请决定是否值得主动说一句：\n- 如果画面有明确活动，说具体看到的事，不要空泛提醒休息。\n- 如果是锁屏、黑屏、空桌面或刚交互过且无新信息，返回一个合法分段，但 DISPLAY 必须精确为 {SILENT_DISPLAY_TOKEN}。\n- 其余情况按桌宠前端分段协议返回；不要暴露推理或隐私文本。"
+  },
+
+  "memory_extract_system": {
+    "description": "记忆提取的 system 角色提示词（chat/engine.py 原内联 _send_extract_request 的 system content）",
+    "prompt": "你是一个信息提取助手。从对话中提取值得长期记住的事实，每行一条用「- 」开头。如果没有值得记的内容回复「无」。"
+  },
+
+  "conversation_summary_instruction": {
+    "description": "旧对话摘要指令前缀（chat/engine.py 原内联，运行时在其后拼接「对话：\\n{context}」）",
+    "prompt": "请用一句话概括以下对话的核心内容（不超过50字）。只输出概括，不要前缀。\n\n"
+  },
+
+  "affection_warmth_hint": {
+    "description": "好感度升级后的语气内部提示模板（chat/engine.py 与 desktop/chat_flow.py 原重复两份，现收敛单一来源，含 {tier} 占位符；调用方以 \"\\n\\n\" + .format(tier=…​) 拼接）",
+    "prompt": "[内部：好感度升至{tier}。请用稍暖的语气回应。]"
   }
 }
