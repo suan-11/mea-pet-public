@@ -2043,6 +2043,9 @@ class UiRefactorTests(unittest.TestCase):
             def _reopen_setup_wizard(self):
                 pass
 
+            def _show_about(self):
+                pass
+
             def _quit(self):
                 pass
 
@@ -2071,6 +2074,7 @@ class UiRefactorTests(unittest.TestCase):
                 "开启语音输入",
                 "显示与立绘",
                 "设置与数据",
+                "关于",
                 "退出",
             ],
         )
