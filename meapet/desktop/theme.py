@@ -699,6 +699,58 @@ def rebuild_styles() -> None:
             color: {COLOR_ERR};
             border-color: {rgba(COLOR_ERR, 110)};
         }}
+        QWidget#AttachArea {{
+            background: transparent;
+        }}
+        QScrollArea#AttachChipRow,
+        QScrollArea#AttachChipRow > QWidget > QWidget {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollArea#AttachChipRow QScrollBar:horizontal {{
+            height: 8px;
+            background: transparent;
+            margin: 0;
+        }}
+        QScrollArea#AttachChipRow QScrollBar::handle:horizontal {{
+            background: {rgba(COLOR_MUTED, 90)};
+            border-radius: 4px;
+            min-width: 24px;
+        }}
+        QScrollArea#AttachChipRow QScrollBar::add-line:horizontal,
+        QScrollArea#AttachChipRow QScrollBar::sub-line:horizontal {{
+            width: 0;
+            height: 0;
+        }}
+        QFrame#AttachChip {{
+            background: {rgba(COLOR_ELEVATED, 120)};
+            border: 1px solid {COLOR_BORDER};
+            border-radius: {RADIUS_SMALL}px;
+        }}
+        QLabel#ChipName {{
+            color: {COLOR_TEXT};
+            font-size: 12px;
+            background: transparent;
+            border: none;
+        }}
+        QLabel#ChipTokenHint {{
+            color: {COLOR_MUTED};
+            font-size: 11px;
+            background: transparent;
+            border: none;
+        }}
+        QPushButton#ChipRemove {{
+            background: transparent;
+            color: {COLOR_MUTED};
+            border-color: transparent;
+            padding: 0;
+            font-size: 15px;
+            border-radius: {RADIUS_SMALL}px;
+        }}
+        QPushButton#ChipRemove:hover {{
+            background: {rgba(COLOR_ERR, 40)};
+            color: {COLOR_ERR};
+        }}
         QPushButton#VoiceButton {{
             background: {rgba(COLOR_ACCENT, 40)};
             color: {COLOR_ACCENT};
