@@ -87,6 +87,14 @@ debug_grab_frame.png
 # 验证程序可执行文件（无扩展名，单独点名）
 /minimal_layer_shell
 
+# ===== Rust 原生层（native/layer_shell，spec §5.1）=====
+# 构建目录不入库；Cargo.lock 必须入库（复现）
+native/layer_shell/target/
+scripts/rust_layer_probe/target/
+
+# AI/编辑器本地会话与偏好（含私有 sessions/，不入库）
+.qoder/
+
 # 调试 / 验证脚本（可选保留，视团队习惯）
 /test_layer_pixels.py
 

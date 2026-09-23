@@ -1,6 +1,7 @@
 """Unit tests for standby click-through helpers and host wiring."""
 from __future__ import annotations
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -98,7 +99,19 @@ class Win32ClickThroughTests(unittest.TestCase):
         self.assertEqual(state.backend, "none")
 
     def test_wayland_inactive(self) -> None:
-        state = enable_click_through(42, platform_name="wayland")
+        # Invariant under test is "no Wayland session => inactive", so the
+        # session variables have to be absent from the environment.  The Rust
+        # shim opens its OWN connection (~/.Athena/projects/meapet/working/rust-layer-shell-bridge.md §4.7-1), so on a dev box
+        # with a live compositor Path 0 really maps a layer-shell surface here
+        # and leaks an undisabled ctx.  The old C++ shim took the display from
+        # Qt (`nativeResourceForWindow`, `layer_shell_shim.cpp:19-21`), which
+        # conftest's `QT_QPA_PLATFORM=offscreen` neutralised by accident — that
+        # was the previous implementation's behaviour, not a requirement
+        # (agents-rules §5).  Same strip the ABI tests use per-subprocess.
+        with mock.patch.dict(os.environ, {}, clear=False) as env:
+            for var in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET"):
+                env.pop(var, None)
+            state = enable_click_through(42, platform_name="wayland")
         self.assertFalse(state.active)
         self.assertEqual(state.backend, "none")
 

@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
     QFileDialog,
@@ -30,7 +31,19 @@ from meapet.agent.text_budget import estimate_tokens, can_attach_files
 
 
 CHAT_COMPOSER_WIDTH = 480
-CHAT_COMPOSER_HEIGHT = 140  # 略微加高以容纳文件信息行
+CHAT_COMPOSER_HEIGHT = 140  # 空态固定高（含底部预留边距）
+_CHAT_LAYOUT_SPACING = 4  # 与 _build_ui 中 container 的 spacing 保持一致
+
+# 附件 chip 行（置于输入框上方）。仅在有附件时出现：行本身占位 + 一条 spacing，
+# 有附件时把 composer 从空态撑高这么多，从而把整行完整显示出来而非挤压输入框。
+CHIP_ROW_HEIGHT = MIN_TARGET_SIZE + 8  # 44 触摸靶 + 上下余量
+CHIP_NAME_WIDTH = 150  # chip 内文件名固定显示宽（可省略号截断），不随窗宽压缩
+CHIP_ROW_SPACING = 6  # chip 之间的横向间距
+# 单枚 chip 的经验宽度：左边距8 + 名称150 + 间距4 + ×按钮44 + 右边距4 ≈ 210。
+_CHIP_APPROX_WIDTH = 8 + CHIP_NAME_WIDTH + 4 + MIN_TARGET_SIZE + 4
+CHAT_COMPOSER_HEIGHT_WITH_ATTACHMENTS = (
+    CHAT_COMPOSER_HEIGHT + CHIP_ROW_HEIGHT + _CHAT_LAYOUT_SPACING
+)
 
 # 文本文件白名单（与 TextAttachment.from_bytes 一致）
 _TEXT_FILE_FILTER = (
@@ -67,6 +80,10 @@ class ChatInputBox(QWidget):
     text_submitted = pyqtSignal(str)
     # 新增：文件附加请求信号，携带 TextAttachment 列表
     files_attached = pyqtSignal(list)  # list[TextAttachment]
+    # 附件 chip 行显隐/高度切换时发出：宿主据此重新贴靠（composer 会向上生长）。
+    attachment_row_changed = pyqtSignal()
+    # × 移除单个附件时发出，携带被移除的 TextAttachment：宿主据此从待提交集合剔除。
+    attachment_removed = pyqtSignal(object)  # TextAttachment
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,6 +111,9 @@ class ChatInputBox(QWidget):
         self._text_attachments: list[TextAttachment] = []
         # 上下文预算回调：由宿主注入，签名 (extra_tokens: int) -> (ok: bool, reason: str)
         self._context_budget_checker = None
+        # chip 行控件缓存与显隐状态（替换式：仅有附件时出现）
+        self._attach_chips: list[QFrame] = []
+        self._attach_row_shown = False
 
         self._build_ui()
 
@@ -124,7 +144,7 @@ class ChatInputBox(QWidget):
 
         layout = QVBoxLayout(self.container)
         layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(_CHAT_LAYOUT_SPACING)
 
         header = QHBoxLayout()
         header.setSpacing(8)
@@ -168,6 +188,10 @@ class ChatInputBox(QWidget):
         header.addWidget(self.close_button)
         layout.addLayout(header)
 
+        # ── 附件 chip 行（替换式：置于输入框【上方】，仅有附件时出现）──
+        self._build_attach_area()
+        layout.addWidget(self.attach_area)
+
         input_row = QHBoxLayout()
         input_row.setSpacing(8)
 
@@ -199,13 +223,6 @@ class ChatInputBox(QWidget):
         self.send_button.clicked.connect(self._submit)
         input_row.addWidget(self.send_button)
         layout.addLayout(input_row)
-
-        # ── 新增：文件信息显示行 ──
-        self.file_info_label = QLabel("")
-        self.file_info_label.setObjectName("FileInfoLabel")
-        self.file_info_label.setAccessibleName("已附加文件信息")
-        self.file_info_label.hide()
-        layout.addWidget(self.file_info_label)
 
         self.setTabOrder(self.input, self.file_button)
         self.setTabOrder(self.file_button, self.send_button)
@@ -353,7 +370,7 @@ class ChatInputBox(QWidget):
 
         # 接受
         self._text_attachments.extend(new_attachments)
-        self._update_file_info_label()
+        self._refresh_attachments()
         print(f"[file] 准备发射 files_attached 信号，附件数量={len(new_attachments)}")
         self.files_attached.emit(list(new_attachments))
         print("[file] files_attached 信号已发射")
@@ -366,26 +383,121 @@ class ChatInputBox(QWidget):
                 + "\n".join(refused)
             )
 
-    def _update_file_info_label(self) -> None:
-        """刷新底部文件信息行：文件名(字符数) … 总计 N tokens。"""
-        if not self._text_attachments:
-            self.file_info_label.hide()
-            return
-        parts = []
+    def _build_attach_area(self) -> None:
+        """构造附件 chip 行容器：[ 横向滚动 chips 条 ][ ~合计钉在右侧 ]，默认隐藏。"""
+        self.attach_area = QWidget()
+        self.attach_area.setObjectName("AttachArea")
+        self.attach_area.setFixedHeight(CHIP_ROW_HEIGHT)
+        area = QHBoxLayout(self.attach_area)
+        area.setContentsMargins(0, 0, 0, 0)
+        area.setSpacing(CHIP_ROW_SPACING)
+
+        self.chip_scroll = QScrollArea()
+        self.chip_scroll.setObjectName("AttachChipRow")
+        self.chip_scroll.setWidgetResizable(True)
+        self.chip_scroll.setFrameShape(QFrame.NoFrame)
+        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.chip_host = QWidget()
+        self.chip_row = QHBoxLayout(self.chip_host)
+        self.chip_row.setContentsMargins(0, 0, 0, 0)
+        self.chip_row.setSpacing(CHIP_ROW_SPACING)
+        self.chip_scroll.setWidget(self.chip_host)
+
+        self.total_hint = QLabel("")
+        self.total_hint.setObjectName("ChipTokenHint")
+        self.total_hint.setAccessibleName("附件预计占用总容量")
+        self.total_hint.hide()
+
+        area.addWidget(self.chip_scroll, 1)
+        area.addWidget(self.total_hint)
+        self.attach_area.hide()  # 空态不占位
+
+    def _make_chip(self, att: TextAttachment) -> QFrame:
+        """一枚附件 chip：固定宽省略文件名（tooltip 保全长名）+ × 逐个移除。"""
+        chip = QFrame()
+        chip.setObjectName("AttachChip")
+        lay = QHBoxLayout(chip)
+        lay.setContentsMargins(8, 2, 4, 2)
+        lay.setSpacing(4)
+
+        name = QLabel(self.fontMetrics().elidedText(
+            att.file_name, Qt.ElideMiddle, CHIP_NAME_WIDTH
+        ))
+        name.setObjectName("ChipName")
+        name.setFixedWidth(CHIP_NAME_WIDTH)
+        name.setToolTip(f"{att.file_name}（{att.char_count}字）")
+        lay.addWidget(name)
+
+        remove = QPushButton("×")
+        remove.setObjectName("ChipRemove")
+        remove.setFixedSize(MIN_TARGET_SIZE, MIN_TARGET_SIZE)
+        remove.setAccessibleName(f"移除附件 {att.file_name}")
+        remove.setToolTip(f"移除 {att.file_name}")
+        remove.clicked.connect(lambda _checked=False, a=att: self._remove_attachment(a))
+        lay.addWidget(remove)
+        return chip
+
+    def _rebuild_attach_chips(self) -> None:
+        """按当前附件重建 chip，重算合计 token，并撑出内容宽以启用横向滚动。"""
+        for chip in self._attach_chips:
+            self.chip_row.removeWidget(chip)
+            chip.deleteLater()
+        self._attach_chips = []
+
         total_tokens = 0
         for att in self._text_attachments:
-            t = estimate_tokens(att.text_content)
-            total_tokens += t + 50
-            parts.append(f"{att.file_name}({att.char_count}字)")
-        self.file_info_label.setText(
-            "📎 " + " · ".join(parts) + f"  预计占用 ~{total_tokens} tokens"
-        )
-        self.file_info_label.show()
+            total_tokens += estimate_tokens(att.text_content) + 50
+            chip = self._make_chip(att)
+            self.chip_row.addWidget(chip)
+            self._attach_chips.append(chip)
+
+        self.total_hint.setText(f"~合计 {total_tokens} tk")
+
+        # widgetResizable=True 会把手势内容压到视口宽，故用固定 chip 常量显式算出
+        # 内容最小宽（不依赖尚未 polish 的 sizeHint）；min 宽 > 视口即激活横向滚动。
+        n = len(self._text_attachments)
+        if n:
+            need = n * _CHIP_APPROX_WIDTH + (n - 1) * CHIP_ROW_SPACING
+            self.chip_host.setMinimumWidth(need)
+
+    def _sync_attach_area(self) -> None:
+        """仅有附件时显示 chip 行并把 composer 撑高；清空后收回。变化时通知宿主。"""
+        has = bool(self._text_attachments)
+        if has and not self._attach_row_shown:
+            self.attach_area.show()
+            self.total_hint.show()
+            self.setFixedSize(
+                CHAT_COMPOSER_WIDTH, CHAT_COMPOSER_HEIGHT_WITH_ATTACHMENTS
+            )
+            self._attach_row_shown = True
+            self.attachment_row_changed.emit()
+        elif not has and self._attach_row_shown:
+            self.attach_area.hide()
+            self.total_hint.hide()
+            self.setFixedSize(CHAT_COMPOSER_WIDTH, CHAT_COMPOSER_HEIGHT)
+            self._attach_row_shown = False
+            self.attachment_row_changed.emit()
+
+    def _refresh_attachments(self) -> None:
+        """附件集合变化后刷新展示：重建 chip、同步显隐与高度。"""
+        self._rebuild_attach_chips()
+        self._sync_attach_area()
+
+    def _remove_attachment(self, att: TextAttachment) -> None:
+        """× 移除单个附件：更新本地集合、刷新展示，并通知宿主从待提交集合剔除。"""
+        before = len(self._text_attachments)
+        self._text_attachments = [a for a in self._text_attachments if a is not att]
+        if len(self._text_attachments) == before:
+            return
+        self._refresh_attachments()
+        self.attachment_removed.emit(att)
 
     def clear_attachments(self) -> None:
         """清空本轮附件（发送后由宿主调用）。"""
         self._text_attachments.clear()
-        self._update_file_info_label()
+        self._refresh_attachments()
 
     def get_attachments(self) -> list[TextAttachment]:
         """返回当前已选附件副本。"""

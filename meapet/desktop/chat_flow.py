@@ -32,7 +32,7 @@ from meapet.agent.presentation import (
     SubmitTTS,
     UpdateBubble,
 )
-from meapet.chat.engine import SYSTEM_PROMPT
+from meapet.chat.engine import SYSTEM_PROMPT, AFFECTION_WARMTH_HINT
 from meapet.config.normalizers import canonical_tts_language
 from meapet.conversation.capabilities import build_agent_frontend_context
 from meapet.conversation.output_protocol import (
@@ -285,6 +285,19 @@ class PetChatFlowMixin:
                 self._on_chat_input_files_attached
             )
 
+        # chip 行显隐/撑高后重新贴靠：composer 有附件时向上生长，需按新高度重定位。
+        _reposition = getattr(self, "_place_chat_input", None)
+        if (
+            callable(_reposition)
+            and hasattr(self._chat_input, "attachment_row_changed")
+        ):
+            self._chat_input.attachment_row_changed.connect(_reposition)
+
+        # chip 上的 × 逐个移除：与 files_attached 并入对称，从宿主待提交集合剔除。
+        _on_removed = getattr(self, "_on_chat_input_attachment_removed", None)
+        if callable(_on_removed) and hasattr(self._chat_input, "attachment_removed"):
+            self._chat_input.attachment_removed.connect(_on_removed)
+
         refresh = getattr(self, "_refresh_voice_button", None)
         if callable(refresh):
             refresh()
@@ -326,6 +339,34 @@ class PetChatFlowMixin:
         if added:
             log.info(
                 f"[attach] 本轮待提交文本附件数={len(existing)}（新增 {added}）"
+            )
+
+    def _on_chat_input_attachment_removed(self, attachment) -> None:
+        """chip 的 × 移除附件后，把同一份从宿主待提交集合剔除。
+
+        优先按对象身份匹配；退化时按 (file_name, sha256) 匹配（宿主并入时已去重，
+        每个键至多一份）。只剔除首个命中，避免误删同名不同内容的其它附件。
+        """
+        if attachment is None:
+            return
+        key = (
+            getattr(attachment, "file_name", ""),
+            getattr(attachment, "sha256_hash", ""),
+        )
+        remaining: list = []
+        removed = False
+        for att in (getattr(self, "_text_attachments", []) or []):
+            if not removed and (
+                att is attachment
+                or (getattr(att, "file_name", ""), getattr(att, "sha256_hash", "")) == key
+            ):
+                removed = True
+                continue
+            remaining.append(att)
+        self._text_attachments = remaining
+        if removed:
+            log.info(
+                f"[attach] 移除待提交附件 file={key[0]} 剩余={len(remaining)}"
             )
 
     def _select_and_attach_text_files(self):
@@ -1096,7 +1137,7 @@ class PetChatFlowMixin:
                 upgrade_msg = engine.memory.add_affection(delta)
                 full_system = SYSTEM_PROMPT + "\n\n" + engine.memory.build_context_prompt(current_query=user_msg)
                 if upgrade_msg:
-                    full_system += f"\n\n[内部：好感度升至{engine.memory.get_affection_tier()[1]}。请用稍暖的语气回应。]"
+                    full_system += "\n\n" + AFFECTION_WARMTH_HINT.format(tier=engine.memory.get_affection_tier()[1])
                 engine.history[0] = {"role": "system", "content": full_system}
                 engine.memory.mark_today_chatted()
                 engine.memory.increment_message_counter()

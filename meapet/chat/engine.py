@@ -64,6 +64,17 @@ PERSONA_PROMPT = load_system_prompt("persona", default=_PERSONA_FALLBACK)
 _LEGACY_OUTPUT_PROMPT = load_system_prompt("legacy_output", default=_LEGACY_OUTPUT_FALLBACK)
 SYSTEM_PROMPT = f"{PERSONA_PROMPT}\n{_LEGACY_OUTPUT_PROMPT}"
 
+# 记忆提取 / 对话摘要 / 好感度语气提示：原为代码内联字面量，现集中到
+# config/system_prompts.json（此三份 default 仅作 JSON 缺失时的应急兜底，非内容副本）。
+_MEMORY_EXTRACT_SYSTEM_FALLBACK = "你是一个信息提取助手。从对话中提取值得长期记住的事实，每行一条用「- 」开头。如果没有值得记的内容回复「无」。"
+_CONVERSATION_SUMMARY_FALLBACK = "请用一句话概括以下对话的核心内容（不超过50字）。只输出概括，不要前缀。\n\n"
+_AFFECTION_WARMTH_FALLBACK = "[内部：好感度升至{tier}。请用稍暖的语气回应。]"
+
+MEMORY_EXTRACT_SYSTEM_PROMPT = load_system_prompt("memory_extract_system", default=_MEMORY_EXTRACT_SYSTEM_FALLBACK)
+CONVERSATION_SUMMARY_INSTRUCTION = load_system_prompt("conversation_summary_instruction", default=_CONVERSATION_SUMMARY_FALLBACK)
+# 好感度语气模板含 {tier} 占位符，由调用方 .format(tier=…) 填充；engine 与 chat_flow 共用此单一来源以消除重复。
+AFFECTION_WARMTH_HINT = load_system_prompt("affection_warmth_hint", default=_AFFECTION_WARMTH_FALLBACK)
+
 
 _TTS_METADATA_RE = re.compile(
     r"<TTS>\s*(\{[^\r\n]*\})\s*</TTS>",
@@ -558,7 +569,7 @@ class ChatEngine:
                 upgrade_msg = self.memory.add_affection(delta)
                 full_system = SYSTEM_PROMPT + "\n\n" + self.memory.build_context_prompt(current_query=message)
                 if upgrade_msg:
-                    full_system += f"\n\n[内部：好感度升至{self.memory.get_affection_tier()[1]}。请用稍暖的语气回应。]"
+                    full_system += "\n\n" + AFFECTION_WARMTH_HINT.format(tier=self.memory.get_affection_tier()[1])
                 with self._history_lock:
                     self.history[0] = {"role": "system", "content": full_system}
                 log.debug(f"[Chat] 好感更新后重新注入记忆上下文，prompt 长度={len(full_system)}")
@@ -988,7 +999,7 @@ class ChatEngine:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         extract_messages = [
-            {"role": "system", "content": "你是一个信息提取助手。从对话中提取值得长期记住的事实，每行一条用「- 」开头。如果没有值得记的内容回复「无」。"},
+            {"role": "system", "content": MEMORY_EXTRACT_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         try:
@@ -1032,8 +1043,8 @@ class ChatEngine:
                 context_lines.append(f"{role}：{c['content']}")
             context = "\n".join(context_lines)
             prompt = (
-                "请用一句话概括以下对话的核心内容（不超过50字）。只输出概括，不要前缀。\n\n"
-                f"对话：\n{context}"
+                CONVERSATION_SUMMARY_INSTRUCTION
+                + f"对话：\n{context}"
             )
             result = self._send_extract_request(prompt)
             if result and result.strip() not in ("", "无", "无。"):
