@@ -37,6 +37,8 @@ from meapet.tts.common import (
     is_git_lfs_pointer,
     is_model_artifact_ready,
     is_pet_executable,
+    module_present,
+    prefix_python,
     resolve_external_python,
     resolve_vits_route,
     resolve_vits_speaker,
@@ -89,13 +91,15 @@ def gsv_python_candidates(
         "GPT-SoVITS-v2pro",
         "GPT_SoVITS",
     ):
-        candidates.append(home_path / directory / "runtime" / "python.exe")
+        candidates.append(
+            Path(prefix_python(home_path / directory / "runtime"))
+        )
 
     for root_key in ("ProgramFiles", "ProgramData", "LOCALAPPDATA"):
         root = str(env.get(root_key) or "").strip()
         if root:
             candidates.append(
-                Path(root) / "GPT-SoVITS" / "runtime" / "python.exe"
+                Path(prefix_python(Path(root) / "GPT-SoVITS" / "runtime"))
             )
 
     for conda_root in (
@@ -104,9 +108,9 @@ def gsv_python_candidates(
     ):
         candidates.extend(
             (
-                conda_root / "envs" / "GPTSoVits" / "python.exe",
-                conda_root / "envs" / "gpt-sovits" / "python.exe",
-                conda_root / "python.exe",
+                Path(prefix_python(conda_root / "envs" / "GPTSoVits")),
+                Path(prefix_python(conda_root / "envs" / "gpt-sovits")),
+                Path(prefix_python(conda_root)),
             )
         )
 
@@ -177,6 +181,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.python_exe = resolve_external_python(self.python_exe)
         if not self.python_exe:
             log.warning("python_exe unset or invalid for local GSV subprocess TTS")
+
+        # GSV 根：conda env 装在源码树外时，解释器路径反推不出根，只能由配置给。
+        # 缺省为空串——子进程仍会按 GPT_SoVITS/TTS_infer_pack 标记自行上溯。
+        self.gsv_root = str(tts_cfg.get("gsv_root", "") or "").strip()
 
         # 推理脚本路径
         from meapet.paths import project_root
@@ -518,8 +526,14 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             external_py = route.external_python
             if not route.inprocess:
                 # mode 由 route.describe() 给出，这里不重复一份可能分叉的字符串。
+                # checks 里不放 "python" 键：health_check 从不验解释器里装了什么包，
+                # 硬写 python=True 是谎报——空 env（有解释器、无包）因此被放行到
+                # speak() 才撞 ModuleNotFoundError（回归锁在 tests/test_vits_deps_probe.py）。
+                # 而 describe() 已经把"用的是哪个解释器"打成 python=<basename>，
+                # 同一行再出现一个 python=True 只会让两个"python"互相打架。
+                # 依赖探针也不在这里跑：全栈 import 本机实测 12–20 s（热/冷页缓存），
+                # 而 health_check 在 speak() 路径上，那笔税由向导线程代付。
                 checks = {
-                    "python": bool(external_py),
                     "script": script_ok,
                     "model": model_ok,
                     "config": config_ok,
@@ -533,14 +547,34 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                         model_ok and config_ok and (script_ok or core_ok)
                     )
             else:
+                # 进程内那条路的"解释器"就是本进程，所以 torch 在不在本进程里
+                # 是它的前置事实——老代码只验 core/model/config 三个磁盘事实，
+                # 于是源码态（宿主 .venv 无 torch）能打出
+                #   Health (vits): core=True model=True config=True mode=inprocess
+                # 而同一轮 speak() 撞 ModuleNotFoundError: No module named 'torch'
+                # （Windows 用户报的就是这个形状）。子进程分支本轮刚拆掉同形的
+                # python=True 谎报，这一支不能继续留着一半。
+                # 判据用 find_spec 而不是 import torch：前者实测 0.1–0.4 ms，
+                # 后者 3914 ms（全栈探针 12–20 s），health_check 在 speak() 路径上。
+                # 残余盲区如实留着：find_spec 证不了"能寻到但加载不起来"
+                # （打包版 DLL/so 起不来那一格仍由 speak 的异常分支出声）。
+                torch_ok = module_present("torch")
                 checks = {
                     "core": core_ok,
                     "model": model_ok,
                     "config": config_ok,
+                    "torch": torch_ok,
                 }
                 self._deps_ready = all(
-                    [core_ok, model_ok, config_ok]
+                    [core_ok, model_ok, config_ok, torch_ok]
                 )
+                if not torch_ok:
+                    log.warning(
+                        "Health (vits): 本进程寻不到 torch，进程内那条路不可用"
+                        "——配 tts.vits_python 指向带 torch 的解释器，"
+                        "或去掉 tts.vits_inprocess 让它走默认选路"
+                    )
+
             log.info(
                 "Health (vits): "
                 + " ".join(f"{name}={ok}" for name, ok in checks.items())

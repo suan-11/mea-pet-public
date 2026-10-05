@@ -17,6 +17,7 @@ from meapet.dependencies import (
     resolve_pip_index_url,
     resolve_torch_index_url,
 )
+from meapet.tts.common import env_site_packages, prefix_python, venv_python
 from wizard.styles import (
     styled_message_box,
     styled_open_file,
@@ -83,8 +84,9 @@ def _post_to_main(fn) -> None:
 
 class TtsPageVitsMixin:
     def _browse_python(self, input_field):
+        wanted = "python.exe" if os.name == "nt" else "python*"
         dir_path = styled_open_file(
-            self, "选择 python.exe", "", "python.exe (python.exe)"
+            self, f"选择 {wanted}", "", f"{wanted} ({wanted})"
         )
         if dir_path:
             input_field.setText(dir_path)
@@ -124,11 +126,22 @@ class TtsPageVitsMixin:
         from meapet.tts.common import (
             DEFAULT_VITS_CONFIG_NAME,
             DEFAULT_VITS_MODEL_NAME,
+            is_git_lfs_pointer,
         )
 
         model_path = project_path("vits_models", DEFAULT_VITS_MODEL_NAME)
         config_path = project_path("vits_models", DEFAULT_VITS_CONFIG_NAME)
-        if os.path.exists(model_path) and os.path.exists(config_path):
+        # exists() 对 LFS 指针为真——从前它会显示"模型就绪（0 MB）"，
+        # 而 speak() 那边同一份文件被判不可用（service.py 的 pointer 分支）。
+        if is_git_lfs_pointer(model_path):
+            set_status(
+                self.vits_status,
+                "error",
+                "VITS 权重仍是 Git LFS pointer（不会自动拉取）"
+                "——运行 git lfs pull，或手动放置真身",
+            )
+            return
+        if os.path.isfile(model_path) and os.path.isfile(config_path):
             model_size = os.path.getsize(model_path) / 1e6
             route = self._vits_route_summary()
             suffix = f"；{route}" if route else ""
@@ -154,6 +167,7 @@ class TtsPageVitsMixin:
         try:
             from meapet.tts.common import (
                 _is_frozen,
+                module_present,
                 resolve_external_python,
                 resolve_vits_route,
             )
@@ -167,6 +181,14 @@ class TtsPageVitsMixin:
                 frozen=_is_frozen(),
             )
             if route.inprocess:
+                # 进程内那条路的解释器就是本进程，torch 在不在是本路的第一个
+                # 会撞的事实。判据与 service.health_check 同一个 module_present
+                # （find_spec，0.1–0.4 ms），别在这里 import torch。
+                if not module_present("torch"):
+                    return (
+                        "实际走进程内 torch——但本进程寻不到 torch，"
+                        "这条路会失败：填下方解释器走子进程，或给本程序装上 torch"
+                    )
                 return "实际走进程内 torch"
             if route.external_python:
                 return f"实际走子进程（{os.path.basename(route.external_python)}）"
@@ -375,6 +397,7 @@ class TtsPageVitsMixin:
             return
 
         # 0️⃣.5️⃣ 项目自带的 _python（embedable，已存在则省去 venv 创建）
+        # embeddable 是 Windows 便携包的形态，POSIX 上没有这种目录，isfile 自然为假。
         _embedded = _os.path.join(base, "_python", "python.exe")
         if _os.path.isfile(_embedded):
             ver_ok, ver_info = _check_torch(_embedded)
@@ -399,10 +422,10 @@ class TtsPageVitsMixin:
             return
 
         # 1️⃣ vits_ft conda 环境
+        _home = _os.path.expanduser("~")
         candidates = [
-            _os.path.join(_os.path.expanduser("~"), ".conda", "envs", "vits_ft", "python.exe"),
-            _os.path.join(_os.path.expanduser("~"), "miniconda3", "envs", "vits_ft", "python.exe"),
-            _os.path.join(_os.path.expanduser("~"), "anaconda3", "envs", "vits_ft", "python.exe"),
+            prefix_python(_os.path.join(_home, root, "envs", "vits_ft"))
+            for root in (".conda", "miniconda3", "anaconda3")
         ]
         found = None
         for c in candidates:
@@ -426,7 +449,7 @@ class TtsPageVitsMixin:
         # 2️⃣ 已有 vits_env venv
         venv_path = _os.path.join(base, "vits_env")
         if _os.path.isdir(venv_path):
-            py_path = _os.path.join(venv_path, "Scripts", "python.exe")
+            py_path = venv_python(venv_path)
             if _os.path.isfile(py_path):
                 ok, _ = _check_torch(py_path)
                 if ok:
@@ -453,7 +476,7 @@ class TtsPageVitsMixin:
                     )
                 subprocess.run([_master_py, "-m", "venv", venv_path],
                              capture_output=True, timeout=60)
-                py_path = _os.path.join(venv_path, "Scripts", "python.exe")
+                py_path = venv_python(venv_path)
                 if not _os.path.isfile(py_path):
                     raise Exception("venv 创建失败")
 
@@ -461,10 +484,11 @@ class TtsPageVitsMixin:
 
                 # 复制 pyopenjtalk 词典
                 import shutil
-                src_dict = _os.path.join(_os.path.expanduser("~"), ".conda", "envs", "vits_ft",
-                                        "lib", "site-packages", "pyopenjtalk")
+                src_pkg = env_site_packages(_os.path.join(
+                    _os.path.expanduser("~"), ".conda", "envs", "vits_ft"))
+                src_dict = _os.path.join(src_pkg, "pyopenjtalk")
                 if _os.path.isdir(src_dict):
-                    dst_pkg = _os.path.join(venv_path, "Lib", "site-packages")
+                    dst_pkg = env_site_packages(venv_path)
                     if _os.path.isdir(dst_pkg):
                         shutil.copytree(src_dict, _os.path.join(dst_pkg, "pyopenjtalk"),
                                        dirs_exist_ok=True)
@@ -479,60 +503,81 @@ class TtsPageVitsMixin:
 
         threading.Thread(target=task, daemon=True).start()
 
-    def _ensure_vits_deps(self, py_exe: str, log):
-        """确保 VITS 所需的基础依赖已安装（soundfile, numpy, scipy 等），非阻塞
+    def _ensure_vits_deps(self, py_exe: str, log, status_widget=None):
+        """检测 VITS 推理依赖，缺包时装完再复测；探测全程在后台线程。
 
-        打包版中 pet exe 不是真正 Python，跳过子进程检查。
+        判据是 vits_infer._load_torch_stack 那份 import 面（--check-deps），不是
+        这里另列的包名——本机实测该 env 有 torch 却缺 unidecode/eng_to_ipa/num_thai，
+        从前逐个 import soundfile/scipy/librosa 的写法照样报"就绪"，到合成才炸。
+        探测要 12–20 s（torch+text 前端全量 import，冷/热页缓存各一头），所以不进主线程。
+        *status_widget* 给了就把结论也落到状态条——调用方若要写"检测中"这类
+        过渡文案，只有这里能把它结掉。
         """
         _ensure_main_invoker()  # 主线程入口：先建好跨线程投递器
+        from meapet.paths import project_path
+        from meapet.tts.common import probe_vits_deps
+
         if TtsPageVitsMixin._path_is_pet_exe(py_exe):
             log("  ⚠ 打包版中无法检查 VITS 依赖（pet exe 不是 Python 解释器）")
+            if status_widget is not None:
+                set_status(status_widget, "warning", "打包版无法检测 VITS 依赖")
             return
         import subprocess, threading
-        needed = []
-        _checks = {
-            "soundfile": "import soundfile; print('ok')",
-            "scipy": "import scipy; print('ok')",
-            "librosa": "import librosa; print('ok')",
-        }
+        infer_script = project_path("meapet", "tools", "vits_infer.py")
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
-        for mod, test_code in _checks.items():
-            try:
-                r = subprocess.run([py_exe, "-c", test_code],
-                                   capture_output=True, text=True, timeout=10, env=env)
-                if r.returncode != 0:
-                    needed.append(mod)
-            except Exception:
-                needed.append(mod)
 
-        if not needed:
-            log("✓ VITS 基础依赖已就绪")
-            return
+        def _report(verdict, detail):
+            if verdict == "ok":
+                log("✓ VITS 推理依赖就绪")
+                if status_widget is not None:
+                    set_status(status_widget, "success", "VITS 环境已就绪（依赖探针通过）")
+            elif verdict == "missing":
+                log(f"  ✗ VITS 推理依赖不完整：{detail}——合成会失败并回退预制语音")
+                if status_widget is not None:
+                    set_status(status_widget, "error", f"VITS 依赖不完整：{detail}")
+            else:
+                log("  ⚠ 未能判定 VITS 推理依赖状态（探测超时或脚本缺失）")
+                if status_widget is not None:
+                    set_status(status_widget, "warning", f"未能判定 VITS 依赖：{detail}")
 
-        # 后台异步安装（不阻塞主线程、不阻塞向导流程）
-        log(f"  ⚠ 缺少 {len(needed)} 个 VITS 依赖: {', '.join(needed)}，后台安装中…")
         def _task():
-            try:
-                r = subprocess.run(
-                    [py_exe, "-m", "pip", "install", "--timeout", "120",
-                     "-i", resolve_pip_index_url()] + needed,
-                    capture_output=True, text=True, timeout=300, env=env
+            verdict, detail = probe_vits_deps(py_exe, infer_script)
+            if verdict == "missing":
+                _post_to_main(
+                    lambda d=detail: log(f"  ⚠ 缺依赖（{d}），安装基础包后复测…")
                 )
-                if r.returncode == 0:
-                    _post_to_main(lambda: log("✓ VITS 依赖安装完成"))
-                else:
-                    _post_to_main(lambda: log(f"  ⚠ pip 安装失败: {r.stderr[-150:]}"))
-            except subprocess.TimeoutExpired:
-                _post_to_main(lambda: log("  ⚠ pip 安装超时，VITS 可能无法正常工作"))
+                try:
+                    r = subprocess.run(
+                        [py_exe, "-m", "pip", "install", "--timeout", "120",
+                         "-i", resolve_pip_index_url(),
+                         "soundfile", "scipy", "librosa"],
+                        capture_output=True, text=True, timeout=600, env=env
+                    )
+                    if r.returncode != 0:
+                        _post_to_main(
+                            lambda e=r.stderr[-150:]: log(f"  ⚠ pip 安装失败: {e}")
+                        )
+                except subprocess.TimeoutExpired:
+                    _post_to_main(lambda: log("  ⚠ pip 安装超时"))
+                verdict, detail = probe_vits_deps(py_exe, infer_script)
+            _post_to_main(lambda v=verdict, d=detail: _report(v, d))
+
         threading.Thread(target=_task, daemon=True).start()
 
     def _on_vits_env_done(self, ok, result):
         self.setup_vits_btn.setEnabled(True)
         if ok:
             self.vits_python_input.setText(result)
-            set_status(self.vits_status, "success", "VITS 环境已就绪")
+            # 这里只说明"解释器已就位"；依赖齐不齐由 _ensure_vits_deps 的探针
+            # 另报——从前这句无条件写"环境已就绪"，空 env 也会被它安抚过去。
+            set_status(self.vits_status, "warning", "VITS 环境已配置，检测依赖中…")
             self.setup_vits_btn.setText("VITS 环境已配置")
+            self._ensure_vits_deps(
+                result,
+                lambda msg: self.log(msg) if hasattr(self, "log") else None,
+                status_widget=self.vits_status,
+            )
         else:
             set_status(self.vits_status, "error", f"配置失败: {result[:50]}")
             self.setup_vits_btn.setText("自动配置 VITS 环境（重试）")

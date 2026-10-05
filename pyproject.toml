@@ -85,6 +85,11 @@ linux = [
     "pillow==12.3.0",
     "PyOpenGL==3.1.10",
     "PyQt5==5.15.11",
+    # meapet/desktop/fidus_position.py 是模块级 `import numpy as np` 且无兜底（其余三处
+    # numpy 都在 try/except ImportError 里或走 vits extra）。两行与 linux_requirements.txt:9-10
+    # 同形——1.x 在 3.13+ 没有官方 wheel，写死的 `<2` 会把「装上但运行时炸」换成「装不上」。
+    "numpy>=1.21,<2.0 ; python_version < '3.13'",
+    "numpy>=2.0 ; python_version >= '3.13'",
 ]
 all = [
     "mea-pet[opengl,vits,webengine,win32,linux]",

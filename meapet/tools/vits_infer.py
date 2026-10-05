@@ -239,9 +239,24 @@ if __name__ == "__main__":
     parser.add_argument("--noise_scale_w", type=float, default=0.6)
     parser.add_argument("--length_scale", type=float, default=1.0)
     parser.add_argument("--warmup", action="store_true", help="预热加载模型")
+    parser.add_argument(
+        "--check-deps",
+        dest="check_deps",
+        action="store_true",
+        help="只验证推理依赖能否 import，不读权重",
+    )
     parser.add_argument("--model", default="", help="模型权重路径")
     parser.add_argument("--config", default="", help="模型配置路径")
     args = parser.parse_args()
+
+    # 就绪探针走这条路：判据就是 _load_torch_stack 那份 import 面本身。
+    # 另写一份"该装哪些包"的清单会与 vits_requirements.txt、与本函数的导入集合
+    # 三处各说各话——实测本机 env 有 torch 却缺 unidecode/eng_to_ipa/num_thai/
+    # indic_transliteration，只探 torch 的探针照样放行。
+    if args.check_deps:
+        _load_torch_stack()
+        print("OK:deps_loaded")
+        sys.exit(0)
 
     model_path = args.model or os.path.join(base, "vits_models", "G_latest.pth")
     config_path = args.config or os.path.join(

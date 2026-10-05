@@ -18,6 +18,7 @@ from wizard.styles import (
     STYLE_INPUT,
     STYLE_PAGE_CARD,
 )
+from meapet.tts.common import prefix_python
 
 # 兼容页面内可能使用的短名
 from wizard.page_tts_gsv import TtsPageGsvMixin
@@ -221,10 +222,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         vpy_layout.addWidget(vpy_label)
         self.vits_python_input = QLineEdit()
         self.vits_python_input.setObjectName("VitsPythonPath")
-        _default_vits_py = os.path.join(
+        _default_vits_py = prefix_python(os.path.join(
             os.path.expanduser("~"),
-            ".conda", "envs", "vits_ft", "python.exe"
-        )
+            ".conda", "envs", "vits_ft"
+        ))
         if os.path.isfile(_default_vits_py):
             self.vits_python_input.setText(_default_vits_py)
         self.vits_python_input.setPlaceholderText("用于 VITS 推理的 Python（需含 PyTorch CUDA）")

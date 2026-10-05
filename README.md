@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README.en.md)
 
-MeaPet 是一款以 Windows 为主要平台、兼容 Linux 的 PyQt5 透明桌面宠物。它将角色立绘、AI 对话、语音合成、屏幕视觉、SQLite 记忆和好感度整合在一个桌面前端中，同时支持 Live2D 和 PNG 两种渲染方式。
+MeaPet 是一款 Windows 与 Linux 并重的 PyQt5 透明桌面宠物。它将角色立绘、AI 对话、语音合成、屏幕视觉、SQLite 记忆和好感度整合在一个桌面前端中，同时支持 Live2D 和 PNG 两种渲染方式。
 
 MeaPet 有清晰的职责边界：角色呈现、聊天气泡、TTS、截图授权和本地状态由 MeaPet 管理；使用 Agent 作为回复后端时，模型、长期记忆和内部工具由 Agent 管理。
 

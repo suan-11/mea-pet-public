@@ -765,6 +765,7 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
             (),
             {
                 "python_exe": sys.executable,
+                "gsv_root": "",
                 "infer_script": str(ROOT / "meapet" / "tools" / "gsv_infer.py"),
                 "gpt_path": "gpt.ckpt",
                 "sovits_path": "sovits.pth",
@@ -810,6 +811,7 @@ class TestRefactorRuntimeRegressions(unittest.TestCase):
             (),
             {
                 "python_exe": sys.executable,
+                "gsv_root": "",
                 "infer_script": str(ROOT / "meapet" / "tools" / "gsv_infer.py"),
                 "gpt_path": "gpt.ckpt",
                 "sovits_path": "sovits.pth",

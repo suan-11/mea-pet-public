@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-A Windows-first (Linux-compatible) PyQt5 transparent desktop companion. It integrates character sprites, AI conversation, speech synthesis, screen vision, SQLite memory, and affection into a single desktop frontend, supporting Live2D / PNG dual rendering.
+A PyQt5 transparent desktop companion for Windows and Linux alike. It integrates character sprites, AI conversation, speech synthesis, screen vision, SQLite memory, and affection into a single desktop frontend, supporting Live2D / PNG dual rendering.
 
 MeaPet draws a clear boundary: character presentation, chat bubbles, TTS, screenshot authorization, and local state are managed by MeaPet. When using an Agent as the reply backend, the model, long-term memory, and internal tools are managed by the Agent.
 

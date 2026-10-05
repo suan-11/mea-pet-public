@@ -71,6 +71,8 @@ class TtsGsvMixin:
             "speed": self.speed,
             "sample_steps": self.sample_steps,
             "output_wav": output_wav,
+            # 根不靠解释器路径反推：conda env 在树外时，只有这一路能把根传进子进程。
+            "gsv_root": self.gsv_root,
         }
         payload_json = json.dumps(payload, ensure_ascii=False)
 
@@ -119,7 +121,8 @@ class TtsGsvMixin:
 
             if not result.get("ok"):
                 err = result.get('error', 'unknown')
-                log.error(f"TTS subprocess error chars={len(str(err))}")
+                # 原因要进 error 正文：只报长度时，用户看到的是"配好了却永远不出声"。
+                log.error(f"TTS subprocess failed: {str(err)[:200]}")
                 log.trace(lambda: f"TTS subprocess error [debug]: {err}")
                 if result.get("captured"):
                     captured = str(result["captured"])

@@ -479,3 +479,35 @@ def test_mimo_reference_browser_uses_runtime_data_path():
     source = (ROOT / "wizard" / "page_tts_mimo.py").read_text(encoding="utf-8")
     assert 'data_path("voice_cache")' in source
     assert 'os.path.dirname(CONFIG_PATH), "voice_cache"' not in source
+
+
+def test_linux_extra_declares_fidus_bridge_module_level_imports():
+    """`[linux]` 必须覆盖 fidus 桥在**模块级**拉起的每个非标准库依赖。
+
+    `fidus_position.py` 顶层 `import numpy as np` 没有 try/except，而 numpy 原先只声明在
+    `vits` extra ⇒ 照 `[linux]` 装的构建机打出的包一碰 fidus 就炸。缺口只在干净装机面暴露，
+    本机 venv 的传递依赖垫着它（全局坑 pid-3852732），所以断言写在声明层而不是 import 层。
+    """
+    import ast
+    import sys
+    import tomllib
+
+    from packaging.requirements import Requirement
+
+    tree = ast.parse(
+        (ROOT / "meapet" / "desktop" / "fidus_position.py").read_text(encoding="utf-8")
+    )
+    external: set[str] = set()
+    for node in tree.body:  # 只取模块级：函数内的 import 有各自的兜底或 extra
+        if isinstance(node, ast.Import):
+            external |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            external.add(node.module.split(".")[0])
+    external -= sys.stdlib_module_names | {"__future__"}
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    declared = {
+        Requirement(spec).name.lower().replace("-", "_")
+        for spec in project["dependencies"] + project["optional-dependencies"]["linux"]
+    }
+    assert external <= declared, f"[linux] 未声明的模块级依赖：{sorted(external - declared)}"

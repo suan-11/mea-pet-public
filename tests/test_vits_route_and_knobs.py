@@ -661,8 +661,27 @@ def test_wizard_route_summary_follows_the_delivery_judgement(tmp_path):
     with mock.patch.object(common_mod, "_is_frozen", return_value=False):
         assert "无可用解释器" in missing._vits_route_summary()
 
-    with mock.patch.object(common_mod, "_is_frozen", return_value=True):
-        assert "进程内" in missing._vits_route_summary()
+    # torch 那条判据单独测，别让它跟着本机装没装 torch 翻来翻去
+    with mock.patch.object(common_mod, "_is_frozen", return_value=True), mock.patch.object(
+        common_mod, "module_present", return_value=True
+    ):
+        assert missing._vits_route_summary() == "实际走进程内 torch"
+
+
+def test_wizard_route_summary_says_so_when_inprocess_has_no_torch(tmp_path):
+    """进程内那条路的解释器就是本进程：本进程寻不到 torch 得当场说出来。
+
+    health_check 现在会因这个判据报红，状态条如果还只写"实际走进程内 torch"，
+    就是同一个事实在两处口径不一（用户看到绿的/白的，合成却失败）。
+    """
+    stub = _wizard_stub(str(tmp_path / "ghost" / "python.exe"))
+    with mock.patch.object(common_mod, "_is_frozen", return_value=True), mock.patch.object(
+        common_mod, "module_present", return_value=False
+    ):
+        summary = stub._vits_route_summary()
+
+    assert "进程内" in summary, "路线预告别把选路结论改掉，只准追加读数"
+    assert "寻不到 torch" in summary
 
 
 def test_wizard_save_report_surfaces_a_warning():

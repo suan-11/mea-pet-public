@@ -1,6 +1,7 @@
 """TTS shared utilities and constants (used by tts.py and engine mixins)."""
 from __future__ import annotations
 
+import glob
 import os
 import subprocess
 import sys
@@ -48,6 +49,43 @@ def resolve_external_python(path: str | None) -> str:
     return raw
 
 
+def _is_windows(windows: bool | None) -> bool:
+    return (os.name == "nt") if windows is None else bool(windows)
+
+
+def venv_python(env_dir: "os.PathLike[str] | str", *, windows: bool | None = None) -> str:
+    """Interpreter of a ``python -m venv`` environment (``Scripts`` on Windows)."""
+    if _is_windows(windows):
+        return os.path.join(env_dir, "Scripts", "python.exe")
+    return os.path.join(env_dir, "bin", "python")
+
+
+def prefix_python(env_dir: "os.PathLike[str] | str", *, windows: bool | None = None) -> str:
+    """Interpreter that sits directly in *env_dir* — conda envs and the GSV
+    整合包 ``runtime/`` folder, which use a flat prefix on Windows."""
+    if _is_windows(windows):
+        return os.path.join(env_dir, "python.exe")
+    return os.path.join(env_dir, "bin", "python")
+
+
+def env_site_packages(env_dir: "os.PathLike[str] | str", *, windows: bool | None = None) -> str:
+    """Purelib of an environment directory.
+
+    POSIX venv/conda put site-packages under a Python-version segment
+    (``lib/python3.12/site-packages``); globbing keeps that version out of
+    the source.  When nothing matches, the unversioned path is returned so
+    callers' ``isdir`` guards fail cleanly instead of guessing a file.
+    """
+    if _is_windows(windows):
+        return os.path.join(env_dir, "Lib", "site-packages")
+    matches = sorted(
+        glob.glob(os.path.join(env_dir, "lib", "python3.*", "site-packages"))
+    )
+    if matches:
+        return matches[0]
+    return os.path.join(env_dir, "lib", "site-packages")
+
+
 # ═══════════════════════════════════════════
 # VITS 选路与旋钮口径（唯一来源）
 # ═══════════════════════════════════════════
@@ -76,6 +114,28 @@ def vits_config_path() -> str:
     from meapet.paths import project_path
 
     return project_path("vits_models", DEFAULT_VITS_CONFIG_NAME)
+
+
+def module_present(name: str) -> bool:
+    """本进程能不能**寻址到**某个模块——只查 import 元数据，不执行 import。
+
+    给进程内那条路的健康检查用：`find_spec` 本机实测 0.1–0.4 ms，同一个 env 里
+    真 `import torch` 是 3914 ms、全栈依赖探针是 12–20 s，后两笔都不能落在
+    `speak()` 路径上。
+
+    它证明不了模块**加载得起来**：打包版里 torch 在 `sys._MEIPASS` 寻得到，
+    而 DLL/so 起不来的话 import 照样失败（那一格由 `vits_runtime.py` 的
+    `Failed to load bundled torch` 分支管）。所以这个判据只能往"缺失"方向用
+    ——False 一定不可用；True 只说"找到了"，不代表就绪。
+    """
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        # 父包 __init__ 自己抛 ImportError 时 find_spec 会连带抛出；对"这条路
+        # 能不能走"的结论，"名字不存在"和"父包坏了"是同一格。
+        return False
 
 
 def _is_speaker_table(speakers: object) -> bool:
@@ -266,6 +326,65 @@ def is_git_lfs_pointer(path: str) -> bool:
 def is_model_artifact_ready(path: str) -> bool:
     """模型文件必须存在，且不能仍是 Git LFS pointer。"""
     return bool(path and os.path.isfile(path) and not is_git_lfs_pointer(path))
+
+
+VITS_DEPS_PROBE_TIMEOUT = 90
+
+
+def probe_vits_deps(py_exe: str, infer_script: str) -> tuple[str, str]:
+    """问 *py_exe* "能不能 import 推理依赖"，判据交给交付脚本自己。
+
+    返回 ``("ok"|"missing"|"unknown", detail)``。``unknown`` 表示这一问没有答案
+    （没解释器、脚本不在、超时、别的崩溃），调用方**不应**据此判不就绪——
+    那会把"探针自己坏了"变成"用户环境坏了"的新误报。
+    """
+    py_exe = (py_exe or "").strip()
+    if not py_exe or is_pet_executable(py_exe):
+        return "unknown", "no external python"
+    if not os.path.isfile(infer_script):
+        return "unknown", "infer script missing"
+    if _is_frozen() and not os.path.isfile(py_exe):
+        return "unknown", "frozen and python path not on disk"
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    try:
+        proc = subprocess.run(
+            [
+                py_exe,
+                infer_script,
+                "--check-deps",
+                # --text/--output 是脚本的必填项，这条路不会用到它们
+                "--text",
+                "probe",
+                "--output",
+                os.devnull,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=VITS_DEPS_PROBE_TIMEOUT,
+            env=env,
+            **hidden_subprocess_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        return "unknown", f"probe timeout ({VITS_DEPS_PROBE_TIMEOUT}s)"
+    except Exception as exc:
+        return "unknown", f"{type(exc).__name__}: {exc}"
+    if proc.returncode == 0 and "OK:deps_loaded" in (proc.stdout or ""):
+        return "ok", "deps importable"
+    stderr = proc.stderr or ""
+    if "ModuleNotFoundError" in stderr or "ImportError" in stderr:
+        tail = next(
+            (ln.strip() for ln in stderr.splitlines() if "Error" in ln),
+            stderr[-120:],
+        )
+        return "missing", tail
+    return "unknown", f"rc={proc.returncode} {(stderr or proc.stdout)[-160:]}"
+
 
 
 # ═══════════════════════════════════════════

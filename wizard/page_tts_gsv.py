@@ -22,6 +22,7 @@ from wizard.styles import (
 )
 from wizard.platform_info import PLATFORM, CONFIG_PATH
 from wizard.env_utils import pip_install, check_installed
+from meapet.tts.common import prefix_python
 
 class TtsPageGsvMixin:
     def _browse_gsv_dir(self):
@@ -58,14 +59,17 @@ class TtsPageGsvMixin:
             target.setText(path)
 
     def _find_python_exe(self, base_dir):
-        r"""在整合包目录中查找 runtime\python.exe"""
-        candidate = os.path.join(base_dir, "runtime", "python.exe")
+        r"""在整合包目录中查找 runtime 下的解释器（Windows 是 python.exe，POSIX 是 bin/python）"""
+        candidate = prefix_python(os.path.join(base_dir, "runtime"))
         if os.path.isfile(candidate):
             return candidate
         # 也可能在 runtime 的下级
-        for root, _dirs, files in os.walk(base_dir):
-            if "python.exe" in files and os.path.basename(root) == "runtime":
-                return os.path.join(root, "python.exe")
+        for root, _dirs, _files in os.walk(base_dir):
+            if os.path.basename(root).lower() != "runtime":
+                continue
+            nested = prefix_python(root)
+            if os.path.isfile(nested):
+                return nested
         return None
 
     def _check_gsv(self):
@@ -76,10 +80,16 @@ class TtsPageGsvMixin:
         def _has_gsv_module(py_path):
             if not py_path or not os.path.isfile(py_path):
                 return False
+            # GPT_SoVITS 是仓库里的目录而非已安装的包：探针必须站在根上跑，
+            # 否则一整套依赖齐全的整合包也会被报成「缺模块」。
+            from meapet.tools.gsv_infer import find_gsv_root
+
+            root = find_gsv_root("", py_path)
             try:
                 r = subprocess.run(
                     [py_path, "-c", "import GPT_SoVITS; print('ok')"],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True, text=True, timeout=5,
+                    cwd=root or None,
                 )
                 return r.returncode == 0 and 'ok' in r.stdout
             except Exception:
@@ -92,14 +102,14 @@ class TtsPageGsvMixin:
             if py_path:
                 self.gsv_dir_input.setText(py_path)
 
-        if py_path and os.path.isfile(py_path) and py_path.endswith("python.exe"):
+        if py_path and os.path.isfile(py_path):
             if _has_gsv_module(py_path):
                 set_status(self.gsv_status, "success", "GPT-SoVITS 环境就绪，语音可用")
             else:
                 set_status(
                     self.gsv_status,
                     "warning",
-                    "找到 python.exe 但缺少 GPT_SoVITS 模块，请确认是否为官方整合包",
+                    "找到解释器但缺少 GPT_SoVITS 模块，请确认是否为官方整合包",
                 )
         elif gsv_python and os.path.isfile(gsv_python):
             if _has_gsv_module(gsv_python):

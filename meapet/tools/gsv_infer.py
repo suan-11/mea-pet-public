@@ -30,6 +30,65 @@ def log(msg):
     print(f"[gsv] {msg}", file=sys.stderr, flush=True)
 
 
+def _has_gsv_tree(directory: str) -> bool:
+    return bool(directory) and os.path.isdir(
+        os.path.join(directory, "GPT_SoVITS", "TTS_infer_pack")
+    )
+
+
+def find_gsv_root(explicit: str, py_exe: str) -> str:
+    """按标记认根，不认目录名。
+
+    Windows 整合包是 ``<root>/runtime/python.exe``，POSIX venv 是 ``<root>/runtime/bin/python``，
+    conda env 干脆在树外——解释器离根的层数不固定，而 ``GPT_SoVITS/TTS_infer_pack`` 三者共有。
+    """
+    if explicit:
+        if _has_gsv_tree(explicit):
+            return explicit
+        log(f"配置给的 gsv_root 没有 GPT_SoVITS/TTS_infer_pack：{explicit}")
+    current = os.path.dirname(os.path.abspath(py_exe)) if py_exe else ""
+    for _ in range(5):
+        if not current or _has_gsv_tree(current):
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            current = ""
+            break
+        current = parent
+    return current if _has_gsv_tree(current) else ""
+
+
+def prefer_non_sox_backend(windows=None):
+    """POSIX 上把 torchaudio 的 sox 后端摘掉——上游 TTS.py 调的是无参 torchaudio.load。
+
+    ``libtorchaudio_sox.so`` 按上游 sox 14.4.2 的 ABI 编译，而 Arch 等发行版的
+    ``libsox`` 实为 sox_ng 14.8：命中它是 SIGSEGV，不是可捕获的异常。后端表在
+    import 期被 lru_cache 固化进 load/info/save 的闭包，所以摘掉一项就得用同模块
+    的工厂把这三个函数重建一遍。只在 soundfile 也在场时动手——否则会把
+    真 sox 14.4.2 的正常环境一起带走。
+    """
+    if (os.name == "nt") if windows is None else windows:
+        return "windows-untouched"
+    try:
+        import torchaudio
+        from torchaudio._backend import utils as _backend_utils
+
+        backends = _backend_utils.get_available_backends()
+    except Exception as exc:  # 版本形状不认识就别动它
+        log(f"读不到 torchaudio 后端表，保持原样：{exc}")
+        return "unknown-api"
+    if "sox" not in backends:
+        return "no-sox"
+    if "soundfile" not in backends:
+        log("torchaudio 没有 soundfile 后端，sox 留着不动")
+        return "no-soundfile"
+    backends.pop("sox")
+    torchaudio.info = _backend_utils.get_info_func()
+    torchaudio.load = _backend_utils.get_load_func()
+    torchaudio.save = _backend_utils.get_save_func()
+    return "sox-dropped"
+
+
 def main():
     log("=== gsv_infer 启动 ===")
     log(f"sys.argv={sys.argv}")
@@ -43,15 +102,11 @@ def main():
             return
         args = json.loads(payload_line)
         output_wav = args["output_wav"]
-        gsv_root = None
         py_exe = sys.executable
         log(f"python_exe={py_exe}")
-        if py_exe:
-            d = os.path.dirname(py_exe)
-            if os.path.basename(d).lower() == "runtime":
-                gsv_root = os.path.dirname(d)
+        gsv_root = find_gsv_root(str(args.get("gsv_root") or ""), py_exe)
 
-        if gsv_root and os.path.isdir(gsv_root):
+        if gsv_root:
             os.chdir(gsv_root)
             sys.path.insert(0, gsv_root)
             sys.path.insert(0, os.path.join(gsv_root, "GPT_SoVITS"))
@@ -73,6 +128,7 @@ def main():
         log("import GPT_SoVITS.TTS_infer_pack.TTS …")
         from GPT_SoVITS.TTS_infer_pack.TTS import TTS, TTS_Config
         log(f"import ok ({time.time()-t0:.1f}s)")
+        log(f"torchaudio 后端处置：{prefer_non_sox_backend()}")
 
         config_path = args.get("tts_config",
             os.path.join("GPT_SoVITS", "configs", "tts_infer.yaml"))
