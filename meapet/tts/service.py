@@ -50,7 +50,15 @@ from meapet.tts.common import (
 from meapet.tts.common import _get_import_name as _get_import_name
 from meapet.tts.engines.gsv import TtsGsvMixin
 from meapet.tts.engines.mimo import TtsMimoMixin
+from meapet.tts.engines.protocol import ENGINE_REGISTRY, EngineCapabilities
 from meapet.tts.engines.vits import TtsVitsMixin
+
+#: P1-4：把协议化引擎登记进全局表。放模块级而不是 `engines/__init__.py`——
+#: 那个包被到处 import，自带注册副作用会让测试顺序变得有意义。
+from meapet.tts.engines.onnx_local import create_onnx_engine  # noqa: E402
+
+if "onnx" not in ENGINE_REGISTRY:
+    ENGINE_REGISTRY.register("onnx", create_onnx_engine)
 from meapet.tts.language_policy import (
     canonical_tts_language,
     detect_script_language,
@@ -196,6 +204,12 @@ def select_gsv_python(
 
 class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
     """梅尔语音合成：通过子进程调用 GPT-SoVITS v2pro"""
+
+    #: P1-4 插件引擎实例。类级默认值是**契约**不是冗余：`health_check` 与
+    #: `speak` 都读它，而既有取证测试用 `MeaTTS.__new__(MeaTTS)` 绕开构造
+    #: 直接拼一个桩（tests/test_review_regressions.py 的 GSV 那两条就是这么做的）。
+    #: 没有这一行，那些桩会在第一行就 AttributeError。
+    _plugin_engine = None
 
     def __init__(self, config: Optional[dict] = None):
         cfg = config or {}
@@ -388,6 +402,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self.engine = engine
         self._vits_mode = engine == "vits" or tts_cfg.get("vits_mode", False)
         self._mimo_mode = engine == "mimo"
+        # P1-4：插拔式引擎的创建与能力矩阵见 __init__ 末尾的 _init_plugin_engine()
+        # 与 capabilities property——**不能插在 __init__ 中间**：那样会把构造函数
+        # 从中间截断，后半段（voice_lang 等）会落进新方法里变成不可达死代码。
+        self._plugin_engine = None
         # 外部 VITS Python 优先：向导里配置的 vits_python / 可用解释器。
         # 只有在没有外部解释器时，打包版才默认走进程内 torch。
         raw_vits_python = str(tts_cfg.get("vits_python") or "").strip()
@@ -534,6 +552,63 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 f"top_k={self.top_k} top_p={self.top_p} temp={self.temperature}"
             )
 
+        # P1-4：协议化引擎放在 **__init__ 最末尾** 建——它依赖上面所有字段
+        # （voice_lang / 语言路由 / 覆盖配置）。插在中间会把构造函数从中间截断，
+        # 后半段全部落进新方法里变成不可达代码（2026-11-14 实测踩过，
+        # 症状是 AttributeError: 'MeaTTS' object has no attribute 'voice_lang'）。
+        self._init_plugin_engine(cfg)
+
+    def _init_plugin_engine(self, cfg: dict) -> None:
+        """按名字从注册表造插件引擎；名字不在表里就留 None（保持既有三引擎行为）。
+
+        **懒建**：工厂只记配置，不载模型。ONNX 载入实测 4 秒，启动期不该付这笔。
+        """
+        self._plugin_engine = None
+        if self.engine not in ENGINE_REGISTRY:
+            return
+        try:
+            self._plugin_engine = ENGINE_REGISTRY.create(self.engine, cfg)
+        except Exception as exc:  # noqa: BLE001 - 建不起来要出声，别静默降级
+            log.warning(
+                f"MeaTTS: 引擎 {self.engine!r} 实例化失败: {type(exc).__name__}: {exc}"
+            )
+            self._plugin_engine = None
+            return
+        caps = getattr(self._plugin_engine, "capabilities", None)
+        if caps is not None:
+            log.info(f"MeaTTS ({self.engine}) | {caps.describe()}")
+
+    @property
+    def capabilities(self) -> EngineCapabilities:
+        """本实例所走引擎的能力矩阵（给 doctor 与向导排 UI 用）。
+
+        三条既有路径在这里**描述**而不是改造：它们的能力是既成事实，
+        这一轮只把它写下来，好让调用方能按能力选路，而不必到处
+        `if engine == "mimo"`。
+        """
+        if self._plugin_engine is not None:
+            return getattr(self._plugin_engine, "capabilities", EngineCapabilities())
+        if self._mimo_mode:
+            return EngineCapabilities(
+                languages=("zh", "en"),
+                size_tier="tiny",
+                latency="medium",
+                config_keys=("mimo_api_base", "mimo_api_key", "mimo_voice"),
+            )
+        if self._vits_mode:
+            return EngineCapabilities(
+                languages=("zh", "jp", "en"),
+                size_tier="heavy",
+                latency="slow",
+                config_keys=("vits_model", "vits_config", "vits_python"),
+            )
+        return EngineCapabilities(
+            languages=("zh", "jp", "en"),
+            size_tier="heavy",
+            latency="slow",
+            config_keys=("python_exe", "gpt_model", "sovits_model"),
+        )
+
     def _vits_route(self):
         """本实例的 VITS 选路结果 —— 健康检查与 speak 的唯一判据。
 
@@ -584,6 +659,22 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
 
     def health_check(self) -> bool:
         """检查关键文件是否存在，并确保依赖已安装"""
+        # P1-4：协议化引擎自己回答这一问（模型在不在、依赖装没装）。
+        # 放在最前面是因为它是**新增第四档**，不参与下面三条既有分支的判定。
+        if self._plugin_engine is not None:
+            try:
+                ok = bool(self._plugin_engine.health_check())
+            except Exception as exc:  # noqa: BLE001 - 健康检查自己炸了要当成不健康
+                log.warning(
+                    f"Health ({self.engine}): 检查抛异常 "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                ok = False
+            self._deps_ready = ok
+            caps = self.capabilities
+            log.info(f"Health ({self.engine}): ok={ok} · {caps.describe()}")
+            return ok
+
         if self._mimo_mode:
             key_ok = bool(self.mimo_api_key)
             base_ok = bool(self.mimo_api_base)
@@ -738,6 +829,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         """speak 前确保依赖就绪；默认只检测，不自动下载"""
         if self._deps_ready:
             return True
+        # P1-4：协议化引擎自己回答依赖就绪（它不要 GSV 的那套 pip 探测，
+        # 也不该被 auto_install_gsv_deps 拖去装 torch）
+        if self._plugin_engine is not None:
+            return self.health_check()
         # 云端 / VITS 不需要本地 GSV 依赖
         if self._mimo_mode:
             ok = bool(self.mimo_api_key and self.mimo_api_base)
@@ -1149,8 +1244,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         if not text or not text.strip():
             return None
 
-        # 本地 GSV 才需要模型文件
-        if not self._mimo_mode and not self._vits_mode:
+        # 本地 GSV 才需要模型文件（协议化引擎自带前置检查，见 health_check）
+        if self._plugin_engine is not None:
+            pass
+        elif not self._mimo_mode and not self._vits_mode:
             if not is_model_artifact_ready(self.gpt_path):
                 if is_git_lfs_pointer(self.gpt_path):
                     log.error("TTS: GPT 模型仍是 Git LFS pointer，不会自动拉取")
@@ -1240,6 +1337,27 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
 
         # 输出文件
         output_wav = self._new_output_wav_path()
+
+        # ── P1-4 协议化引擎：语言处理已在上面的 _prepare_tts_text 走完，
+        #    到这里只剩"合成本身"，正是协议要接住的那一刀。──
+        if self._plugin_engine is not None:
+            try:
+                result = self._plugin_engine.speak(
+                    tts_text,
+                    output_wav,
+                    mood=mood,
+                    style=style,
+                    language=synthesis_language,
+                )
+            except Exception as exc:  # noqa: BLE001 - 引擎炸了不该带走整条对话
+                log.warning(
+                    f"TTS ({self.engine}): 合成抛异常 "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return None, ""
+            if not result or not result[0]:
+                return None, ""
+            return result
 
         # ── MiMo 云端：clone 参考也按最终合成语言挑选 ──
         if self._mimo_mode:

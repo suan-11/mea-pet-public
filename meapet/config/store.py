@@ -1113,6 +1113,12 @@ def normalize_config(config: dict) -> dict:
         tts["supported_languages"] = supported
     else:
         tts.pop("supported_languages", None)
+    # P1-4 轻量 ONNX 引擎：与 vits 那几格同纪律——空串表示"没配"，
+    # 数值收敛到引擎接受的区间，非法值退回默认而不是把引擎搞成拒绝加载。
+    tts["onnx_model_dir"] = str(tts.get("onnx_model_dir") or "").strip()
+    tts["onnx_speaker"] = clamp_int(tts.get("onnx_speaker"), 0, 0, 1000)
+    tts["onnx_speed"] = clamp_float(tts.get("onnx_speed"), 1.0, 0.3, 3.0)
+    tts["onnx_num_threads"] = clamp_int(tts.get("onnx_num_threads"), 2, 1, 16)
     cfg["tts"] = tts
 
     # watcher 统一结构（interval 内嵌，不再用顶层 watcher_interval）

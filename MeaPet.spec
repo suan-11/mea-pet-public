@@ -184,6 +184,24 @@ for _pkg in ("sherpa_onnx", "pyaudio"):
         _voice_duplex_missing.append(_pkg)
 _datas += _voice_duplex_datas
 
+# P1-4：轻量 ONNX 语音模型（~20 MB）。**进了它，core 包才真的不用装 torch 也能出声**——
+# 这是 P0-2 瘦身逻辑的收尾：以前用户要听本地声音必须下 1 GB 级的外置 VITS 扩展包。
+# 目录不存在时不报错（模型是按需下载物，不该挡住出包），但 doctor 的 tts_engines
+# 那一格会当场点名「模型目录=缺席」。
+_onnx_voice_dir = Path(SPECPATH) / "models" / "voice_onnx"
+if _onnx_voice_dir.is_dir():
+    _datas.append((str(_onnx_voice_dir), "models/voice_onnx"))
+    print(
+        f"[MeaPet.spec] 轻量 ONNX 语音模型已收编：models/voice_onnx（P1-4）",
+        file=sys.stderr,
+    )
+else:
+    print(
+        "[MeaPet.spec] 未带轻量 ONNX 语音模型（models/voice_onnx 不存在）："
+        "本包仍需外置扩展包或云端 TTS 才能发声",
+        file=sys.stderr,
+    )
+
 # 进程内 VITS 与文本前端语言支线的 hiddenimports（core 档整块不收）。
 # pyopenjtalk **不在此列**：其 -prebuilt 轮子只到 cp311（vits_requirements.txt
 # 顶部注释的现量），3.13 构建环境装不上 ⇒ 3.13 打的包里 ja 前端整支缺席，

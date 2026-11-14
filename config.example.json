@@ -113,6 +113,10 @@
     "vits_inprocess": null,
     "vits_model": "",
     "vits_config": "",
+    "onnx_model_dir": "",
+    "onnx_speaker": 0,
+    "onnx_speed": 1.0,
+    "onnx_num_threads": 2,
     "vits_speaker": "Mea",
     "vits_pack_url": "",
     "vits_pack_dir": ""

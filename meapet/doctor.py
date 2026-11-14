@@ -459,6 +459,47 @@ def _voice_libs() -> str:
     return " ".join(parts)
 
 
+def _tts_engines(config: dict) -> str:
+    """P1-4：引擎注册表与能力矩阵的读数。
+
+    分件报：注册了哪些、当前走哪个、它声明了什么能力、模型在不在。
+    混成一句「TTS 可用」就等于没说——「注册了但模型没下」与「没注册」
+    是两种完全不同的处置。
+    """
+    # 注册写在 meapet.tts.service 的模块级（见那里的注释）。doctor 若只 import
+    # protocol，读到的就是一张空表——冻结版实测就这么报了「已注册=无」，
+    # 而产品侧一切正常。读数必须先让注册发生。
+    import meapet.tts.service  # noqa: F401
+    from meapet.tts.engines.protocol import ENGINE_REGISTRY
+
+    cfg = (config or {}).get("tts") or {}
+    current = str(cfg.get("engine") or "gpt_sovits")
+    parts = [f"当前={current}", f"已注册={','.join(ENGINE_REGISTRY.names()) or '无'}"]
+
+    if current in ENGINE_REGISTRY:
+        model_dir = str(cfg.get("onnx_model_dir") or "").strip()
+        present = bool(model_dir) and os.path.isdir(model_dir)
+        onnx_count = 0
+        if present:
+            try:
+                onnx_count = sum(1 for f in os.listdir(model_dir) if f.endswith(".onnx"))
+            except OSError:
+                present = False
+        parts.append(
+            f"模型目录={'在场' if present else '缺席'}"
+            f"(onnx={onnx_count} 个)"
+        )
+        try:
+            caps = ENGINE_REGISTRY.capabilities_of(current)
+            parts.append(caps.describe())
+        except Exception as exc:  # noqa: BLE001 - 能力读不出是读数问题，不阻断 doctor
+            parts.append(f"能力读取失败={type(exc).__name__}")
+    else:
+        # 既有三引擎走布尔分发，没有注册表条目——这里如实说明，不假装它们也"可插拔"
+        parts.append("能力矩阵=见 MeaTTS.capabilities（既有三引擎）")
+    return " · ".join(parts)
+
+
 def _input_devices(config: dict) -> str:
     from meapet.voice.engine import VOICE_INPUT_SAMPLE_RATE, list_input_devices
 
@@ -1141,6 +1182,13 @@ def collect(config: dict, *, with_gui: bool = False, skip_tts: bool = False,
             "两档各问一次是因为产品自己那张表就写着「下了 fp32 却仍读 int8」这一怕；"
             "配置档=缺席 而另一档=在场 ⇒ 不是没下载，是下错了档。模型路径与档位表都取自 meapet.paths 那一个真值",
             lambda: _asr(config),
+        ),
+        _probe(
+            "tts_engines",
+            "P1-4：注册表里有哪些引擎、当前走哪个、它声明什么能力、模型在不在。"
+            "「注册了但模型没下」与「压根没注册」是两种处置，所以分件报；"
+            "既有三引擎走布尔分发、没有注册表条目，这里如实说明而不假装它们也可插拔",
+            lambda: _tts_engines(config),
         ),
         _probe(
             "voice_duplex",
