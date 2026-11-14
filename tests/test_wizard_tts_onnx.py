@@ -94,10 +94,12 @@ def test_apply_config_restores_onnx(page, tmp_path):
         "enabled": True,
         "onnx_model_dir": str(directory),
         "onnx_speed": 1.2,
+        "onnx_speaker": 7,
     })
     assert page.backend_combo.currentData() == "onnx"
     assert page.onnx_model_dir_input.text() == str(directory)
     assert page.onnx_speed_combo.currentData() == 1.2
+    assert page.onnx_speaker_spin.value() == 7
     assert "模型就绪" in page.onnx_model_status.text()
 
 
@@ -235,11 +237,13 @@ def test_collect_writes_onnx_fields(wizard, tmp_path):
     wizard.tts_page.set_engine("onnx")
     wizard.tts_page.onnx_model_dir_input.setText(str(tmp_path))
     wizard.tts_page.onnx_speed_combo.setCurrentIndex(2)  # 1.2×
+    wizard.tts_page.onnx_speaker_spin.setValue(5)
     config = {"tts": {"engine": "mimo"}}
     wizard._collect_tts_fields(config)
     assert config["tts"]["engine"] == "onnx"
     assert config["tts"]["onnx_model_dir"] == str(tmp_path)
     assert config["tts"]["onnx_speed"] == 1.2
+    assert config["tts"]["onnx_speaker"] == 5
 
 
 def test_collect_empty_dir_falls_back_to_default(wizard):

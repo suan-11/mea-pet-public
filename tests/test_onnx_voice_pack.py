@@ -54,7 +54,7 @@ def make_model_tar(
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
 
-        add("zh_CN-chaowen-medium.onnx", b"fake-onnx")
+        add("model.onnx", b"fake-onnx")
         if tokens:
             add("tokens.txt", b"_ 0\n")
         add("lexicon.txt", "ni 你\n".encode("utf-8"))
@@ -137,7 +137,7 @@ def test_install_success_api_route(tmp_path):
     root = model_root(tmp_path)
     assert info["model_dir"] == str(root)
     # 官方包的包装目录被剥掉：模型文件直接落在 model_root（引擎只认这一层）
-    assert (root / "zh_CN-chaowen-medium.onnx").is_file()
+    assert (root / "model.onnx").is_file()
     assert (root / "tokens.txt").is_file()
     assert not (root / onnx_voice_pack.ONNX_VOICE_MODEL_NAME).exists()
     assert info["sha256"] == hashlib.sha256(tar_bytes).hexdigest()
@@ -180,10 +180,30 @@ def test_install_custom_url(tmp_path):
     assert info["route"] == "自定义直链"
 
 
+def test_rule_far_excluded(tmp_path):
+    """rule.far 是 180 MB 编译规则总档案，运行时用不到——收进来会击穿轻量预算。"""
+    buf = io.BytesIO()
+    prefix = onnx_voice_pack.ONNX_VOICE_MODEL_NAME + "/"
+    with tarfile.open(fileobj=buf, mode="w:bz2") as archive:
+        for name, data in (
+            ("model.onnx", b"fake-onnx"),
+            ("tokens.txt", b"_ 0\n"),
+            ("rule.far", b"x" * 4096),
+        ):
+            info = tarfile.TarInfo(prefix + name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    tar_bytes = buf.getvalue()
+    install(tmp_path, tar_bytes=tar_bytes)
+    root = model_root(tmp_path)
+    assert (root / "model.onnx").is_file()
+    assert not (root / "rule.far").exists()
+
+
 def test_flat_archive_without_wrapper(tmp_path):
     tar_bytes = make_model_tar(wrapper=False)
     info = install(tmp_path, tar_bytes=tar_bytes)
-    assert (model_root(tmp_path) / "zh_CN-chaowen-medium.onnx").is_file()
+    assert (model_root(tmp_path) / "model.onnx").is_file()
     assert info["model_dir"] == str(model_root(tmp_path))
 
 
@@ -194,7 +214,7 @@ def test_reinstall_replaces_old_dir(tmp_path):
     (root / "tokens.txt").write_text("old")
     install(tmp_path)
     assert not (root / "stale.onnx").exists()
-    assert (root / "zh_CN-chaowen-medium.onnx").is_file()
+    assert (root / "model.onnx").is_file()
     assert not root.with_name("voice_onnx.old").exists()
     assert not root.with_name("voice_onnx.new").exists()
 

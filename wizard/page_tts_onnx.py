@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -34,8 +35,9 @@ class TtsPageOnnxMixin:
         onnx_layout.setSpacing(10)
 
         description = QLabel(
-            "轻量离线语音（ONNX）：不需要 torch 与整合包，与语音输入共用 sherpa-onnx 底座。\n"
-            "模型约 20 MB，中文可读可用；不支持音色克隆与情绪（那两项用 GPT-SoVITS）。"
+            "轻量离线兜底嗓音（不是角色原声——角色原声请用 VITS / GPT-SoVITS）。\n"
+            "不需要 torch 与整合包，与语音输入共用 sherpa-onnx 底座；模型约 33 MB，\n"
+            "中文可读可用，174 个音色可选（多数女声）；不支持音色克隆与情绪。"
         )
         description.setObjectName("HelperText")
         description.setWordWrap(True)
@@ -76,7 +78,7 @@ class TtsPageOnnxMixin:
         apply_named_style(self.onnx_url_input, "STYLE_INPUT")
         self.onnx_url_input.setAccessibleName("ONNX 语音模型下载地址")
         url_row.addWidget(self.onnx_url_input)
-        self.onnx_download_btn = QPushButton("下载语音模型（约 14 MB）")
+        self.onnx_download_btn = QPushButton("下载语音模型（约 30 MB）")
         self.onnx_download_btn.setMinimumSize(180, MIN_TARGET_SIZE)
         self.onnx_download_btn.setAccessibleName("下载 ONNX 语音模型")
         self.onnx_download_btn.clicked.connect(self._download_onnx_model)
@@ -88,6 +90,25 @@ class TtsPageOnnxMixin:
         self.onnx_download_status.setWordWrap(True)
         self.onnx_download_status.setAccessibleName("ONNX 语音模型下载状态")
         onnx_layout.addWidget(self.onnx_download_status)
+
+        speaker_row = QHBoxLayout()
+        speaker_label = QLabel("音色编号：")
+        speaker_label.setObjectName("FieldLabel")
+        speaker_row.addWidget(speaker_label)
+        self.onnx_speaker_spin = QSpinBox()
+        self.onnx_speaker_spin.setObjectName("OnnxSpeaker")
+        self.onnx_speaker_spin.setAccessibleName("ONNX 音色编号")
+        self.onnx_speaker_spin.setRange(0, 1000)
+        self.onnx_speaker_spin.setValue(0)
+        self.onnx_speaker_spin.setToolTip(
+            "多说话人模型选音色：aishell3 共 174 个（0–173，多数女声），\n"
+            "改编号后点上方「测试当前语音引擎」试听；单说话人模型保持 0。"
+        )
+        speaker_row.addWidget(self.onnx_speaker_spin)
+        speaker_hint = QLabel("改完点「测试当前语音引擎」试听")
+        speaker_hint.setObjectName("HelperText")
+        speaker_row.addWidget(speaker_hint, 1)
+        onnx_layout.addLayout(speaker_row)
 
         speed_row = QHBoxLayout()
         speed_label = QLabel("语速：")
@@ -176,11 +197,22 @@ class TtsPageOnnxMixin:
         except (TypeError, ValueError):
             return 1.0
 
+    def _onnx_speaker_value(self) -> int:
+        try:
+            return int(self.onnx_speaker_spin.value())
+        except (TypeError, ValueError):
+            return 0
+
     def _apply_onnx_config(self, tts_cfg: dict):
         """从已有 config.tts 恢复 ONNX 段。配置里的语速不在档位表时如实补一档，
         不悄悄改用户的值。"""
         directory = str(tts_cfg.get("onnx_model_dir") or "").strip()
         self.onnx_model_dir_input.setText(directory)
+        try:
+            speaker = int(tts_cfg.get("onnx_speaker", 0))
+        except (TypeError, ValueError):
+            speaker = 0
+        self.onnx_speaker_spin.setValue(max(0, min(speaker, 1000)))
         try:
             speed = float(tts_cfg.get("onnx_speed", 1.0))
         except (TypeError, ValueError):

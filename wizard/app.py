@@ -1669,6 +1669,11 @@ class SetupWizard(QWidget):
                 if hasattr(self.tts_page, "vits_pack_url_input") else ""
             ),
             "onnx_model_dir": onnx_dir,
+            "onnx_speaker": (
+                self.tts_page._onnx_speaker_value()
+                if hasattr(self.tts_page, "_onnx_speaker_value")
+                else tts.get("onnx_speaker", 0)
+            ),
             "onnx_speed": (
                 self.tts_page._onnx_speed_value()
                 if hasattr(self.tts_page, "_onnx_speed_value")

@@ -84,7 +84,19 @@
 
 ---
 
-## 四、运行时 Python 包依赖
+## 四、按需下载的语音模型（不随包分发）
+
+### AISHELL-3 / vits-icefall-zh-aishell3
+
+- **数据集**: https://www.openslr.org/93/ （AISHELL-3 多说话人普通话 TTS 语料库）
+- **模型**: https://github.com/k2-fsa/sherpa-onnx （tts-models Release 资产 `vits-icefall-zh-aishell3`）
+- **许可证**: Apache License 2.0（数据集与 sherpa-onnx 模型）
+- **使用方式**: ONNX 轻量离线兜底引擎的默认嗓音，由配置向导按需下载至 `models/voice_onnx/`，不随代码仓库与安装包分发；174 个说话人，多数女声
+- **版权声明**: Copyright AISHELL Foundation；模型由 k2-fsa/sherpa-onnx 团队训练发布
+
+---
+
+## 五、运行时 Python 包依赖
 
 以下为项目运行时通过 pip 安装的 Python 包依赖（仅列出核心依赖，完整清单见各 `requirements.txt`）。各包遵循其各自的许可证条款：
 
@@ -122,7 +134,7 @@
 
 ---
 
-## 五、致谢
+## 六、致谢
 
 - **DeepSeek** — AI 对话 API 服务 (https://deepseek.com/)
 - **CMU Pronouncing Dictionary** — 英语音素词典，`vits_core/text/` 使用其数据 (BSD-like)

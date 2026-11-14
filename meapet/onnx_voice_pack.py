@@ -21,9 +21,10 @@ ONNX 引擎（meapet/tts/engines/onnx_local.py）只认盘上的文件，而模�
 
 模型布局契约（与 sherpa-onnx 官方包一致；引擎 _resolve_model_files 读同一形状）::
 
-    <model_dir>/<名字>.onnx     恰好一个（多份并存引擎会拒绝挑）
+    <model_dir>/model.onnx      恰好一个 .onnx（多份并存引擎会拒绝挑）
     <model_dir>/tokens.txt
     <model_dir>/lexicon.txt / *.fst / espeak-ng-data/   可选文本前端件
+    <model_dir>/speakers.txt    多说话人模型的说话人表（可选）
 
 本模块不 import meapet.* 之外的产品模块，也不碰 Qt。
 """
@@ -38,18 +39,24 @@ from typing import Callable
 from meapet import fidus_channel
 from meapet.vits_pack import sha256_of
 
-#: 实测选型（docs/tts-engine-plugins.zh-CN.md）：中文、单说话人、int8。
-ONNX_VOICE_MODEL_NAME = "vits-piper-zh_CN-chaowen-medium-int8"
+#: 选型（docs/tts-engine-plugins.zh-CN.md §8）：AISHELL-3 多说话人中文 VITS，
+#: Apache-2.0，174 个说话人多数女声（实测 sid 0–9 基频 190–258 Hz）。
+#: 前任 chaowen 是男声，与女角色桌宠不合；xiao_ya 数据集非商业许可、
+#: huayan 许可不明，均不适合公开分发——许可与音色贴合都是硬判据。
+ONNX_VOICE_MODEL_NAME = "vits-icefall-zh-aishell3"
 DEFAULT_ONNX_VOICE_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
     f"{ONNX_VOICE_MODEL_NAME}.tar.bz2"
 )
-#: 钉的是 2026-11-14 真机取回并逐字节核对过的那一次发布：解包后 8 个文件
-#: 与 P1-4 真机验收用的模型副本全部 sha256 一致。上游重新发布就必须换钉。
+#: 钉的是 2026-11-14 真机取回并核验过的那一次发布。上游重新发布就必须换钉。
 ONNX_VOICE_SHA256 = (
-    "f5f7c8628427fbb259ea4b7ec1a9a822a0c04e3f267071f0abfa0610371d9e0c"
+    "ab468db3a3308cdd861495e0db2f25d79418a0c00639f74944c7cdf5dd8c6ec1"
 )
-ONNX_VOICE_ARCHIVE_BYTES = 14_011_298
+ONNX_VOICE_ARCHIVE_BYTES = 31_559_701
+#: 官方包里的 rule.far 是 180 MB 的编译规则总档案，运行时只用解出的小 fst
+#: （date/number/phone），引擎也不读它——收进来会击穿 150 MB 轻量预算，
+#: 解压时按名排除。排除的是「用不到的大件」，不是模型本体。
+EXCLUDED_ARCHIVE_ENTRIES = frozenset({"rule.far"})
 #: 官方双路由都失败时的第三条路。只镜像 github.com 的 Release 直链，
 #: 取回的字节仍要过上面那枚钉住的哈希——镜像只是路由，不是身份。
 GITHUB_MIRROR_PREFIX = "https://gh-proxy.com/"
@@ -102,16 +109,26 @@ def _download(url: str, dest: Path, *, timeout: float, opener) -> str:
     return "自定义直链"
 
 
-def safe_extract_tar(archive_path: Path, dest_dir: Path) -> Path:
+def safe_extract_tar(
+    archive_path: Path,
+    dest_dir: Path,
+    *,
+    exclude_names: frozenset = frozenset(),
+) -> Path:
     """解压并拒绝越界：任何条目解析后必须仍在 dest_dir 内，链接目标同理。
 
     不用 tarfile 的 filter 参数（requires-python >= 3.10，旧补丁版没有），
     逐件预检给出与 vits_pack.safe_extract 同款的明确报错。
+    exclude_names 按 basename 排除用不到的大件（如 rule.far）。
     """
     dest_dir = Path(dest_dir).resolve()
     dest_dir.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, "r:bz2") as archive:
-        for member in archive.getmembers():
+        members = [
+            m for m in archive.getmembers()
+            if Path(m.name).name not in exclude_names
+        ]
+        for member in members:
             target = (dest_dir / member.name).resolve()
             if target != dest_dir and dest_dir not in target.parents:
                 raise OnnxVoicePackError(
@@ -125,9 +142,9 @@ def safe_extract_tar(archive_path: Path, dest_dir: Path) -> Path:
                     )
         # 新解释器上再叠一层官方 data filter（3.10 旧补丁版没有，预检已兜底）。
         if hasattr(tarfile, "data_filter"):
-            archive.extractall(dest_dir, filter="data")
+            archive.extractall(dest_dir, members=members, filter="data")
         else:
-            archive.extractall(dest_dir)
+            archive.extractall(dest_dir, members=members)
     return dest_dir
 
 
@@ -169,7 +186,8 @@ def install_onnx_voice(
     model_root: Path | str,
     *,
     expected_sha256: str = ONNX_VOICE_SHA256,
-    timeout: float = 300.0,
+    # 本机实测代理路由 ~100 KB/s：31 MB 要 300 s+，默认 300 会把慢网掐死。
+    timeout: float = 600.0,
     opener: fidus_channel.Opener = fidus_channel._urlopen,
     progress: Callable[[str], None] | None = None,
 ) -> dict:
@@ -206,7 +224,9 @@ def install_onnx_voice(
         fresh = model_root.with_name(model_root.name + ".new")
         if fresh.exists():
             shutil.rmtree(fresh)
-        safe_extract_tar(archive_path, fresh)
+        safe_extract_tar(
+            archive_path, fresh, exclude_names=EXCLUDED_ARCHIVE_ENTRIES
+        )
         located = _locate_model_dir(fresh)
         # 旧目录先改名再换入，失败可回滚（vits_pack 同款）。
         old = model_root.with_name(model_root.name + ".old")

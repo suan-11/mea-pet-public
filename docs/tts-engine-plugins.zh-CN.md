@@ -58,7 +58,8 @@ core 包 321 MB，但**本地离线发声**仍要外置 VITS 扩展包（便携 
 sherpa-onnx 的 `OfflineTts` 跑 ONNX 时**不需要 torch**——而 P1-3 已经把
 sherpa-onnx 装进 core 了，所以这个引擎的**净增量只有模型体积**。
 
-实测选型：`vits-piper-zh_CN-chaowen-medium-int8`
+实测选型：`vits-piper-zh_CN-chaowen-medium-int8`（**后被撤换**：男声不合角色，
+见 §8 选型更正；现默认 `vits-icefall-zh-aishell3`）
 
 | 读数 | 值 |
 | --- | --- |
@@ -176,10 +177,15 @@ AttributeError: 'MeaTTS' object has no attribute 'voice_lang'
 上一版这里写着「未做向导 UI，要手改配置文件切引擎」——招牌能力「开箱离线发声」
 卡在最后一公里。本轮把它补齐：
 
-**入口**：配置向导 → 语音设置 → 引擎下拉选「ONNX 轻量离线」→「下载语音模型（约 14 MB）」。
-下载成功自动把落盘目录填进输入框，保存配置即生效；目录留空时保存流回落默认目录
-`models/voice_onnx`（冻结版即 `_internal/models/voice_onnx`，与 spec 随包收编同一处），
-所以「选引擎 + 保存」对随包带模型的构建开箱即用。
+**入口**：配置向导 → 语音设置 → 引擎下拉选「ONNX 轻量离线（兜底嗓音·非角色原声）」→
+「下载语音模型（约 30 MB）」。下载成功自动把落盘目录填进输入框，保存配置即生效；
+目录留空时保存流回落默认目录 `models/voice_onnx`（冻结版即
+`_internal/models/voice_onnx`，与 spec 随包收编同一处），所以「选引擎 + 保存」对随包带
+模型的构建开箱即用。多说话人模型可在「音色编号」选音色，改完点「测试当前语音引擎」试听。
+
+**定位要说清**：这一档是**通用兜底嗓音**——给不下 1 GB torch 扩展包的新用户「先听个响」，
+**不是角色原声**。角色原声走 VITS（角色权重）/ GPT-SoVITS（mea_pro 等专属权重）。
+「让轻量档也说角色声音」的正路是蒸馏，见路线图 P1-6。
 
 **取件通道** `meapet/onnx_voice_pack.py`（纯标准库，向导线程直接调，与
 `meapet/vits_pack.py` 同形）：
@@ -192,18 +198,31 @@ AttributeError: 'MeaTTS' object has no attribute 'voice_lang'
 | 换入 | 整目录 .new → 正式 → 清 .old，失败回滚，不做"覆盖到一半" |
 | 判据 | 与引擎 `_resolve_model_files` 同一套：恰好一个 .onnx + tokens.txt；多份拒绝挑 |
 
-**实测读数（2026-11-14，Windows 本机）**：
+**选型更正（同日）**：首版钉的是 `vits-piper-zh_CN-chaowen-medium-int8`——实测
+延迟/体积/复读都过关，但**它是男声**，与女角色桌宠不合（选型时漏了「音色贴合角色」
+这一格，用户一耳朵听出）。候选复核：
+
+| 候选 | 性别 | 许可证 | 结论 |
+| --- | --- | --- | --- |
+| chaowen int8 | 男 | CC0 | 音色不合，撤 |
+| xiao_ya int8 | 女 | 数据集 BZNSYP **非商业** | 公开分发不可用 |
+| huayan fp32 | 女 | 数据集许可**不明** | 风险，不取 |
+| **vits-icefall-zh-aishell3** | 174 说话人多数女 | **Apache-2.0** | **取**：31.6 MB 档案，sherpa-onnx 原生 icefall VITS |
+
+**实测读数（2026-11-14，Windows 本机，aishell3）**：
 
 | 项 | 值 |
 | --- | --- |
-| 档案 | `vits-piper-zh_CN-chaowen-medium-int8.tar.bz2`，14,011,298 B |
-| sha256 | `f5f7c8628427fbb259ea4b7ec1a9a822a0c04e3f267071f0abfa0610371d9e0c` |
-| 内容核对 | 解包 8 件与 P1-4 真机验收用的模型副本**逐字节 sha256 一致** |
-| 真机取件 | 39.9 s（API 路由撞限流后走直链兜底成功），阶段：下载/核验/解压/就绪 |
-| 取回即出声 | 新下载模型载入 2078 ms，合成 16 字 → 2.93 s 音频（129 KB wav） |
+| 档案 | `vits-icefall-zh-aishell3.tar.bz2`，31,559,701 B |
+| sha256 | `ab468db3a3308cdd861495e0db2f25d79418a0c00639f74944c7cdf5dd8c6ec1` |
+| rule.far | 官方包内 180 MB 编译规则总档案，运行时只用小 fst ⇒ **解压时按名排除**，落盘约 33 MB（预算 150） |
+| 载入 | 906 ms，174 说话人 |
+| 音色性别核验 | sid 0–9 合成样本基频中位 190–258 Hz（女声档；男声通常 85–155 Hz） |
+| 网络读数 | 本机代理路由实测 ~100 KB/s ⇒ 取件默认超时提到 600 s；真机取件 171.2 s（直链路由，下载 159.8 s）；gh-proxy 镜像证书链在 Python certifi 下验不过（curl 可），只作末位兜底 |
+| 落盘 | 31.2 MB（rule.far 已排除）；载入 1062 ms，合成 16 字 → 2.9 s 音频，174 说话人 |
 
 **测试**：`tests/test_onnx_voice_pack.py`（假 opener + 内存 tar.bz2：四条路由、
-哈希不符、tar 越界、缺 tokens、多份 onnx、重装覆盖、staging 清理）与
-`tests/test_wizard_tts_onnx.py`（下拉/显隐/回填/状态读数/下载接线/保存流）。
-真网络取件不进 CI，由上表的真机读数留档。
+哈希不符、tar 越界、缺 tokens、多份 onnx、rule.far 排除、重装覆盖、staging 清理）与
+`tests/test_wizard_tts_onnx.py`（下拉/显隐/回填/音色编号/状态读数/下载接线/保存流/
+探测语言）。真网络取件不进 CI，由上表的真机读数留档。
 

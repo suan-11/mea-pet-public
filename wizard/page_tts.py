@@ -91,7 +91,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         self.backend_combo.setObjectName("TtsEngine")
         self.backend_combo.setAccessibleName("语音引擎")
         self.backend_combo.addItem("MiMo 云端 TTS（推荐：无需本地模型，用 API Key）", "mimo")
-        self.backend_combo.addItem("ONNX 轻量离线（无需 torch，模型约 20 MB，中文）", "onnx")
+        self.backend_combo.addItem("ONNX 轻量离线（兜底嗓音·非角色原声，无需 torch）", "onnx")
         self.backend_combo.addItem("VITS（轻量快速，无需整合包，效果勉强能用）", "vits")
         self.backend_combo.addItem("GPT-SoVITS（效果超好，需要整合包，推理慢）", "gpt_sovits")
         self.backend_combo.currentIndexChanged.connect(self._toggle_backend)
@@ -490,6 +490,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
             "onnx_url_input",
             "onnx_download_btn",
             "onnx_speed_combo",
+            "onnx_speaker_spin",
         ):
             if hasattr(self, attr):
                 getattr(self, attr).setEnabled(on)
