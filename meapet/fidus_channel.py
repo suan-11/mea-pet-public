@@ -180,6 +180,21 @@ def _fetch_object(
     raise FidusChannelError(f"`{dest.name}` 取不回来 ⇒ " + "；".join(failures))
 
 
+def fetch_release_object(
+    url: str,
+    dest: Path,
+    *,
+    timeout: float = 300.0,
+    opener: Opener = _urlopen,
+) -> str:
+    """公共复用入口（P0-2 扩展包通道）：取回一只 GitHub Release 资产。
+
+    双路由（API 资产地址优先、直链兜底）与超时形状与 fidus 取件完全一致；
+    身份核验由调用方负责（fidus 用钉住的哈希，扩展包用边车 + 可选 expected）。
+    """
+    return _fetch_object(url, Path(dest), timeout=timeout, opener=opener)
+
+
 def default_cache_dir() -> Path:
     """取件落点。刻意用系统临时目录：把 wheel 存进仓库就是发布方明令拒绝的二次分发。"""
     return Path(tempfile.gettempdir()) / "meapet-fidus-channel"

@@ -83,6 +83,62 @@ def _post_to_main(fn) -> None:
 
 
 class TtsPageVitsMixin:
+    def _download_vits_pack(self):
+        """P0-2：一键下载外置 VITS 运行时包（冻结态 pip 的替代正路）。
+
+        工作线程跑 meapet.vits_pack.install_vits_pack（fidus 双路由 + sha256
+        边车 + zip-slip 防护），阶段进度经 _post_to_main 回主线程。成功后自动
+        填好 vits_python 并记录包目录；失败响亮报错，不装成"装上了"。
+        """
+        from meapet import vits_pack
+        from meapet.paths import data_path
+
+        url = (
+            self.vits_pack_url_input.text().strip()
+            or vits_pack.DEFAULT_VITS_PACK_URL
+        )
+        self.vits_pack_btn.setEnabled(False)
+        set_status(self.vits_pack_status, "muted", "准备下载离线语音包…")
+
+        def on_stage(stage: str):
+            _post_to_main(
+                lambda: set_status(
+                    self.vits_pack_status, "muted", f"离线语音包：{stage}…"
+                )
+            )
+
+        def worker():
+            try:
+                info = vits_pack.install_vits_pack(
+                    url, data_path("addons"), progress=on_stage
+                )
+            except Exception as exc:
+                # except 块结束即 del exc——闭包必须捕获消息值，不能引用
+                # 异常变量本身（主线程回调执行时它已不存在，F821/NameError）。
+                message = str(exc)
+
+                def fail():
+                    set_status(
+                        self.vits_pack_status, "error",
+                        f"离线语音包下载失败：{message}",
+                    )
+                    self.vits_pack_btn.setEnabled(True)
+                _post_to_main(fail)
+                return
+
+            def done():
+                self._vits_pack_dir = info["pack_dir"]
+                self.vits_python_input.setText(info["python_exe"])
+                set_status(
+                    self.vits_pack_status, "success",
+                    f"语音包就绪（sha256 {info['sha256'][:12]}…，经 {info['route']}）："
+                    f"{info['python_exe']} —— 请保存配置生效",
+                )
+                self.vits_pack_btn.setEnabled(True)
+            _post_to_main(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _browse_python(self, input_field):
         wanted = "python.exe" if os.name == "nt" else "python*"
         dir_path = styled_open_file(

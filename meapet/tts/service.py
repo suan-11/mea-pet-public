@@ -411,17 +411,33 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
         self._vits_python = configured_vits_python
         self._vits_inprocess = self._vits_route().inprocess
 
+        # P0-2：外置 VITS 运行时扩展包（meapet/vits_pack.py 安装）。包目录在盘上
+        # 时，权重/配置/脚本的默认值改取包内镜像布局；显式 tts.vits_model 等仍优先。
+        self._vits_pack_dir = str(tts_cfg.get("vits_pack_dir") or "").strip()
+        if self._vits_pack_dir and not os.path.isdir(self._vits_pack_dir):
+            log.warning(
+                "TTS: tts.vits_pack_dir=%r 不在盘上，按未配置处理。",
+                self._vits_pack_dir[:200],
+            )
+            self._vits_pack_dir = ""
+
         # 旋钮生产者：以前 _vits_model/_vits_config/_vits_speaker 只有读者没有
         # 写者，两条路各自 hardcode 默认值；现在由配置落成属性，两路共用。
-        self._vits_model = str(
-            tts_cfg.get("vits_model") or vits_model_path()
+        _default_model = (
+            os.path.join(self._vits_pack_dir, "vits_models", DEFAULT_VITS_MODEL_NAME)
+            if self._vits_pack_dir else vits_model_path()
         )
-        self._vits_config = str(
-            tts_cfg.get("vits_config") or vits_config_path()
+        _default_config = (
+            os.path.join(self._vits_pack_dir, "vits_models", DEFAULT_VITS_CONFIG_NAME)
+            if self._vits_pack_dir else vits_config_path()
         )
+        self._vits_model = str(tts_cfg.get("vits_model") or _default_model)
+        self._vits_config = str(tts_cfg.get("vits_config") or _default_config)
         self._vits_speaker = str(
             tts_cfg.get("vits_speaker") or DEFAULT_VITS_SPEAKER
         )
+        # P0-4：常驻推理 worker 开关（默认开；false 回落每次合成一次性子进程）
+        self._vits_serve = bool(tts_cfg.get("vits_serve", True))
         self._vits_speaker_warning = self._check_vits_speaker(
             self._vits_config, self._vits_speaker
         )
@@ -579,7 +595,12 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             return self._deps_ready
 
         if self._vits_mode:
-            from meapet.tts.engines import vits_runtime
+            try:
+                from meapet.tts.engines import vits_runtime
+            except ImportError:
+                # core 档剥离了进程内 VITS 栈（P0-2）：探针这条路不在，
+                # 但外置包子进程路仍可用——health_check 不能因此崩。
+                vits_runtime = None
 
             route = self._vits_route()
             # 健康检查与 speak 用同一个 route：模型/配置也取引擎真正会用的
@@ -587,10 +608,11 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
             model_path, config_path, _speaker = self._vits_knobs()
             model_ok = is_model_artifact_ready(model_path)
             config_ok = os.path.isfile(config_path)
-            core_ok = os.path.isdir(project_path("vits_core"))
-            script_ok = os.path.isfile(
-                project_path("meapet", "tools", "vits_infer.py")
+            core_ok = os.path.isdir(project_path("vits_core")) or (
+                bool(self._vits_pack_dir)
+                and os.path.isdir(os.path.join(self._vits_pack_dir, "vits_core"))
             )
+            script_ok = os.path.isfile(self._vits_script_path())
             external_py = route.external_python
             probe_state = ""
             if not route.inprocess:
@@ -631,9 +653,10 @@ class MeaTTS(TtsMimoMixin, TtsGsvMixin, TtsVitsMixin):
                 #      这里只**排**探针、只读结论：failed 才拦，未出结论不拦。
                 torch_ok = module_present("torch")
                 probe_state, probe_detail = (
-                    vits_runtime.probe_torch_loadable() if torch_ok else ("", "")
+                    vits_runtime.probe_torch_loadable()
+                    if (torch_ok and vits_runtime is not None) else ("", "")
                 )
-                if probe_state == vits_runtime.PROBE_FAILED:
+                if vits_runtime is not None and probe_state == vits_runtime.PROBE_FAILED:
                     torch_ok = False
                     log.warning(
                         "Health (vits): torch 寻得到但加载不起来（%s），进程内那条路不可用"

@@ -113,7 +113,9 @@
     "vits_inprocess": null,
     "vits_model": "",
     "vits_config": "",
-    "vits_speaker": "Mea"
+    "vits_speaker": "Mea",
+    "vits_pack_url": "",
+    "vits_pack_dir": ""
   },
   "display": {
     "scale": 0.5,

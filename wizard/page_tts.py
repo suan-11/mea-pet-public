@@ -262,6 +262,40 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         self.setup_vits_btn.clicked.connect(self._setup_vits_env)
         layout.addWidget(self.setup_vits_btn)
 
+        # P0-2：离线语音包（外置 VITS 运行时）——core 版不带 torch/权重，
+        # 下载扩展包即可离线出声；冻结态 pip 不可用，这是本地语音的正路。
+        self.vits_pack_frame = QFrame()
+        vpack_layout = QVBoxLayout(self.vits_pack_frame)
+        vpack_layout.setContentsMargins(0, 0, 0, 0)
+        vpack_hint = QLabel(
+            "离线语音包：core 版不内置 torch 与权重。下载外置 VITS 运行时包"
+            "（便携 Python + 权重，约 1 GB）即可离线出声，无需 pip 安装。"
+        )
+        vpack_hint.setWordWrap(True)
+        vpack_hint.setProperty("status", "muted")
+        vpack_layout.addWidget(vpack_hint)
+        vpack_row = QHBoxLayout()
+        self.vits_pack_url_input = QLineEdit()
+        self.vits_pack_url_input.setObjectName("VitsPackUrl")
+        self.vits_pack_url_input.setPlaceholderText(
+            "留空用官方 Release 地址（GitHub 直链，zip + sha256 边车）"
+        )
+        apply_named_style(self.vits_pack_url_input, "STYLE_INPUT")
+        self.vits_pack_url_input.setAccessibleName("离线语音包下载地址")
+        vpack_row.addWidget(self.vits_pack_url_input)
+        self.vits_pack_btn = QPushButton("下载离线语音包")
+        self.vits_pack_btn.setMinimumSize(140, MIN_TARGET_SIZE)
+        self.vits_pack_btn.setAccessibleName("下载离线语音包")
+        self.vits_pack_btn.clicked.connect(self._download_vits_pack)
+        vpack_row.addWidget(self.vits_pack_btn)
+        vpack_layout.addLayout(vpack_row)
+        self.vits_pack_status = QLabel("")
+        self.vits_pack_status.setProperty("status", "muted")
+        self.vits_pack_status.setWordWrap(True)
+        self.vits_pack_status.setAccessibleName("离线语音包状态")
+        vpack_layout.addWidget(self.vits_pack_status)
+        layout.addWidget(self.vits_pack_frame)
+
         # GSV 相关控件容器（GPT-SoVITS 模式显示）
         self.gsv_container = QFrame()
         gsv_layout = QVBoxLayout(self.gsv_container)
@@ -464,6 +498,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 self.vits_python_frame.setVisible(False)
                 self.vits_status.setVisible(False)
                 self.setup_vits_btn.setVisible(False)
+            if hasattr(self, "vits_pack_frame"):
+                self.vits_pack_frame.setVisible(False)
             if hasattr(self, "gsv_container"):
                 self.gsv_container.setVisible(False)
         if hasattr(self, "engine_details_toggle"):
@@ -484,6 +520,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 "vits_python_frame",
                 "vits_status",
                 "setup_vits_btn",
+                "vits_pack_frame",
                 "gsv_container",
                 "translate_frame",
             ):
@@ -507,6 +544,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             self.vits_python_frame.setVisible(is_vits and self.enable_cb.isChecked())
             self.vits_status.setVisible(is_vits and self.enable_cb.isChecked())
             self.setup_vits_btn.setVisible(is_vits and self.enable_cb.isChecked())
+        if hasattr(self, "vits_pack_frame"):
+            self.vits_pack_frame.setVisible(is_vits and self.enable_cb.isChecked())
         if hasattr(self, "gsv_container"):
             self.gsv_container.setVisible(is_gsv and self.enable_cb.isChecked())
 
@@ -550,6 +589,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 "vits_python_frame",
                 "vits_status",
                 "setup_vits_btn",
+                "vits_pack_frame",
                 "gsv_container",
                 "translate_frame",
             ):
@@ -702,6 +742,12 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         vits_py = (tts_cfg.get("vits_python") or "").strip()
         if vits_py and hasattr(self, "vits_python_input"):
             self.vits_python_input.setText(vits_py)
+        # P0-2：扩展包目录/URL 回填（保存流读 _vits_pack_dir 与 url 输入框）
+        self._vits_pack_dir = str(tts_cfg.get("vits_pack_dir") or "").strip()
+        if hasattr(self, "vits_pack_url_input"):
+            self.vits_pack_url_input.setText(
+                str(tts_cfg.get("vits_pack_url") or "").strip()
+            )
 
         # python_exe 可能是 GSV 的 python 路径
         gsv_py = (tts_cfg.get("python_exe") or "").strip()

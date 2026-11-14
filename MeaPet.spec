@@ -2,6 +2,7 @@
 """MeaPet onedir PyInstaller spec (portable data under _internal)."""
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -12,6 +13,17 @@ block_cipher = None
 # 平台分档只用这一个判据，两处（桥接层 / fidus）共用：写三遍 `startswith` 就是三处
 # 可以互相不一致的地方。
 IS_LINUX = sys.platform.startswith("linux")
+
+# ── P0-2 发行档位（MEAPET_PROFILE=core|full）────────────────────────────────
+# core：剥离 VITS/GSV 独占栈（torch/scipy/权重/词典/整合包，约 988 MB），
+#       本地语音改走外置扩展包（meapet/vits_pack.py + tts.vits_python）。
+# full：2026-10-25 之前的整包形态，保留作对照与 Linux 唯一档。
+# 非 Linux 默认 core（路线图 P0-2 的决定）；Linux 恒 full——fidus 那格之外
+# Live2D/OpenGL 链都在场，瘦身是 Windows 包的事（与 VITS_TRIM_EXCLUDES 同判）。
+_profile_raw = os.environ.get("MEAPET_PROFILE", "").strip().lower()
+if _profile_raw not in ("", "core", "full"):
+    raise SystemExit(f"MEAPET_PROFILE 只认 core|full（收到 {_profile_raw!r}）")
+CORE_PROFILE = (not IS_LINUX) and _profile_raw != "full"
 
 # live2d-py package data (native resources); project tree live2d/ is listed in datas.
 try:
@@ -91,6 +103,31 @@ VITS_TRIM_EXCLUDES = [
     "transformers",
 ]
 heavies_excludes = [] if IS_LINUX else list(VITS_TRIM_EXCLUDES)
+
+# core 档额外剥离：torch/scipy 本体 + 进程内 VITS 运行时 + vits_core 文本前端
+# 的语言支线（全是 VITS/GSV 独占；产品代码零直接 import，grep 2026-11-14 复核）。
+# opencc/cn2an/regex 保留：opencc 是 click_feedback/variants.py 的可选依赖，
+# 后两者体积小且被前端之外的读者可能触达——体积余量足够，不激进。
+CORE_VITS_EXCLUDES = [
+    "torch",
+    "scipy",
+    "meapet.tts.engines.vits_runtime",
+    "unidecode",
+    "inflect",
+    "eng_to_ipa",
+    "jamo",
+    "ko_pron",
+    "pypinyin",
+    "indic_transliteration",
+    "num_thai",
+]
+core_excludes = list(CORE_VITS_EXCLUDES) if CORE_PROFILE else []
+if CORE_PROFILE:
+    print(
+        "[MeaPet.spec] core 档：剥离 torch/scipy/VITS 权重与词典（P0-2）；"
+        "本地语音走外置扩展包（meapet/vits_pack.py）",
+        file=sys.stderr,
+    )
 if IS_LINUX:
     if importlib.util.find_spec("fidus") is None:
         from meapet.bootstrap import fidus_install_hint
@@ -105,25 +142,54 @@ else:
         file=sys.stderr,
     )
 
+# P0-2：core 档不带 VITS/GSV 独占数据堆。vits_core 与 meapet/tools 保留——
+# 外置解释器跑 vits_infer.py 的兜底路径仍用得到（扩展包自带镜像布局）。
+_vits_stack_datas = [
+    ("models/GPT_weights", "models/GPT_weights"),
+    ("models/SoVITS_weights", "models/SoVITS_weights"),
+    ("GPT-Sovits", "GPT-Sovits"),
+    ("vits_models", "vits_models"),
+    ("dic", "dic"),
+]
+_datas = [
+    ("live2d", "live2d"),
+    ("sprites", "sprites"),
+    ("config.example.json", "."),
+    ("vits_core", "vits_core"),
+    ("vits_requirements.txt", "."),
+    ("meapet/assets", "meapet/assets"),
+    ("meapet/tools", "meapet/tools"),
+]
+if not CORE_PROFILE:
+    _datas += _vits_stack_datas
+_datas += live2d_pkg_datas
+
+# 进程内 VITS 与文本前端语言支线的 hiddenimports（core 档整块不收）。
+# pyopenjtalk **不在此列**：其 -prebuilt 轮子只到 cp311（vits_requirements.txt
+# 顶部注释的现量），3.13 构建环境装不上 ⇒ 3.13 打的包里 ja 前端整支缺席，
+# 进程内路在包内仍不可用（应配 tts.vits_python 走子进程）；哪天上游发了
+# cp312+ 轮子，加一行 "pyopenjtalk" 即收编。
+_vits_hiddenimports = [
+    "meapet.tts.engines.vits_runtime",
+    "scipy",
+    "scipy.io",
+    "scipy.io.wavfile",
+    # vits_core/text/cleaners.py 顶部一次全量收，缺一个全链死，包括 zh。
+    "unidecode",
+    "inflect",
+    "eng_to_ipa",
+    "jamo",
+    "ko_pron",
+    "pypinyin",
+    "indic_transliteration",
+    "num_thai",
+]
+
 a = Analysis(
     ["pet.py"],
     pathex=[],
     binaries=filter_qtbin_crts(layer_binaries),
-    datas=[
-        ("live2d", "live2d"),
-        ("sprites", "sprites"),
-        ("models/GPT_weights", "models/GPT_weights"),
-        ("models/SoVITS_weights", "models/SoVITS_weights"),
-        ("GPT-Sovits", "GPT-Sovits"),
-        ("config.example.json", "."),
-        ("vits_models", "vits_models"),
-        ("vits_core", "vits_core"),
-        ("vits_requirements.txt", "."),
-        ("dic", "dic"),
-        ("meapet/assets", "meapet/assets"),
-        ("meapet/tools", "meapet/tools"),
-    ]
-    + live2d_pkg_datas,
+    datas=_datas,
     hiddenimports=[
         # certifi CA bundle (belt-and-suspenders; shared client uses OS trust store)
         "certifi",
@@ -183,35 +249,17 @@ a = Analysis(
         # ModuleNotFoundError，不是读数。
         "meapet.agent.fake_agent",
         "websockets.asyncio.server",
-        # in-process VITS
-        "meapet.tts.engines.vits_runtime",
-        "scipy",
-        "scipy.io",
-        "scipy.io.wavfile",
-        # vits_core 文本前端的语言支线（vits_core 是 datas 落盘，PyInstaller 的
-        # 依赖分析不扫它——不显式列就会像 2026-10-24 之前的包那样，进程内路
-        # 死在 ModuleNotFoundError: unidecode）。清一色**模块级** import
-        # （vits_core/text/cleaners.py 顶部一次全量收），缺一个全链死，包括 zh。
-        # pyopenjtalk **不在此列**：其 -prebuilt 轮子只到 cp311（vits_requirements.txt
-        # 顶部注释的现量），3.13 构建环境装不上 ⇒ 3.13 打的包里 ja 前端整支缺席，
-        # 进程内路在包内仍不可用（应配 tts.vits_python 走子进程）；哪天上游发了
-        # cp312+ 轮子，加一行 "pyopenjtalk" 即收编。
-        "unidecode",
-        "inflect",
-        "eng_to_ipa",
-        "jamo",
-        "ko_pron",
-        "pypinyin",
+        # core 档保留的小件：opencc 是 click_feedback/variants.py 可选依赖；
+        # jieba 是记忆分词（core 必需）；cn2an/regex 体积小，不激进。
         "jieba",
         "cn2an",
         "opencc",
-        "indic_transliteration",
-        "num_thai",
         "regex",
         # misc dynamic imports
         "translators",
         "jieba",
-    ],
+    ]
+    + ([] if CORE_PROFILE else _vits_hiddenimports),
     hookspath=["."],
     hooksconfig={},
     runtime_hooks=[],
@@ -221,7 +269,7 @@ a = Analysis(
         "unittest",
         "pydoc",
         "doctest",
-    ] + fidus_excludes + heavies_excludes,
+    ] + fidus_excludes + heavies_excludes + core_excludes,
     noarchive=False,
     optimize=0,
 )

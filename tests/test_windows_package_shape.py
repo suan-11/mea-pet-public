@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import types
 from pathlib import Path
@@ -259,3 +260,68 @@ def test_product_code_does_not_import_excluded_heavies():
             if pat in text:
                 offenders.append(f"{py.relative_to(REPO_ROOT)}: {pat.strip()!r}")
     assert not offenders, f"产品代码出现了被排除包的 import：\n" + "\n".join(offenders)
+
+
+# ---------- P0-2 core 档位 ----------
+
+def _run_spec_with_profile(tmp_path, profile, platform="win32"):
+    """在指定 MEAPET_PROFILE 与平台下执行 spec，返回 Analysis 关键字参数。"""
+    calls: list = []
+    env = {k: v for k, v in os.environ.items() if k != "MEAPET_PROFILE"}
+    if profile is not None:
+        env["MEAPET_PROFILE"] = profile
+    if platform.startswith("linux"):
+        (tmp_path / "liblayer_shell_shim.so").write_bytes(b"fake-shim")
+    with mock.patch.object(sys, "platform", platform), mock.patch.dict(
+        os.environ, env, clear=True
+    ):
+        out = _run_spec(tmp_path, calls)
+    return out["kwargs"]
+
+
+def test_core_profile_strips_vits_stack(tmp_path):
+    """core 档：torch/scipy/进程内 VITS/前端语言支线排除，权重数据堆不进包。"""
+    kw = _run_spec_with_profile(tmp_path, "core")
+    for mod in (
+        "torch", "scipy", "meapet.tts.engines.vits_runtime",
+        "unidecode", "pypinyin", "eng_to_ipa",
+    ):
+        assert mod in kw["excludes"], f"core 档应排除 {mod}"
+    data_srcs = [d[0] for d in kw["datas"]]
+    for gone in ("models/GPT_weights", "models/SoVITS_weights", "GPT-Sovits", "vits_models", "dic"):
+        assert gone not in data_srcs, f"core 档不应带 {gone}"
+    # 外置解释器兜底与 core 小件保留
+    assert "vits_core" in data_srcs
+    assert "meapet/tools" in data_srcs
+    assert "scipy" not in kw["hiddenimports"]
+    assert "meapet.tts.engines.vits_runtime" not in kw["hiddenimports"]
+    assert "jieba" in kw["hiddenimports"]
+    assert "opencc" in kw["hiddenimports"]
+
+
+def test_windows_default_profile_is_core(tmp_path):
+    """非 Linux 未设环境变量时默认 core——这是 P0-2 的决定，不是构建机副产品。"""
+    kw = _run_spec_with_profile(tmp_path, None)
+    assert "torch" in kw["excludes"]
+
+
+def test_full_profile_keeps_vits_stack(tmp_path):
+    kw = _run_spec_with_profile(tmp_path, "full")
+    assert "torch" not in kw["excludes"]
+    data_srcs = [d[0] for d in kw["datas"]]
+    assert "vits_models" in data_srcs
+    assert "dic" in data_srcs
+    assert "scipy" in kw["hiddenimports"]
+
+
+def test_linux_is_always_full(tmp_path):
+    """Linux 恒 full：fidus/Live2D/OpenGL 链都在场，瘦身是 Windows 包的事。"""
+    kw = _run_spec_with_profile(tmp_path, "core", platform="linux")
+    assert "torch" not in kw["excludes"]
+    data_srcs = [d[0] for d in kw["datas"]]
+    assert "vits_models" in data_srcs
+
+
+def test_invalid_profile_rejected(tmp_path):
+    with pytest.raises(SystemExit):
+        _run_spec_with_profile(tmp_path, "bogus")

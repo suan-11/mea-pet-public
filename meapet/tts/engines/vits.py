@@ -45,6 +45,24 @@ class TtsVitsMixin:
             or getattr(self, "python_exe", None)
         )
 
+    def _vits_pack_dir(self) -> str:
+        """外置运行时包目录（P0-2）：配置了且在盘上才算数。"""
+        raw = str(getattr(self, "_vits_pack_dir", "") or "").strip()
+        return raw if raw and os.path.isdir(raw) else ""
+
+    def _vits_script_path(self) -> str:
+        """推理脚本落点：包内镜像副本优先（P0-2）。
+
+        包内 vits_infer.py 的 _bootstrap 按 parents[2] 解析 base=包根，
+        vits_core/权重/dic 全用包内的；_internal 那份只作源码态/full 档兜底。
+        """
+        pack = TtsVitsMixin._vits_pack_dir(self)
+        if pack:
+            pack_script = os.path.join(pack, "meapet", "tools", "vits_infer.py")
+            if os.path.isfile(pack_script):
+                return pack_script
+        return project_path("meapet", "tools", "vits_infer.py")
+
     def _vits_route(self) -> VitsRoute:
         """本实例的 VITS 选路结果。
 
@@ -71,12 +89,17 @@ class TtsVitsMixin:
         三处 ``getattr`` 以前只有进程内那条路在用，于是"健康检查验 A、
         一条路合成 B"是默认状态；现在两路都从这里取，并且都透传下去。
         """
-        model = getattr(self, "_vits_model", None) or project_path(
-            "vits_models", DEFAULT_VITS_MODEL_NAME
+        pack = TtsVitsMixin._vits_pack_dir(self)
+        default_model = (
+            os.path.join(pack, "vits_models", DEFAULT_VITS_MODEL_NAME)
+            if pack else project_path("vits_models", DEFAULT_VITS_MODEL_NAME)
         )
-        config = getattr(self, "_vits_config", None) or project_path(
-            "vits_models", DEFAULT_VITS_CONFIG_NAME
+        default_config = (
+            os.path.join(pack, "vits_models", DEFAULT_VITS_CONFIG_NAME)
+            if pack else project_path("vits_models", DEFAULT_VITS_CONFIG_NAME)
         )
+        model = getattr(self, "_vits_model", None) or default_model
+        config = getattr(self, "_vits_config", None) or default_config
         speaker = (
             getattr(self, "_vits_speaker", None) or DEFAULT_VITS_SPEAKER
         )
@@ -154,6 +177,27 @@ class TtsVitsMixin:
             self, tts_text, output_wav, language=language
         )
 
+    def _vits_get_serve_worker(self, python_exe, script, model, config):
+        """P0-4：按 (解释器, 脚本, 模型, 配置) 缓存常驻 worker。"""
+        try:
+            from meapet.tts.engines.vits_worker import VitsServeWorker
+
+            cache = getattr(self, "_vits_serve_workers", None)
+            if cache is None:
+                cache = {}
+                self._vits_serve_workers = cache
+            key = (python_exe, script, model, config)
+            worker = cache.get(key)
+            if worker is None:
+                worker = VitsServeWorker(python_exe, script, model=model, config=config)
+                cache[key] = worker
+            return worker
+        except Exception as exc:
+            log.warning(
+                "VITS serve worker 初始化失败: %s: %s", type(exc).__name__, exc
+            )
+            return None
+
     def _speak_vits_subprocess(
         self,
         tts_text: str,
@@ -164,7 +208,7 @@ class TtsVitsMixin:
     ) -> Optional[tuple[str, str]]:
         log.info("VITS inference (subprocess)...")
         t1 = time.time()
-        vits_script = project_path("meapet", "tools", "vits_infer.py")
+        vits_script = TtsVitsMixin._vits_script_path(self)
         if not os.path.isfile(vits_script):
             log.error(f"VITS script missing: {vits_script}")
             return None, ""
@@ -172,6 +216,26 @@ class TtsVitsMixin:
         model_path, config_path, speaker = (
             knobs if knobs is not None else TtsVitsMixin._vits_knobs(self)
         )
+
+        # P0-4：常驻热驻留优先——句级流水线下每句都冷启动 torch 会把首音
+        # 延迟反而恶化（10s+ 税）。serve 失败响亮降级回一次性子进程。
+        if bool(getattr(self, "_vits_serve", True)):
+            serve_worker = TtsVitsMixin._vits_get_serve_worker(
+                self, vits_python, vits_script, model_path, config_path
+            )
+            if serve_worker is not None:
+                ok = serve_worker.synthesize(
+                    vits_frontend_text(tts_text, language),
+                    output_wav,
+                    speaker=speaker,
+                )
+                if ok:
+                    log.info(
+                        "VITS output: %s (%.1fs, serve)",
+                        os.path.basename(output_wav), time.time() - t1,
+                    )
+                    return output_wav, language
+                log.warning("VITS serve 不可用，回落一次性子进程")
         argv = [
             vits_python,
             vits_script,

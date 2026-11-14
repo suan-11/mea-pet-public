@@ -1645,6 +1645,15 @@ class SetupWizard(QWidget):
             ),
             "python_exe": gsv_python,
             "vits_python": self.tts_page.vits_python_input.text().strip(),
+            # P0-2：外置运行时包落盘事实（安装成功时由 _download_vits_pack 写入）
+            "vits_pack_dir": str(
+                getattr(self.tts_page, "_vits_pack_dir", "")
+                or tts.get("vits_pack_dir") or ""
+            ).strip(),
+            "vits_pack_url": (
+                self.tts_page.vits_pack_url_input.text().strip()
+                if hasattr(self.tts_page, "vits_pack_url_input") else ""
+            ),
             "api_key": tts_key,
             "api_base": tts_base,
             "voice": self.tts_page.mimo_voice_input.text().strip() or "冰糖",
