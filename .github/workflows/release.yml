@@ -1,0 +1,141 @@
+# MeaPet Release 工作流（路线图 P0-3「产物与安全更新机制」）
+#
+# 打 v* tag 触发：windows-latest + Python 3.13 构建 core 档，产出
+#   MeaPet-win64-core-vX.Y.Z.zip + SHA256SUMS.txt + 自动 CHANGELOG 摘要，
+# 并发布 GitHub Release。X.Y.Z 取自 tag（去掉 v 前缀）。
+#
+# 诚实边界（静态审查级）：本文件在本地只做了静态审查与 YAML 语法校验，
+# 没有真推 tag 跑过 CI（真实构建由主代理负责）。验收判据①「每次打 tag
+# 自动产可校验 zip + sha256 + Release Notes」需在首个真实 tag 上复核。
+#
+# 依赖边界：scripts/build_windows.ps1 与 meapet/bootstrap.py 正由主代理
+# 改造为 staging + 后置断言 + core 瘦身（P0-1/P0-2）。本工作流按「改造后
+# 的脚本在 MEAPET_PROFILE=core 下产出合规 dist/MeaPet」来写，不改脚本。
+# 门禁对齐：`python -m meapet.bootstrap --check all` 要求 numpy 与 live2d-py
+# （_OPTIONAL_SOURCE_DEPENDENCIES），已在安装步显式补齐；torch/scipy 不在
+# 该门禁清单里，core 档无需放宽 bootstrap。
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # 创建 GitHub Release 需要写权限
+
+jobs:
+  build-windows-core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # CHANGELOG 摘要需要完整提交历史与全部 tag
+          # 构建脚本有「拒绝打包 LFS 指针」闸门：core 档虽不把权重打进包，
+          # 闸门仍会读那些文件，故水化 LFS。若主代理的 core 改造移除了模型
+          # 闸门，可去掉 lfs: true 省带宽（首个真实 tag 时确认）。
+          lfs: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies (core profile)
+        timeout-minutes: 15
+        run: |
+          python -m pip install --upgrade pip
+          # core 档不需要 torch/scipy：VITS/GSV 重栈走外置扩展包（P0-2）。
+          pip install -e ".[win32,opengl,webengine]" pyinstaller
+          # numpy 显式安装（主代理确认）：bootstrap --check all 的
+          # _OPTIONAL_SOURCE_DEPENDENCIES 含 numpy，且 core 运行时保留它
+          # （fidus_position/voice 的模块级 import）。3.13 需要 2.x 轮子。
+          pip install "numpy>=2.0"
+          # bootstrap --check all 的 _OPTIONAL_SOURCE_DEPENDENCIES 还含 live2d
+          # （真值走 meapet.live2d_api 符号面），core 档同样要过这道门禁。
+          # 钉 >=1.0.0：裸名解析实测会落到 0.7.0.4 旧代，符号面闸门
+          # （meapet.live2d_api.LIVE2D_AVAILABLE）对旧代判 False。
+          pip install "live2d-py>=1.0.0"
+
+      - name: Build dist/MeaPet (core)
+        shell: pwsh
+        env:
+          MEAPET_PROFILE: core
+        # 脚本由主代理改造为 staging + 断言 + core 瘦身；此处假定它产出
+        # 合规 dist/MeaPet（含 MeaPet.exe 与 _internal/）。
+        run: ./scripts/build_windows.ps1
+
+      - name: Derive version from tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag $GITHUB_REF_NAME 不是 vMAJOR.MINOR.PATCH 形状，拒绝发布" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Zip dist/MeaPet
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/MeaPet/MeaPet.exe)) {
+            throw "dist/MeaPet/MeaPet.exe 不存在——构建脚本未产出合规包"
+          }
+          $zip = "MeaPet-win64-core-v${{ steps.version.outputs.version }}.zip"
+          # 7z 为 windows runner 预装；zip 根保留 MeaPet/ 目录（解压即用）。
+          7z a -tzip $zip (Join-Path $PWD "dist/MeaPet") | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z 打包失败" }
+          Get-Item $zip | Format-List Name,Length
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $zip = "MeaPet-win64-core-v${{ steps.version.outputs.version }}.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          # sha256sum 兼容格式：<hash>  <文件名>（两个空格）
+          Set-Content -Path SHA256SUMS.txt -Value "$hash  $zip" -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
+      - name: Generate CHANGELOG summary (previous tag..HEAD)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 上一个 tag：从当前 tag 的父提交往回找最近的 tag（排除同提交并列 tag）。
+          PREV_TAG="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            echo "## MeaPet ${{ steps.version.outputs.version }}（Windows core）"
+            echo
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "自 $PREV_TAG 以来的变更："
+              echo
+              git log --no-merges --pretty=format:"- %s (%h)" "${PREV_TAG}..${GITHUB_REF_NAME}"
+            else
+              echo "首个 Release，完整提交历史："
+              echo
+              git log --no-merges --pretty=format:"- %s (%h)" "${GITHUB_REF_NAME}"
+            fi
+            echo
+            echo
+            echo "### 校验下载"
+            echo '```powershell'
+            echo "Get-FileHash -Algorithm SHA256 MeaPet-win64-core-v${{ steps.version.outputs.version }}.zip"
+            echo "# 与 SHA256SUMS.txt 中的值比对"
+            echo '```'
+            echo
+            echo "覆盖更新前请阅读 docs/update-and-release.zh-CN.md：config.json 与 mea_memory.db 等用户数据受白名单保护，绝不覆盖。"
+          } > RELEASE_BODY.md
+          cat RELEASE_BODY.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MeaPet v${{ steps.version.outputs.version }} (win64 core)
+          body_path: RELEASE_BODY.md
+          files: |
+            MeaPet-win64-core-v${{ steps.version.outputs.version }}.zip
+            SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

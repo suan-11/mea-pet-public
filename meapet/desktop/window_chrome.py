@@ -548,6 +548,11 @@ class PetWindowChromeMixin:
         volume_action.triggered.connect(self._show_volume_dialog)
         settings_menu.addAction(volume_action)
 
+        update_action = QAction("检查更新…", self)
+        update_action.setToolTip("查看 GitHub Releases 是否有新版本（只提示，不自动下载安装）")
+        update_action.triggered.connect(self._check_for_updates)
+        settings_menu.addAction(update_action)
+
         llm_mode = str(
             ((self.config.get("llm") or {}).get("mode") or "direct")
         ).strip().lower()
@@ -715,6 +720,40 @@ class PetWindowChromeMixin:
         """打开"关于"页面（版本信息与 Live2D 模型来源致谢）。"""
         from meapet.desktop.dialogs import AboutDialog
         AboutDialog(self).exec_()
+
+    def _check_for_updates(self) -> None:
+        """检查更新：后台线程拉 Release 元数据，只提示，绝不下载/覆盖/执行。"""
+        from meapet.update_check import UpdateCheckWorker
+
+        worker = getattr(self, "_update_check_worker", None)
+        if worker is not None and worker.isRunning():
+            return  # 已有一次检查在途，不叠加第二次
+        worker = UpdateCheckWorker(self)
+        worker.checked.connect(self._on_update_check_done)
+        worker.finished.connect(worker.deleteLater)
+        self._update_check_worker = worker
+        worker.start()
+
+    def _on_update_check_done(self, result) -> None:
+        """GUI 线程里弹结果信息框；有更新时给一个「打开下载页」按钮。"""
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+
+        from meapet.update_check import format_result_text
+
+        self._update_check_worker = None
+        title, text = format_result_text(result)
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setIcon(QMessageBox.Information)
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok)
+        open_button = None
+        if result.has_update and result.release_url:
+            open_button = box.addButton("打开下载页", QMessageBox.ActionRole)
+        box.exec_()
+        if open_button is not None and box.clickedButton() is open_button:
+            QDesktopServices.openUrl(QUrl(result.release_url))
 
     def _show_volume_dialog(self):
         """打开音量调节对话框，保存配置。"""
