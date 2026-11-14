@@ -137,7 +137,48 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+# P0-5 质量门渐进收紧（2026-11-14 实测，ruff 0.15.21，全仓 ruff check .）：
+# 批次状态（违规数为当时 --extend-select <批> 的实测读数）：
+#   E：回退 —— 548 处 / 111 文件（E501×466 为主），超 200 阈值，整批不启用；
+#   F：回退 —— 237 处 / 90 文件（F401×188 为主），超 200 阈值，整批不启用；
+#   W：采纳 —— 7 处 / 4 文件，存量用下方 4 条 per-file-ignores 钉住；
+#   I：回退 —— 230 处 / 156 文件（全 I001），超 200 阈值且豁免清单失控；
+#   B：采纳 —— 34 处 / 23 文件，存量用下方 23 条 per-file-ignores 钉住。
+# 原有 E9/F63/F7/F82 保留。纪律：不改源码消违规（并行开发中）、不盲跑 --fix；
+# 豁免是临时的——清理一处就删对应行，新增违规直接红。
+select = ["E9", "F63", "F7", "F82", "W", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# --- W 批存量豁免（P0-5，2026-11-14 实测；清理后请删对应行） ---
+"hook-live2d.py" = ["W292"]  # 文件末尾缺换行 ×1
+"meapet/desktop/renderer.py" = ["W291", "W293"]  # 尾随空格 ×1、空白行带空格 ×3
+"meapet/tools/precache_interactions.py" = ["W293"]  # 空白行带空格 ×1
+"tests/test_wizard_agent_config.py" = ["W293"]  # 空白行带空格 ×1
+# --- B 批存量豁免（P0-5，2026-11-14 实测；清理后请删对应行） ---
+# B007 未用循环变量 / B023 闭包引用循环变量 / B904 raise 缺 from / B905 zip 缺 strict
+"meapet/conversation/output_protocol.py" = ["B007"]
+"meapet/desktop/app.py" = ["B904"]
+"meapet/desktop/dev_options.py" = ["B905"]
+"meapet/desktop/qpa_guard.py" = ["B905"]
+"meapet/desktop/render_host.py" = ["B905"]
+"meapet/direct/client.py" = ["B023"]
+"meapet/tts/service.py" = ["B007", "B023"]
+"scripts/elf_section_diff.py" = ["B905"]
+"scripts/fidus_positioning_probe/probe_a10_geometry.py" = ["B905"]
+"scripts/fidus_positioning_probe/probe_h14_far_prior.py" = ["B023"]
+"scripts/fidus_positioning_probe/probe_h22_configure_arrival.py" = ["B905"]
+"scripts/fidus_positioning_probe/probe_h2_threading.py" = ["B023"]
+"scripts/fidus_positioning_probe/probe_h9_frame_reuse_and_recovery.py" = ["B905"]
+"scripts/fidus_positioning_probe/probe_localize.py" = ["B007"]
+"scripts/fidus_positioning_probe/probe_settle_convergence.py" = ["B905"]
+"scripts/layer_mode_toggle_probe.py" = ["B007"]
+"scripts/live2d_canvas_measure.py" = ["B007"]
+"tests/test_dev_options.py" = ["B905"]
+"tests/test_direct_protocols.py" = ["B023"]
+"tests/test_paid_channel_disclaimer.py" = ["B905"]
+"tests/test_tts_language_routing.py" = ["B007"]
+"tests/test_ui_refactor.py" = ["B905"]
+"wizard/live2d_viewport.py" = ["B905"]
 
 [tool.coverage.run]
 branch = true

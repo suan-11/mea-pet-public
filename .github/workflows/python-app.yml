@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
       # Use .python-version (3.12) as the primary — it's listed first in the status
       fail-fast: false
 
@@ -70,12 +70,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         # Install core + linux extras (pins exact PyQt5 / Pillow versions for Linux)
-        # pytest/ruff are not runtime deps; install them explicitly for CI.
-        # numpy is a runtime dep of the fidus bridge (fidus_position.py imports it at
-        # module level), but it is declared in linux_requirements.txt, not pyproject —
-        # CI installs from pyproject, so it has to come in here. Same range as line 9.
+        # pytest/ruff/pytest-cov are not runtime deps; install them explicitly for CI.
+        # numpy comes in via the linux extra: pyproject pins it per Python version
+        # (1.x has no 3.13 wheels, so the old explicit "numpy<2" here broke 3.13).
+        # ruff pinned to the P0-5 measured version; .pre-commit-config.yaml rev matches.
         pip install -e ".[linux]"
-        pip install ruff pytest "numpy>=1.21,<2.0"
+        pip install ruff==0.15.21 pytest pytest-cov
 
     - name: Lint with ruff
       run: |
@@ -100,7 +100,10 @@ jobs:
         export MAKEFLAGS="-j1"
         export QT_QPA_PLATFORM=offscreen
         # -ra: show skip/xfail reasons; --tb=short keeps logs readable in Actions
-        xvfb-run -a python -X faulthandler -m pytest -q --tb=short
+        # P0-5: --cov reads [tool.coverage.*] from pyproject (source=meapet+wizard,
+        # branch=true); term-missing exposes 0% blind spots. No --cov-fail-under:
+        # coverage is a report at this stage, not a percentage red line.
+        xvfb-run -a python -X faulthandler -m pytest -q --tb=short --cov --cov-report=term-missing
 
   # Windows 是产品主场（PyInstaller onedir、启动桌宠.bat），但 Linux 专属的判据
   # （layer-shell / Athena 状态根、POSIX 打包布局、Qt 平台插件闸门）必须在用例里显式
@@ -127,7 +130,7 @@ jobs:
         # win32 extra 带 pywin32；numpy 是 fidus_position 的模块级依赖，pyproject 只在
         # linux/vits extras 里声明，所以和 Linux job 一样单独装（1.x 对 3.12 有轮子）。
         pip install -e ".[win32]"
-        pip install ruff pytest "numpy>=1.21,<2.0"
+        pip install ruff==0.15.21 pytest pytest-cov "numpy>=1.21,<2.0"
 
     - name: Lint with ruff
       run: python -m ruff check meapet wizard scripts tests
@@ -144,6 +147,7 @@ jobs:
         QT_QPA_PLATFORM: "offscreen"
       run: |
         # -ra: show skip/xfail reasons; --tb=short keeps logs readable in Actions
-        python -X faulthandler -m pytest -q --tb=short
+        # P0-5: coverage wiring identical to the Linux job (see comment there).
+        python -X faulthandler -m pytest -q --tb=short --cov --cov-report=term-missing
 
 

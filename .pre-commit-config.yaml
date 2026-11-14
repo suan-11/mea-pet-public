@@ -1,0 +1,24 @@
+# P0-5 质量门渐进收紧：提交前拦截（与 CI 的 ruff 门互补）。
+# 纪律：刻意不加 end-of-file-fixer / 自动格式化这类会大面积改写存量文件的 hook；
+# ruff hook 只检查、不 --fix（存量违规由 pyproject 的 per-file-ignores 钉住）。
+# rev 与本机 python -m ruff --version 对齐（2026-11-14 实测 0.15.21）。
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      # 只修暂存文件的尾随空格；不碰未暂存的存量文件。
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: lfs-pointer-check
+        name: 拒绝未水化的 Git LFS 指针
+        entry: python scripts/precommit_lfs_check.py
+        language: system
+        pass_filenames: false
+        always_run: true
