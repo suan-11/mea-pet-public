@@ -20,7 +20,9 @@ import importlib.metadata
 from pathlib import Path
 
 import pytest
-import yaml
+
+# 裸环境没装 PyYAML 时跳过而非炸收集（CI 已显式安装，门在 CI 真跑）。
+yaml = pytest.importorskip("yaml", reason="PyYAML 未安装，质量门 YAML 形态测试跳过")
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "python-app.yml"

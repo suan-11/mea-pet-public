@@ -75,7 +75,8 @@ jobs:
         # (1.x has no 3.13 wheels, so the old explicit "numpy<2" here broke 3.13).
         # ruff pinned to the P0-5 measured version; .pre-commit-config.yaml rev matches.
         pip install -e ".[linux]"
-        pip install ruff==0.15.21 pytest pytest-cov
+        # pyyaml：tests/test_quality_gate_configs.py 的 YAML 形态测试需要（P0-5）。
+        pip install ruff==0.15.21 pytest pytest-cov pyyaml
 
     - name: Lint with ruff
       run: |
@@ -130,7 +131,8 @@ jobs:
         # win32 extra 带 pywin32；numpy 是 fidus_position 的模块级依赖，pyproject 只在
         # linux/vits extras 里声明，所以和 Linux job 一样单独装（1.x 对 3.12 有轮子）。
         pip install -e ".[win32]"
-        pip install ruff==0.15.21 pytest pytest-cov "numpy>=1.21,<2.0"
+        # pyyaml 同 Linux job：质量门 YAML 形态测试需要。
+        pip install ruff==0.15.21 pytest pytest-cov pyyaml "numpy>=1.21,<2.0"
 
     - name: Lint with ruff
       run: python -m ruff check meapet wizard scripts tests
