@@ -289,6 +289,17 @@ def find_voice_kws_files() -> dict | None:
     return None
 
 
+# --- P1-4：轻量 ONNX TTS 模型（向导下载与引擎读同一处） ----------------------
+# 与 voice_vad/voice_kws 同纪律：下载侧（向导）与运行侧（onnx_local 引擎）
+# 认同一个目录。冻结态即 _internal/models/voice_onnx——与 MeaPet.spec 的
+# 收编位置同一处，向导下载与构建随包不打架。
+
+
+def voice_onnx_model_dir() -> Path:
+    """ONNX TTS 模型的默认安装根（models/voice_onnx）。"""
+    return Path(data_path("models", "voice_onnx"))
+
+
 def migrate_legacy_home_data() -> list[str]:
     """Copy files from legacy ``~/.meapet`` into the portable data dir once.
 

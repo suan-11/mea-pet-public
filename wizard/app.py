@@ -1629,6 +1629,20 @@ class SetupWizard(QWidget):
         if hasattr(self.tts_page, "_report_vits_python_for_save"):
             self.tts_page._report_vits_python_for_save()
 
+        # P1-4：ONNX 引擎目录。留空且选了 ONNX 时回落默认目录（冻结版随包
+        # 模型就在那里），让「选引擎 + 保存」开箱即用；其余引擎保留原值。
+        onnx_dir = (
+            self.tts_page.onnx_model_dir_input.text().strip()
+            if hasattr(self.tts_page, "onnx_model_dir_input") else ""
+        )
+        if (
+            not onnx_dir
+            and engine == "onnx"
+            and hasattr(self.tts_page, "_onnx_effective_dir")
+        ):
+            onnx_dir = self.tts_page._onnx_effective_dir()
+        onnx_dir = onnx_dir or str(tts.get("onnx_model_dir") or "").strip()
+
         patch = {
             "engine": engine,
             "enabled": self.tts_page.enable_cb.isChecked(),
@@ -1653,6 +1667,12 @@ class SetupWizard(QWidget):
             "vits_pack_url": (
                 self.tts_page.vits_pack_url_input.text().strip()
                 if hasattr(self.tts_page, "vits_pack_url_input") else ""
+            ),
+            "onnx_model_dir": onnx_dir,
+            "onnx_speed": (
+                self.tts_page._onnx_speed_value()
+                if hasattr(self.tts_page, "_onnx_speed_value")
+                else tts.get("onnx_speed", 1.0)
             ),
             "api_key": tts_key,
             "api_base": tts_base,

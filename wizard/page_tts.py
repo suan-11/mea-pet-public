@@ -25,6 +25,7 @@ from meapet.tts.common import prefix_python
 from wizard.page_tts_gsv import TtsPageGsvMixin, gsv_dir_field
 from wizard.page_tts_mimo import TtsPageMimoMixin
 from wizard.page_tts_vits import TtsPageVitsMixin
+from wizard.page_tts_onnx import TtsPageOnnxMixin
 from meapet.ui_theme import apply_named_style
 from meapet.config.defaults import (
     DEFAULT_MEA_PET_MIMO_API_BASE,
@@ -35,7 +36,7 @@ from meapet.config.normalizers import normalize_gsv_ref_language
 from wizard.widgets import WheelSafeComboBox
 
 
-class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
+class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMixin, QFrame):
     """语音设置页面"""
 
     def __init__(self, parent=None):
@@ -90,6 +91,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         self.backend_combo.setObjectName("TtsEngine")
         self.backend_combo.setAccessibleName("语音引擎")
         self.backend_combo.addItem("MiMo 云端 TTS（推荐：无需本地模型，用 API Key）", "mimo")
+        self.backend_combo.addItem("ONNX 轻量离线（无需 torch，模型约 20 MB，中文）", "onnx")
         self.backend_combo.addItem("VITS（轻量快速，无需整合包，效果勉强能用）", "vits")
         self.backend_combo.addItem("GPT-SoVITS（效果超好，需要整合包，推理慢）", "gpt_sovits")
         self.backend_combo.currentIndexChanged.connect(self._toggle_backend)
@@ -296,6 +298,9 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         vpack_layout.addWidget(self.vits_pack_status)
         layout.addWidget(self.vits_pack_frame)
 
+        # P1-4：轻量 ONNX 离线引擎段（无需 torch，模型约 20 MB）
+        self._build_onnx_section(layout)
+
         # GSV 相关控件容器（GPT-SoVITS 模式显示）
         self.gsv_container = QFrame()
         gsv_layout = QVBoxLayout(self.gsv_container)
@@ -481,6 +486,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             "translation_enabled_cb",
             "prefer_model_voice_cb",
             "translate_target_combo",
+            "onnx_model_dir_input",
+            "onnx_url_input",
+            "onnx_download_btn",
+            "onnx_speed_combo",
         ):
             if hasattr(self, attr):
                 getattr(self, attr).setEnabled(on)
@@ -500,6 +509,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 self.setup_vits_btn.setVisible(False)
             if hasattr(self, "vits_pack_frame"):
                 self.vits_pack_frame.setVisible(False)
+            if hasattr(self, "onnx_frame"):
+                self.onnx_frame.setVisible(False)
             if hasattr(self, "gsv_container"):
                 self.gsv_container.setVisible(False)
         if hasattr(self, "engine_details_toggle"):
@@ -521,6 +532,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 "vits_status",
                 "setup_vits_btn",
                 "vits_pack_frame",
+                "onnx_frame",
                 "gsv_container",
                 "translate_frame",
             ):
@@ -532,6 +544,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
         is_mimo = engine == "mimo"
         is_vits = engine == "vits"
         is_gsv = engine == "gpt_sovits"
+        is_onnx = engine == "onnx"
 
         if hasattr(self, "mimo_tts_frame"):
             self.mimo_tts_frame.setVisible(is_mimo and self.enable_cb.isChecked())
@@ -546,6 +559,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             self.setup_vits_btn.setVisible(is_vits and self.enable_cb.isChecked())
         if hasattr(self, "vits_pack_frame"):
             self.vits_pack_frame.setVisible(is_vits and self.enable_cb.isChecked())
+        if hasattr(self, "onnx_frame"):
+            self.onnx_frame.setVisible(is_onnx and self.enable_cb.isChecked())
         if hasattr(self, "gsv_container"):
             self.gsv_container.setVisible(is_gsv and self.enable_cb.isChecked())
 
@@ -553,6 +568,9 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
 
         if is_vits:
             self._check_vits()
+        if is_onnx:
+            # 纯磁盘读数、不起子进程，构造那一路跑也安全（与 GSV 探测不同）。
+            self._check_onnx_model()
         if is_gsv and self._env_probe_allowed:
             # 用户在页面上亲手换引擎，这一刻探测的代价（一个子进程）是他要的反馈。
             self._check_gsv()
@@ -590,6 +608,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
                 "vits_status",
                 "setup_vits_btn",
                 "vits_pack_frame",
+                "onnx_frame",
                 "gsv_container",
                 "translate_frame",
             ):
@@ -748,6 +767,9 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, QFrame):
             self.vits_pack_url_input.setText(
                 str(tts_cfg.get("vits_pack_url") or "").strip()
             )
+        # P1-4：ONNX 段回填（目录/语速，并顺带读一次模型在场状态）
+        if hasattr(self, "_apply_onnx_config"):
+            self._apply_onnx_config(tts_cfg)
 
         # python_exe 可能是 GSV 的 python 路径
         gsv_py = (tts_cfg.get("python_exe") or "").strip()

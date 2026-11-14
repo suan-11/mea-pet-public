@@ -142,6 +142,29 @@ async def _probe_agent(config: dict) -> ConnectionResult:
                     await close()
 
 
+def _probe_language(tts_cfg: dict) -> str:
+    """探测句的语言跟着引擎真实能力走。
+
+    配置语言不在引擎声明的语言里时，回落它声明的第一门语言：ONNX 轻量模型
+    只会中文，让它念日语探测句只会出一段怪音——那不算有效测试。既有三引擎
+    不在注册表里，行为一字不变。
+    """
+    from meapet.config.normalizers import canonical_tts_language
+
+    language = canonical_tts_language(tts_cfg.get("voice_lang") or "zh") or "zh"
+    engine = str(tts_cfg.get("engine") or "")
+    with suppress(Exception):
+        # 注册发生在导入时：不先触发 service 导入，读到的是空表而不是错误。
+        import meapet.tts.service  # noqa: F401
+        from meapet.tts.engines.protocol import ENGINE_REGISTRY
+
+        if engine in ENGINE_REGISTRY:
+            caps = ENGINE_REGISTRY.capabilities_of(engine)
+            if caps.languages and language not in caps.languages:
+                language = canonical_tts_language(caps.languages[0]) or language
+    return language
+
+
 async def _probe_tts(config: dict) -> ConnectionResult:
     import copy
     from meapet.config.normalizers import canonical_tts_language
@@ -159,7 +182,7 @@ async def _probe_tts(config: dict) -> ConnectionResult:
         tts_cfg["prefer_model_voice_translation"] = False
         tts_cfg["translate_to_jp"] = False
 
-        language = canonical_tts_language(tts_cfg.get("voice_lang") or "zh") or "zh"
+        language = _probe_language(tts_cfg)
         probe_text = {
             "zh": "连接测试",
             "jp": "接続テスト",
