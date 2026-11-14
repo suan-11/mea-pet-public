@@ -79,6 +79,58 @@ python scripts/verify_dist.py --dist build/stage_dist/MeaPet --platform windows 
 （`_internal/voice_vad/silero_vad.onnx`）实跑分段：真语音样本断出 **1 句 1.8 s**，静音 **0 段**。
 这证明的是「包里的模型能加载、能断句」，不是「目录里有这个文件名」。
 
+### 3.3 PTT 真机验证（2026-11-14，Windows）
+
+```
+python scripts/ptt_probe.py --hotkey "Ctrl+Alt+F9"
+```
+
+| 检查项 | 读数 |
+| --- | --- |
+| 解析 | `mods=0x0003 vk=0x78` |
+| RegisterHotKey | **成功** |
+| 投递 WM_HOTKEY | 成功 |
+| nativeEventFilter 收到 pressed | **是** |
+| 松开轮询已起 | 是（间隔 40 ms，与 `POLL_MS` 一致） |
+| 卸载后 `armed` | False |
+| **卸载后能再次注册** | **是（证明无残留）** |
+
+最后一条是关键：RegisterHotKey 不会随进程结束自动释放，残留会让**下一次启动
+静默注册失败**。探针用「先卸载、再注册同一个热键」来证伪残留，比只看
+`armed=False` 强——后者只说明对象状态，前者说明系统状态真的回收了。
+
+探针里「松开」这一格只验**轮询已启动**，不验「真松开能停」：`GetAsyncKeyState`
+读的是物理键态，模拟不出来。这一格留给人手按一次。
+
+### 3.4 KWS 唤醒词端到端（2026-11-14）
+
+```
+python scripts/kws_probe.py --model-dir <解压后的 KWS 模型目录>
+```
+
+| 检查项 | 读数 |
+| --- | --- |
+| 成套解析 | encoder/decoder/joiner 全为 `epoch-12-avg-2` int8 |
+| 加载 | 成功 |
+| 命中（3.wav） | `文森特卡索`、`法国` |
+| 命中（4.wav） | `蒋友伯`、`女儿` |
+| 命中（5.wav） | `见面会`、`落实` |
+| 命中（6.wav） | `周望军`、`朱丽楠` |
+| 合计 | **8 个关键词**，0.wav/1.wav/2.wav 无命中（它们不含词表里的词） |
+
+**这里修掉一个真缺陷。** 上游 wenetspeech 官方包**一个目录里并排放着两套模型**
+（`epoch-99-avg-1` 与 `epoch-12-avg-2`，各有 int8/非 int8 两档）。原来的
+`find_voice_kws_files()` 是按件 `startswith` 挑第一个命中的——三件可能分属不同套，
+拼出 encoder-99 + decoder-12 这种组合。实测那次侥幸全落在 12，但那是 `iterdir`
+顺序给的运气，不是保证；混搭的失败也不会指向真因。
+
+现在改成**按变体分组、成套取**：`_kws_variant_key()` 去掉前缀与精度后缀，
+只有三件同键才算一套；同套内优先 int8。配套四条测试钉住（含「两套并存不许混搭」）。
+
+**另一个坑**：词表必须与模型配套。mobile 版的 `keywords.txt` 是中文原文格式，
+而模型要的是音素级 `test_wavs/test_keywords.txt`——用错词表时模型**照样加载成功**，
+只是永远不命中。所以探针的判据里「能命中」必须独立于「能加载」。
+
 ## 4. 两个模型的取件
 
 | 模型 | 盘上位置 | 体积 | 冻结版可下 |
@@ -120,12 +172,16 @@ python scripts/verify_dist.py --dist build/stage_dist/MeaPet --platform windows 
 
 - **PTT 不碰低级键盘钩子**：`RegisterHotKey` 只报按下，松开靠轮询
   `GetAsyncKeyState`（40 ms）。被杀软按 keylogger 标的风险低得多，代价是松开最多一格的延迟。
-  **未在真机按过**——`RegisterHotKey` 不进 CI（会改系统状态），只测了解析与安全判定。
+  真机验证见 §3.3（脚本 `scripts/ptt_probe.py`；注册本身不进 CI，它会改系统状态）。
 - **无修饰键的热键被拒**：单按一个键当全局 PTT 等于全系统录音，
   `hotkey_is_safe()` 直接挡掉，只写日志不弹窗（被占用是设备上的常态）。
 - **非 Windows 没有全局 PTT**：`available()` 返回 False，回落点按/常驻模式。
-- **KWS 未端到端测**：唤醒模型（~15 MB）未下载，只测到「模型缺席要专用报错」与
-  「四件套定位」。真唤醒链路没跑过。
+- **KWS 已端到端测**（§3.4）：模型 31 MB，成套解析 → 加载 → 真命中 8 词。
+  但**常驻监听线程本身**未跑过——探针验的是「喂一段音频能断出词」，
+  不是「监听线程持续读麦克风」。后者要有麦克风才能验。
+- **唤醒词词表需与模型配套**：中文原文词表（`keywords_raw.txt`）要转音素，
+  直接用会导致「加载成功但永不命中」。产品里 `voice_input.wake_word.keywords_file`
+  要指向音素级词表。
 - **唤醒词命中且引擎已在听时不打扰**：hands_free 模式下唤醒词只是确认，不重启收音。
 
 ## 6. 测试

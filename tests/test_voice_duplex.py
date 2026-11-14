@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import struct
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -717,4 +718,112 @@ def test_hands_free_loop_emits_segments_and_skips_gate():
 
     assert emitted, "常驻模式没有把断出的句子发出去"
     assert all(text.startswith("seg") for text in emitted)
+
+# ----------------------------------------------------------------------
+# PTT 探针：它的解析/判定半区能进 CI，真注册那半区靠 scripts/ptt_probe.py
+# ----------------------------------------------------------------------
+
+
+def test_ptt_probe_parses_without_registering():
+    """探针的解析段要能在无桌面环境下跑通——否则探针自己就成了只在真机可用的死代码。"""
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "ptt_probe", root / "scripts" / "ptt_probe.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.run)
+    assert callable(module.main)
+
+
+@pytest.mark.parametrize("hotkey", ["Ctrl+Alt+F9", "Ctrl+Shift+Space", "Win+Alt+A"])
+def test_default_probe_hotkeys_are_all_safe(hotkey):
+    """探针默认用 Ctrl+Alt+F9；文档里推荐的几个也都得是安全的，别推荐到会被拒的串。"""
+    from meapet.voice.ptt import hotkey_is_safe
+
+    assert hotkey_is_safe(hotkey) is True
+
+def test_kws_never_mixes_epochs(tmp_path, monkeypatch):
+    """同一目录里放两套模型时，必须**成套**取，不许 encoder-99 + decoder-12 混搭。
+
+    这条红测试来自一次真踩：上游 wenetspeech 官方包一个目录里并排放着
+    `epoch-99-avg-1` 与 `epoch-12-avg-2` 两套（各有 int8/非 int8）。原来按件
+    `startswith` 挑，靠 iterdir 顺序决定拿到哪一套——实测那次侥幸全落在 12，
+    但顺序不保证，换个文件系统就可能拼出一个加载失败或识别错乱的组合。
+    """
+    import meapet.paths as paths
+
+    monkeypatch.setattr(paths, "data_path", lambda *p: str(tmp_path.joinpath(*p)))
+    monkeypatch.setattr(paths, "project_path", lambda *p: str(tmp_path.joinpath(*p)))
+    model_dir = paths.voice_kws_cache_dir()
+    model_dir.mkdir(parents=True)
+
+    # 两套并存，故意让 99 排在前面（按名字排序时 12 在前，这里靠写入顺序混淆）
+    for epoch in ("99-avg-1", "12-avg-2"):
+        for stem in ("encoder", "decoder", "joiner"):
+            (model_dir / f"{stem}-epoch-{epoch}-chunk-16-left-64.onnx").write_bytes(b"x")
+    (model_dir / "tokens.txt").write_bytes(b"x")
+
+    found = paths.find_voice_kws_files()
+    assert found is not None
+    variants = {
+        paths._kws_variant_key(Path(found[k]).name)
+        for k in ("encoder", "decoder", "joiner")
+    }
+    assert len(variants) == 1, f"混搭了两套模型: {variants}"
+
+
+def test_kws_prefers_int8_within_one_variant(tmp_path, monkeypatch):
+    """同一变体的 int8 与非 int8 两档并存时取 int8（与 ASR 默认档、向导文案一致）。"""
+    import meapet.paths as paths
+
+    monkeypatch.setattr(paths, "data_path", lambda *p: str(tmp_path.joinpath(*p)))
+    monkeypatch.setattr(paths, "project_path", lambda *p: str(tmp_path.joinpath(*p)))
+    model_dir = paths.voice_kws_cache_dir()
+    model_dir.mkdir(parents=True)
+
+    for stem in ("encoder", "decoder", "joiner"):
+        (model_dir / f"{stem}-epoch-99-avg-1-chunk-16-left-64.onnx").write_bytes(b"x")
+        (model_dir / f"{stem}-epoch-99-avg-1-chunk-16-left-64.int8.onnx").write_bytes(b"x")
+    (model_dir / "tokens.txt").write_bytes(b"x")
+
+    found = paths.find_voice_kws_files()
+    assert found is not None
+    for key in ("encoder", "decoder", "joiner"):
+        assert found[key].endswith(".int8.onnx"), found[key]
+
+
+def test_kws_incomplete_variant_is_not_accepted(tmp_path, monkeypatch):
+    """只有 encoder 没有 decoder/joiner 时，不许把"找到一件"当成"找到一套"。"""
+    import meapet.paths as paths
+
+    monkeypatch.setattr(paths, "data_path", lambda *p: str(tmp_path.joinpath(*p)))
+    monkeypatch.setattr(paths, "project_path", lambda *p: str(tmp_path.joinpath(*p)))
+    model_dir = paths.voice_kws_cache_dir()
+    model_dir.mkdir(parents=True)
+    (model_dir / "encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx").write_bytes(b"x")
+    (model_dir / "tokens.txt").write_bytes(b"x")
+
+    assert paths.find_voice_kws_files() is None
+
+
+def test_kws_variant_key_strips_prefix_and_precision():
+    """变体键的归约规则：去掉 encoder-/decoder-/joiner- 与精度后缀。"""
+    from meapet.paths import _kws_variant_key
+
+    assert (
+        _kws_variant_key("encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx")
+        == _kws_variant_key("decoder-epoch-99-avg-1-chunk-16-left-64.onnx")
+        == _kws_variant_key("joiner-epoch-99-avg-1-chunk-16-left-64.onnx")
+        == "epoch-99-avg-1-chunk-16-left-64"
+    )
+    # 不同 epoch 必须区分开——这正是要防混搭的地方
+    assert _kws_variant_key("encoder-epoch-99-avg-1-x.onnx") != _kws_variant_key(
+        "encoder-epoch-12-avg-2-x.onnx"
+    )
+
+
 

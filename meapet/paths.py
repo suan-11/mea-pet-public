@@ -194,11 +194,45 @@ def voice_kws_cache_dir() -> Path:
     return Path(data_path("voice_kws"))
 
 
+def _kws_variant_key(filename: str) -> str:
+    """把 onnx 文件名归约到「同一套模型」的键：`<epoch>-<avg 段>`。
+
+    上游一个目录里常常并排放**好几套**（实测 wenetspeech 官方包里同时有
+    `epoch-99-avg-1` 与 `epoch-12-avg-2`，各有 int8/非 int8 两档）。按件挑
+    会撞出「encoder 用 99、decoder 用 12」这种混搭——加载要么直接失败，
+    要么识别结果整个错乱，而报错信息不会指向真正的原因。
+
+    所以判据不是"哪个文件先被遍历到"，而是"它们是不是同一套"：
+    去掉前缀（encoder-/decoder-/joiner-）、去掉精度后缀（.int8.onnx/.onnx），
+    剩下的那段就是这个变体的身份。
+    """
+    stem = filename
+    for prefix in ("encoder-", "decoder-", "joiner-"):
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    for suffix in (".int8.onnx", ".onnx"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return stem
+
+
+def _kws_prefer_int8(candidates: list) -> list:
+    """同一变体有 int8 与非 int8 两档时优先 int8——与 ASR 那一路的默认档一致，
+    也是向导文案承诺的体积档。"""
+    int8 = [p for p in candidates if p.name.endswith(".int8.onnx")]
+    return int8 or candidates
+
+
 def find_voice_kws_files() -> dict | None:
-    """找一套能跑 KWS 的模型文件，命中返回 {encoder, decoder, joiner, tokens[, keywords]}。
+    """找**成套**的 KWS 模型文件，命中返回 {encoder, decoder, joiner, tokens[, keywords]}。
 
     keywords 是用户词表（keywords.txt）：模型目录里没有就不塞进结果——词表缺席
     由 kws.build_keyword_spotter 单独报「词表缺失」，和模型缺失分开处置。
+
+    成套判据见 `_kws_variant_key`：encoder/decoder/joiner 必须同属一个变体，
+    不接受"三件都找到了"这种按件抽查式的合格。同一变体内优先 int8。
     """
     for root in (
         voice_kws_cache_dir(),
@@ -208,26 +242,49 @@ def find_voice_kws_files() -> dict | None:
             continue
         candidates = [root]
         try:
-            candidates.extend(p for p in root.iterdir() if p.is_dir())
+            candidates.extend(sorted(p for p in root.iterdir() if p.is_dir()))
         except OSError:
             continue
         for directory in candidates:
-            found: dict = {}
             try:
                 entries = [p for p in directory.iterdir() if p.is_file()]
             except OSError:
                 continue
-            for key, prefixes in VOICE_KWS_PREFIXES.items():
-                for entry in entries:
-                    if entry.suffix == ".onnx" and entry.name.startswith(prefixes):
-                        found[key] = str(entry)
-                        break
+            tokens = next(
+                (str(e) for e in entries if e.name == "tokens.txt"), None
+            )
+            if tokens is None:
+                continue
+
+            by_variant: dict = {}
             for entry in entries:
-                if entry.name == "tokens.txt":
-                    found["tokens"] = str(entry)
-                elif entry.name == "keywords.txt":
-                    found["keywords"] = str(entry)
-            if all(k in found for k in ("encoder", "decoder", "joiner", "tokens")):
+                prefix = next(
+                    (
+                        key
+                        for key, prefixes in VOICE_KWS_PREFIXES.items()
+                        if entry.suffix == ".onnx" and entry.name.startswith(prefixes)
+                    ),
+                    None,
+                )
+                if prefix is None:
+                    continue
+                by_variant.setdefault(_kws_variant_key(entry.name), {}).setdefault(
+                    prefix, []
+                ).append(entry)
+
+            for variant in sorted(by_variant):
+                parts = by_variant[variant]
+                if not all(k in parts for k in ("encoder", "decoder", "joiner")):
+                    continue
+                found = {"tokens": tokens}
+                for key in ("encoder", "decoder", "joiner"):
+                    chosen = _kws_prefer_int8(sorted(parts[key]))
+                    found[key] = str(chosen[0])
+                keywords = next(
+                    (str(e) for e in entries if e.name == "keywords.txt"), None
+                )
+                if keywords is not None:
+                    found["keywords"] = keywords
                 return found
     return None
 
