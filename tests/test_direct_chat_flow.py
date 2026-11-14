@@ -291,7 +291,7 @@ class TestDirectEngineFactory(unittest.TestCase):
 class TestDesktopDirectStreamSelection(unittest.TestCase):
     def test_direct_mode_uses_event_worker_and_shared_presentation(self):
         from meapet.desktop.chat_flow import PetChatFlowMixin
-        from meapet.desktop.workers import ChatWorker
+        from meapet.desktop.workers import AgentChatWorker
 
         class Engine:
             async def stream_turn(self, _request):
@@ -319,10 +319,13 @@ class TestDesktopDirectStreamSelection(unittest.TestCase):
 
         host = Host()
         worker = host._make_chat_worker("直连问题")
-        self.assertIsInstance(worker, ChatWorker)
-        self.assertEqual(worker.message, "直连问题")
-        self.assertIs(worker.engine, host.chat_engine)
-        self.assertEqual(worker.text_attachments, [])
+        # P0-4：直连统一走流式事件路（原 ChatWorker 非流式双轨已收口）：
+        # 附件随 request.text_attachments、取消走 cancel_turn、记忆回写走
+        # _finish_agent_turn 直连分支。
+        self.assertIsInstance(worker, AgentChatWorker)
+        self.assertIs(worker.adapter, host.chat_engine)
+        self.assertEqual(worker.request.user_text, "直连问题")
+        self.assertEqual(tuple(worker.request.text_attachments), ())
 
 
 if __name__ == "__main__":

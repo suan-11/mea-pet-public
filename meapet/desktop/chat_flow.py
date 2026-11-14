@@ -1,6 +1,7 @@
 """MeaPet 功能 mixin（从 pet.py 拆出）"""
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import threading
@@ -22,12 +23,14 @@ from meapet.agent.text_budget import can_attach_files
 from meapet.agent.presentation import (
     AgentTurnPresentation,
     BeginBubble,
+    CancelTTS,
     CancelTurn,
     FailTurn,
     FinalizeBubble,
     FinishTurn,
     PlayAudio,
     RequestFormatRepair,
+    SetMood,
     ShowStatus,
     SubmitTTS,
     UpdateBubble,
@@ -623,10 +626,14 @@ class PetChatFlowMixin:
         self._timeline_segment_texts = {}
         from meapet.desktop.renderer import MOOD_TO_EXPRESSION
 
+        # P0-4：句级流式 TTS 默认开（tts.sentence_streaming=false 可回退逐段）。
+        tts_cfg = (getattr(self, "config", {}) or {}).get("tts") or {}
+        sentence_streaming = bool(tts_cfg.get("sentence_streaming", True))
         self._agent_presentation = AgentTurnPresentation(
             tts_enabled=tts_enabled,
             reply_min_duration_ms=int(bubble_config.get("reply", 3000)),
             supported_moods=tuple(MOOD_TO_EXPRESSION),
+            sentence_streaming=sentence_streaming,
         )
         request = AgentTurnRequest(
             turn_id=turn_id,
@@ -644,11 +651,11 @@ class PetChatFlowMixin:
             user_text=message,
             context=turn_context,
         )
-        if agent_mode:
-            worker = AgentChatWorker(adapter, request)
-        else:
-            # 直连模式：ChatWorker 会把 text_attachments 透传给 engine.quick_chat_async。
-            worker = ChatWorker(adapter, message, text_attachments=atts)
+        # P0-4：直连与 Agent 统一走流式事件路（ChatEngine.stream_turn →
+        # DirectConversationAdapter，与 Agent 同一事件协议）。附件随
+        # request.text_attachments、取消走 cancel_turn、记忆回写走
+        # _finish_agent_turn 的直连分支——非流式 ChatWorker 双轨分裂就此收口。
+        worker = AgentChatWorker(adapter, request)
         worker.turn_context = turn_context
         return worker
 
@@ -891,8 +898,11 @@ class PetChatFlowMixin:
             return
         if isinstance(action, FinalizeBubble):
             segment = action.segment
+            # 句级模式：同一父段的多句共用一个气泡（bubble_index），
+            # display_text 是累积前缀，逐句 finalize 即逐句长大。
             bubble = self._agent_bubble(
-                segment.index,
+                action.bubble_index if action.bubble_index is not None
+                else segment.index,
                 text=segment.display_text,
                 mood=segment.mood,
                 context=context,
@@ -939,6 +949,23 @@ class PetChatFlowMixin:
             return
         if isinstance(action, FailTurn):
             self._fail_agent_turn(action.safe_message, context=context)
+            return
+        if isinstance(action, CancelTTS):
+            # 翻译/重写降级：停掉临时句级 TTS worker 与在播音频，
+            # 呈现层随后整段重交（旧 wav 不再被引用）。
+            workers = getattr(self, "_agent_tts_workers", {}) or {}
+            for idx in action.indices:
+                worker = workers.pop(idx, None)
+                if worker is not None:
+                    with contextlib.suppress(Exception):
+                        worker.terminate()
+            player = getattr(self, "_media_player", None)
+            if player is not None:
+                with contextlib.suppress(Exception):
+                    player.stop()
+            return
+        if isinstance(action, SetMood):
+            self._safe_set_mood(action.mood)
             return
         if isinstance(action, CancelTurn):
             self._cancel_agent_turn(context=context)

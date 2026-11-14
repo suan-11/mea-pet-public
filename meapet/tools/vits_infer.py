@@ -191,19 +191,18 @@ def resolve_speaker(speaker_ids, requested: str | None) -> tuple[int, str | None
         return 0, f"VITS 说话人 {requested!r} 的 id 不是整数，使用 0 号"
 
 
-def synthesize(
+def _synthesize_loaded(
+    rt,
+    hps,
+    net_g,
     text: str,
     output_wav: str,
-    model_path: str,
-    config_path: str,
-    speaker: str = "Mea",
-    noise_scale: float = 0.667,
-    noise_scale_w: float = 0.6,
-    length_scale: float = 1.0,
+    speaker: str,
+    noise_scale: float,
+    noise_scale_w: float,
+    length_scale: float,
 ) -> str:
-    rt = _load_torch_stack()
-    hps, net_g = _load_model(rt, model_path, config_path)
-
+    """已加载模型上的单次合成（一次性与 --serve 常驻共用这一份推理口径）。"""
     speaker_id, speaker_warning = resolve_speaker(hps.speakers, speaker)
     if speaker_warning:
         print(f"WARN:speaker:{speaker_warning}", file=sys.stderr, flush=True)
@@ -235,6 +234,72 @@ def synthesize(
     return output_wav
 
 
+def synthesize(
+    text: str,
+    output_wav: str,
+    model_path: str,
+    config_path: str,
+    speaker: str = "Mea",
+    noise_scale: float = 0.667,
+    noise_scale_w: float = 0.6,
+    length_scale: float = 1.0,
+) -> str:
+    rt = _load_torch_stack()
+    hps, net_g = _load_model(rt, model_path, config_path)
+    return _synthesize_loaded(
+        rt, hps, net_g, text, output_wav, speaker,
+        noise_scale, noise_scale_w, length_scale,
+    )
+
+
+def _serve_loop(model_path: str, config_path: str, default_speaker: str) -> None:
+    """P0-4 常驻模式：模型只加载一次，stdin/stdout JSON 行协议。
+
+    就绪信号: {"event":"ready","model":...}
+    请求:     {"id":...,"text":...,"output":...,"speaker":...,
+               "noise_scale":...,"noise_scale_w":...,"length_scale":...}
+    响应:     {"id":...,"ok":true,"output":...}
+              {"id":...,"ok":false,"error":...}
+
+    仅驻留本地进程、无端口暴露。单次合成失败不退出循环（调用方按失败降级）；
+    模型加载失败则响亮退出，由调用方回落一次性子进程。
+    """
+    import json
+
+    # 协议面必须纯净：vits_core 加载/推理会往 stdout 打 INFO（实测
+    # "Loaded checkpoint ..." 污染首行握手）。产品侧输出一律串到 stderr，
+    # JSON 协议只走真正的 stdout。
+    protocol_out = sys.stdout
+    sys.stdout = sys.stderr
+    rt = _load_torch_stack()
+    hps, net_g = _load_model(rt, model_path, config_path)
+    print(
+        json.dumps({"event": "ready", "model": model_path}, ensure_ascii=False),
+        file=protocol_out, flush=True,
+    )
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        rid = None
+        try:
+            req = json.loads(line)
+            rid = req.get("id")
+            out = _synthesize_loaded(
+                rt, hps, net_g,
+                str(req.get("text") or ""),
+                str(req.get("output") or ""),
+                str(req.get("speaker") or default_speaker),
+                float(req.get("noise_scale", 0.667)),
+                float(req.get("noise_scale_w", 0.6)),
+                float(req.get("length_scale", 1.0)),
+            )
+            resp = {"id": rid, "ok": True, "output": out}
+        except Exception as exc:
+            resp = {"id": rid, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        print(json.dumps(resp, ensure_ascii=False), file=protocol_out, flush=True)
+
+
 if __name__ == "__main__":
     base = _bootstrap()
     parser = argparse.ArgumentParser(description="VITS 语音合成（独立脚本）")
@@ -245,6 +310,11 @@ if __name__ == "__main__":
     parser.add_argument("--noise_scale_w", type=float, default=0.6)
     parser.add_argument("--length_scale", type=float, default=1.0)
     parser.add_argument("--warmup", action="store_true", help="预热加载模型")
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="常驻模式：模型加载一次，stdin/stdout JSON 行协议（P0-4）",
+    )
     parser.add_argument(
         "--check-deps",
         dest="check_deps",
@@ -258,8 +328,8 @@ if __name__ == "__main__":
     # 必填从 argparse 下移到这里：只有 synthesize 那一支读 args.text，挂在
     # argparse 上时"只验证依赖能否 import"那句 help 自己做不到——单跑
     # --check-deps 撞 rc=2，required 比 check_deps 分支先出口。
-    if not (args.check_deps or args.warmup) and not args.text.strip():
-        parser.error("合成需要 -t/--text（--check-deps / --warmup 不需要）")
+    if not (args.check_deps or args.warmup or args.serve) and not args.text.strip():
+        parser.error("合成需要 -t/--text（--check-deps / --warmup / --serve 不需要）")
 
     # 就绪探针走这条路：判据就是 _load_torch_stack 那份 import 面本身。
     # 另写一份"该装哪些包"的清单会与 vits_requirements.txt、与本函数的导入集合
@@ -283,6 +353,10 @@ if __name__ == "__main__":
         rt = _load_torch_stack()
         _load_model(rt, model_path, config_path)
         print("OK:model_loaded")
+        sys.exit(0)
+
+    if args.serve:
+        _serve_loop(model_path, config_path, args.speaker)
         sys.exit(0)
 
     result = synthesize(
