@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.verify_dist import (  # noqa: E402
+    VOICE_RUNTIME_DIRS,
     main,
     run_doctor,
     verify_dist,
@@ -65,6 +66,11 @@ def _make_dist(tmp_path: Path, platform: str = "windows") -> Path:
     vits.parent.mkdir(parents=True, exist_ok=True)
     vits.write_text("# fake", encoding="utf-8")
     (internal / "config.example.json").write_text("{}", encoding="utf-8")
+    # P1-3：语音运行时是**两个平台的干净产物都该有**的件（sherpa 与 pyaudio
+    # 都不是纯 Python，静态分析收不到，全靠 spec 显式收编——正因为容易漏，
+    # verify_dist 才要硬断言；夹具也跟着补，否则「干净产物」就名不副实）。
+    for pkg in VOICE_RUNTIME_DIRS:
+        (internal / pkg).mkdir(parents=True, exist_ok=True)
     if platform == "windows":
         qtbin = internal / "PyQt5" / "Qt5" / "bin"
         qtbin.mkdir(parents=True, exist_ok=True)
@@ -274,3 +280,33 @@ def test_main_exit_codes(tmp_path, capsys):
     (dist / "_internal" / "config.json").write_text("{}", encoding="utf-8")
     code = main(["--dist", str(dist), "--platform", "windows", "--skip-doctor"])
     assert code == 1
+
+# ----------------------------------------------------------------------
+# P1-3：语音运行时缺失必须拦
+# ----------------------------------------------------------------------
+
+
+def test_missing_voice_runtime_fails(tmp_path):
+    """缺 sherpa/pyaudio 必须判红，且**两个包各报一条**。
+
+    这条红测试的由来是一次真事故：构建环境恰缺 pyaudio 时包照样出得来、
+    闸门照样绿，只是录音那一路整个没了。「构建成功、功能缺失」比构建失败
+    更危险——所以这条断言和它的红测试都得在。
+    """
+    dist = _make_dist(tmp_path)
+    for pkg in VOICE_RUNTIME_DIRS:
+        target = dist / "_internal" / pkg
+        if target.is_dir():
+            target.rmdir()
+    report = _verify(dist)
+    assert not report["ok"]
+    for pkg in VOICE_RUNTIME_DIRS:
+        assert any(pkg in f for f in report["failures"]), report["failures"]
+
+
+def test_voice_runtime_reported_in_checks(tmp_path):
+    """通过时也要把这两格亮出来：检查项本身要能自证跑过。"""
+    report = _verify(_make_dist(tmp_path))
+    assert report["ok"], report["failures"]
+    assert report["checks"]["voice_runtime"] == list(VOICE_RUNTIME_DIRS)
+
