@@ -103,6 +103,19 @@ python scripts/verify_dist.py --dist build/stage_dist/MeaPet --platform windows 
 - `verify_dist.py`：包内缺 `_internal/sherpa_onnx` 或 `_internal/pyaudio` 直接判 **FAIL**。
   已用全空假包实测过，两条断言都真的会拦（`ok: false`）。
 
+### 4.2 加闸门必须同步加它的夹具和红测试
+
+第一次推上去 **CI 四个 job 全挂**，原因不是产品代码，而是我改了闸门却没改它的测试：
+
+`tests/test_verify_dist.py` 用一棵**合成的假产物树**验证「干净产物应全绿」，
+那棵树里没有 `_internal/sherpa_onnx` 与 `_internal/pyaudio`，于是 5 条用例当场转红。
+
+教训（写进代码注释了）：**闸门新增一条硬断言时，三件套要一起改**——
+断言本身、夹具（让「干净产物」名副其实）、以及一条**证明它真会拦的红测试**。
+少了任何一件，要么 CI 红，要么断言形同虚设。
+
+补上后该文件 24 项全过；不带语音依赖的环境下全量 1909 passed。
+
 ## 5. 已知边界
 
 - **PTT 不碰低级键盘钩子**：`RegisterHotKey` 只报按下，松开靠轮询
