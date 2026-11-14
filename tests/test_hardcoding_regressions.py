@@ -479,10 +479,14 @@ def test_voice_input_installer_does_not_run_frozen_executable_as_python():
 
 
 def test_voice_input_keeps_only_keys_the_engine_reads():
-    """语音输入只认 enabled/language/auto_send/precision/input_device_index。
+    """语音输入只认它真正读的那几个键。
 
     换引擎前留下的 engine/model/device 不得再长回来；新增键必须同时被运行时读到，
     否则它就是这个断言要拦的那类死键。
+
+    P1-3 新增的五格（mode / ptt_hotkey / vad / wake_word / echo_gate_tail_ms）
+    各自都有读取点，见 test_p1_3_keys_are_actually_read 那条——本断言只管
+    「配置面里不许躺着没人读的键」。
     """
     from meapet.config.store import normalize_config, scrub_secrets
     import meapet.paths as paths
@@ -501,6 +505,12 @@ def test_voice_input_keeps_only_keys_the_engine_reads():
         "auto_send",
         "precision",
         "input_device_index",
+        # P1-3 全双工
+        "mode",
+        "ptt_hotkey",
+        "vad",
+        "wake_word",
+        "echo_gate_tail_ms",
     }
     # 默认值只在这一处给：非法档位收敛到默认档，非法设备号按「自动」处理
     assert cfg["voice_input"]["precision"] == paths.VOICE_ASR_PRECISION_DEFAULT

@@ -164,11 +164,55 @@ if not CORE_PROFILE:
     _datas += _vits_stack_datas
 _datas += live2d_pkg_datas
 
+# P1-3：语音输入全双工的运行时。sherpa-onnx 是**二进制扩展 + 原生 .dll**，
+# 依赖分析只看得到 Python 侧 import，sherpa_onnx/lib 下的 onnxruntime 那几件
+# 与 pyaudio 的 _portaudio 都不在任何 import 图里——不显式收就是「本机开发能跑、
+# 冻结包一开就 ImportError」。体积实测：sherpa ~28 MB + pyaudio ~1 MB，
+# core 档 317 MB → ~347 MB，仍在 360 MB 上限内，所以进 core 而不是扩展包
+# （扩展包要多一条下载路径和一套校验，为 29 MB 不值当）。
+_voice_duplex_datas = []
+_voice_duplex_missing = []
+for _pkg in ("sherpa_onnx", "pyaudio"):
+    try:
+        _voice_duplex_datas += collect_data_files(_pkg)
+    except Exception:
+        # 构建环境没装这份依赖 ⇒ 打出来的包没有语音输入。
+        # **不静默跳过**：实测 2026-11-14 第一次打包时 pyaudio 恰好缺席，
+        # 包照样出得来，只是录音那一路整个没了——这种"成功"比失败更危险。
+        # 记下来，收尾时统一亮出来（构建不中断：语音是可选能力，缺它不该挡住出包，
+        # 但构建日志必须点名，别让人以为打出了完整功能）。
+        _voice_duplex_missing.append(_pkg)
+_datas += _voice_duplex_datas
+
 # 进程内 VITS 与文本前端语言支线的 hiddenimports（core 档整块不收）。
 # pyopenjtalk **不在此列**：其 -prebuilt 轮子只到 cp311（vits_requirements.txt
 # 顶部注释的现量），3.13 构建环境装不上 ⇒ 3.13 打的包里 ja 前端整支缺席，
 # 进程内路在包内仍不可用（应配 tts.vits_python 走子进程）；哪天上游发了
 # cp312+ 轮子，加一行 "pyopenjtalk" 即收编。
+#: P1-3 语音输入：这些模块全是「运行时按需 import」或者「被 ctypes/原生库间接用」，
+#: 静态分析都看不见，必须显式列。
+_voice_duplex_hiddenimports = [
+    "meapet.voice.vad",
+    "meapet.voice.kws",
+    "meapet.voice.ptt",
+    "meapet.voice.gate",
+    "sherpa_onnx",
+    "pyaudio",
+]
+
+if _voice_duplex_missing:
+    print(
+        "[MeaPet.spec] ⚠ 语音输入依赖缺席，本包**不含**录音能力："
+        f"{', '.join(_voice_duplex_missing)}"
+        "（装齐再打：uv pip install sherpa-onnx pyaudio）",
+        file=sys.stderr,
+    )
+else:
+    print(
+        "[MeaPet.spec] 语音输入运行时已收编：sherpa-onnx + pyaudio（P1-3）",
+        file=sys.stderr,
+    )
+
 _vits_hiddenimports = [
     "meapet.tts.engines.vits_runtime",
     "scipy",
@@ -259,6 +303,7 @@ a = Analysis(
         "translators",
         "jieba",
     ]
+    + _voice_duplex_hiddenimports
     + ([] if CORE_PROFILE else _vits_hiddenimports),
     hookspath=["."],
     hooksconfig={},

@@ -154,6 +154,17 @@ class PetWindowChromeMixin:
                 stop_control()
             except Exception:
                 pass
+        # P1-3：全局热键与常驻唤醒监听是系统级资源，进程退出前必须显式卸掉——
+        # RegisterHotKey 不会随进程收尾自动释放，监听线程也会被拖成僵尸。
+        for name in ("_teardown_ptt", "_stop_wake_listener", "_stop_voice_engine"):
+            cleanup = getattr(self, name, None)
+            if callable(cleanup):
+                try:
+                    cleanup()
+                except Exception as exc:  # noqa: BLE001 - 一件收不干净不该挡住其余
+                    # 退出路径不中断其余清理，但要留痕：系统级资源（热键、监听线程）
+                    # 没收到干净，下次启动的症状会指向别处。
+                    safe_print(f"[pet] {name} 清理失败: {type(exc).__name__}: {exc}")
         stop_onebot = getattr(self, "_stop_onebot", None)
         if callable(stop_onebot):
             try:

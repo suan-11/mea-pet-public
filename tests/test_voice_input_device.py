@@ -395,10 +395,15 @@ def test_engine_receives_both_new_keys_from_config(monkeypatch):
         }
     }
     host._start_voice_engine()
+    # mode / vad_config 是 P1-3 加的：引擎要按模式决定收音循环，按 vad 那几格
+    # 造检测器。配置里没写就传 None，由引擎自己收敛到默认档——不在这里替它补默认值，
+    # 否则「默认值只有一处」这条纪律就破了。
     assert seen == {
         "language": "en",
         "precision": "fp32",
         "input_device_index": 7,
+        "mode": None,
+        "vad_config": None,
     }
 
 

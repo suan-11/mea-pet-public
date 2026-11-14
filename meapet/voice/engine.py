@@ -15,18 +15,38 @@ from typing import Optional
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from meapet.config.normalizers import normalize_input_device_index
+from meapet.config.normalizers import (
+    VOICE_INPUT_MODES,
+    normalize_input_device_index,
+    normalize_voice_mode,
+)
 from meapet.log import get_color_logger
 from meapet.paths import (
     VOICE_ASR_MODEL_FILES,
     find_voice_asr_model_dir,
     normalize_voice_asr_precision,
 )
+from meapet.voice.gate import GLOBAL_ECHO_GATE
 
 log = get_color_logger("voice")
 
 # 识别器与采集共用的采样率：设备的可用性按它探测，向导文案也按它标注，别两处各写一个数。
 VOICE_INPUT_SAMPLE_RATE = 16000
+
+# 模式词汇表的唯一真值在 meapet.config.normalizers（配置存储那一路不引 Qt），
+# 这里 re-export 只为既有 import 面不破。
+__all__ = [
+    "AsrModelMissing",
+    "VOICE_INPUT_MODES",
+    "VOICE_INPUT_SAMPLE_RATE",
+    "VoiceEngine",
+    "build_recognizer",
+    "create_voice_engine",
+    "list_input_devices",
+    "normalize_voice_mode",
+    "read_wav_samples",
+    "transcribe_wav",
+]
 
 
 class AsrModelMissing(RuntimeError):
@@ -226,6 +246,9 @@ class VoiceEngine(QThread):
         chunk_ms: int = 30,
         precision: object = None,
         input_device_index: object = None,
+        mode: object = None,
+        gate=None,
+        vad_config: object = None,
     ):
         super().__init__()
         self._language = str(language or "zh").strip() or "zh"
@@ -234,11 +257,20 @@ class VoiceEngine(QThread):
         self._chunk_size = max(256, self._sample_rate * int(chunk_ms or 30) // 1000)
         self._precision = normalize_voice_asr_precision(precision)
         self._input_device_index = normalize_input_device_index(input_device_index)
+        self._mode = normalize_voice_mode(mode)
+        # 门控默认全局那只：桌面 _play_audio 往同一只钟上 hold，这里才接得到。
+        # 测试可注入假钟的独立实例——门控的验收不靠真播音。
+        self._gate = gate if gate is not None else GLOBAL_ECHO_GATE
+        self._vad_cfg = dict(vad_config) if isinstance(vad_config, dict) else {}
 
         self._stop = False
         self._toggle = False
         self._recognizer = None
         self._audio_frames: list[bytes] = []
+
+    @property
+    def mode(self) -> str:
+        return self._mode
 
     def toggle(self) -> bool:
         if self.isRunning():
@@ -287,16 +319,12 @@ class VoiceEngine(QThread):
                 frames_per_buffer=self._chunk_size,
             )
             self.recording_started.emit()
-            log.info("[voice] recording started")
+            log.info(f"[voice] recording started (mode={self._mode})")
 
-            while not self._stop:
-                try:
-                    data = stream.read(self._chunk_size, exception_on_overflow=False)
-                except Exception:
-                    continue
-                self._audio_frames.append(data)
-                if self._toggle:
-                    break
+            if self._mode == "hands_free":
+                self._loop_hands_free(stream)
+            else:
+                self._loop_toggle(stream)
 
             stream.stop_stream()
             stream.close()
@@ -304,7 +332,9 @@ class VoiceEngine(QThread):
             self.recording_stopped.emit()
             log.info(f"[voice] recording stopped, frames={len(self._audio_frames)}")
 
-            if self._stop:
+            # hands_free 每句在循环里就地转写并发射；这里再收尾一次会把最后半句
+            # 当整句播第二遍，所以只走 toggle 的收尾。
+            if self._stop or self._mode == "hands_free":
                 return
 
             text = self._transcribe()
@@ -317,6 +347,86 @@ class VoiceEngine(QThread):
             log.error(f"[voice] error: {type(exc).__name__}: {exc}")
             log.trace(lambda: traceback.format_exc())
             self.error.emit(f"语音识别异常: {exc}")
+
+    # ------------------------------------------------------------------
+    # 收音循环（两种模式共用同一套帧读取与门控）
+    # ------------------------------------------------------------------
+
+    def _read_chunk(self, stream):
+        """读一帧；播音期（门控生效）整帧丢，返回 None。
+
+        「丢」而不是「暂停」，是因为帧的时间轴与真实时间对齐：丢了只是把那段时间
+        当静音，攒着晚点再读会把「她说话的时刻」压扁进用户的话里。pyaudio 单帧
+        读失败也只丢这一帧——录音中间断一帧，比整条录音被拆掉好。
+        """
+        try:
+            data = stream.read(self._chunk_size, exception_on_overflow=False)
+        except Exception:  # noqa: BLE001 - 单帧读失败丢一帧，不拆整条录音
+            return None
+        if self._gate is not None and self._gate.active():
+            return None
+        return data
+
+    def _loop_toggle(self, stream) -> None:
+        """点按切换：录到第二次点击（_toggle）或 stop() 为止。"""
+        while not self._stop:
+            data = self._read_chunk(stream)
+            if data is not None:
+                self._audio_frames.append(data)
+            if self._toggle:
+                break
+
+    def _loop_hands_free(self, stream) -> None:
+        """常驻收音 + VAD 自动断句：断出一句就转写发射一句，直到 stop()。"""
+        from meapet.voice.vad import VadModelMissing, VadSegmenter
+
+        try:
+            segmenter = VadSegmenter(**self._vad_kwargs())
+        except ImportError:
+            self.error.emit("sherpa-onnx 未安装，请在配置页下载依赖")
+            return
+        except VadModelMissing as exc:
+            self.error.emit(f"{exc}")
+            return
+        except Exception as exc:  # noqa: BLE001 - 加载失败的原文要给用户
+            self.error.emit(f"VAD 加载失败: {exc}")
+            return
+
+        while not self._stop:
+            data = self._read_chunk(stream)
+            if data is None:
+                # 播音期：检测器里攒着的多半是她自己的尾音，清掉重新听，
+                # 否则下一句用户的话会和她的尾音拼成一句。
+                segmenter.reset()
+                continue
+            for segment in segmenter.feed_pcm16(data):
+                self._emit_segment(segment)
+        for segment in segmenter.flush():
+            self._emit_segment(segment)
+
+    def _emit_segment(self, segment) -> None:
+        """一句就绪就转写并发射；太短的碎句（<250 ms）与录音那一路同判，丢。"""
+        if segment is None or len(segment) < self._sample_rate // 4:
+            return
+        if self._recognizer is None:
+            return
+        try:
+            result = _decode_samples(self._recognizer, segment, self._sample_rate)
+        except Exception as exc:  # noqa: BLE001 - 单句转写失败不拆整条监听
+            log.error(f"[voice] segment decode error: {type(exc).__name__}: {exc}")
+            return
+        if result:
+            log.info(f"[voice] segment: '{result[:80]}'")
+            self.result_ready.emit(result)
+
+    def _vad_kwargs(self) -> dict:
+        keys = (
+            "threshold",
+            "min_silence_duration",
+            "min_speech_duration",
+            "max_speech_duration",
+        )
+        return {key: self._vad_cfg[key] for key in keys if key in self._vad_cfg}
 
     # ------------------------------------------------------------------
     # 模型加载
@@ -438,4 +548,6 @@ def create_voice_engine(config: Optional[dict] = None) -> Optional[VoiceEngine]:
         language=cfg.get("language", "zh"),
         precision=cfg.get("precision"),
         input_device_index=cfg.get("input_device_index"),
+        mode=cfg.get("mode"),
+        vad_config=cfg.get("vad"),
     )

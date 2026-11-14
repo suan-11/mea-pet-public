@@ -78,6 +78,12 @@ vits = [
 webengine = [
     "PyQtWebEngine>=5.15",
 ]
+# P1-3 语音输入全双工：sherpa-onnx 同时提供 ASR / Silero VAD / KWS 三种能力，
+# 一个底座顶三件。pyaudio 是录音那一路，sherpa 不代劳。
+voice = [
+    "sherpa-onnx>=1.10",
+    "pyaudio>=0.2.14",
+]
 win32 = [
     "pywin32>=305 ; platform_system == 'Windows'",
 ]

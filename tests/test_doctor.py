@@ -50,6 +50,7 @@ BASE_ITEMS = [
     "audio_playback",
     "input_devices",
     "asr",
+    "voice_duplex",  # P1-3：全双工三件（VAD / 唤醒词 / 门控）分件报
     "screens",
     "input_thresholds",
     "log_tail",

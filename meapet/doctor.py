@@ -417,6 +417,48 @@ def _audio_playback(config: dict) -> str:
     )
 
 
+def _voice_duplex(config: dict) -> str:
+    """P1-3 全双工三件的读数：模式 / VAD 模型 / 唤醒词 / 回声门控。
+
+    分件报是因为它们的坏法互不相同：VAD 模型缺席=去下载；唤醒词关了=设计如此；
+    门控生效中=此刻正在播音（不是故障）。混成一句「语音不可用」就等于什么都没说。
+    """
+    from meapet.paths import find_voice_kws_files, find_voice_vad_model
+    from meapet.voice.gate import GLOBAL_ECHO_GATE
+
+    cfg = (config or {}).get("voice_input") or {}
+    vad_cfg = cfg.get("vad") if isinstance(cfg.get("vad"), dict) else {}
+    wake = cfg.get("wake_word") if isinstance(cfg.get("wake_word"), dict) else {}
+    mode = cfg.get("mode") or "toggle"
+    hotkey = str(cfg.get("ptt_hotkey") or "").strip()
+    vad_path = find_voice_vad_model()
+    kws_files = find_voice_kws_files()
+    libs = _voice_libs()
+    return (
+        f"模式={mode} · 库=({libs}) · "
+        f"VAD模型={'在场' if vad_path else '缺席'}"
+        f"(阈值={vad_cfg.get('threshold')} 静音={vad_cfg.get('min_silence_duration')}s) · "
+        f"唤醒词={'开' if wake.get('enabled') else '关(默认)'}"
+        f"/模型={'在场' if kws_files else '缺席'} · "
+        f"PTT热键={hotkey or '未配'} · 尾音={cfg.get('echo_gate_tail_ms')}ms · "
+        f"{GLOBAL_ECHO_GATE.snapshot()}（生效中=此刻在播音，不是故障）"
+    )
+
+
+def _voice_libs() -> str:
+    """sherpa_onnx / pyaudio 在不在（冻结包里这两件的缺席是「不可用」的唯一根因）。"""
+    import importlib.util
+
+    parts = []
+    for name in ("sherpa_onnx", "pyaudio"):
+        try:
+            present = importlib.util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            present = False
+        parts.append(f"{name}={'在场' if present else '缺席'}")
+    return " ".join(parts)
+
+
 def _input_devices(config: dict) -> str:
     from meapet.voice.engine import VOICE_INPUT_SAMPLE_RATE, list_input_devices
 
@@ -1099,6 +1141,13 @@ def collect(config: dict, *, with_gui: bool = False, skip_tts: bool = False,
             "两档各问一次是因为产品自己那张表就写着「下了 fp32 却仍读 int8」这一怕；"
             "配置档=缺席 而另一档=在场 ⇒ 不是没下载，是下错了档。模型路径与档位表都取自 meapet.paths 那一个真值",
             lambda: _asr(config),
+        ),
+        _probe(
+            "voice_duplex",
+            "P1-3 全双工三件分件报：VAD 模型缺席=去下载，唤醒词关=默认设计（隐私档位，"
+            "不与 enabled 捆绑），门控生效中=此刻正在播音而非故障；sherpa/pyaudio 缺席是"
+            "冻结包里「语音不可用」的唯一根因",
+            lambda: _voice_duplex(config),
         ),
         _probe(
             "screens",

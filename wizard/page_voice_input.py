@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import copy
 import subprocess
 import sys
 
@@ -145,6 +146,57 @@ def _voice_input_install_command() -> list[str] | None:
     ]
 
 
+class _VadModelWorker(QThread):
+    """后台线程：只下 Silero VAD 那一个小文件（~2 MB）。
+
+    与 ASR 的 _InstallWorker 分开，是因为**可达成性不同**：ASR 那一路要 pip 装
+    sherpa+pyaudio，冻结版走不通；VAD 只是一个 HTTPS 文件，用 requests 直下即可，
+    冻结版也能下——这正是「冻结版语音输入不可用」这条封锁里能先解开的一格。
+    """
+
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
+
+    def run(self):
+        from meapet.paths import VOICE_VAD_MODEL_URL, voice_vad_cache_dir
+
+        target_dir = voice_vad_cache_dir()
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.finished.emit(False, f"建目录失败: {exc}")
+            return
+        target = target_dir / "silero_vad.onnx"
+        staging = target.with_suffix(".onnx.download")
+        self.progress.emit("正在下载 Silero VAD 模型（约 2 MB）…")
+        try:
+            import requests
+
+            with requests.get(VOICE_VAD_MODEL_URL, stream=True, timeout=120) as resp:
+                resp.raise_for_status()
+                with open(staging, "wb") as handle:
+                    for chunk in resp.iter_content(1 << 16):
+                        if chunk:
+                            handle.write(chunk)
+            size = staging.stat().st_size
+            # 太小说明拿到的是错误页/重定向壳，不是模型——宁可不换，也不写一个假模型进去
+            if size < 100_000:
+                staging.unlink(missing_ok=True)
+                self.finished.emit(
+                    False,
+                    f"下载到的文件只有 {size} 字节，不是模型（可能被网络拦截）",
+                )
+                return
+            staging.replace(target)
+            self.finished.emit(True, f"VAD 模型已就绪（{size // 1024} KB）")
+        except Exception as exc:
+            try:
+                staging.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.finished.emit(False, f"下载失败: {exc}")
+
+
 class VoiceInputPage(QFrame):
 
     def __init__(self, parent=None):
@@ -252,6 +304,28 @@ class VoiceInputPage(QFrame):
         self.deps_status_detail.setProperty("status", "muted")
         self.settings_layout.addWidget(self.deps_status_detail)
 
+        # P1-3：VAD 自动断句。与上面那条分开，因为它**冻结版也能装**——
+        # 只是一个 2 MB 的 HTTPS 文件，不需要 pip。
+        vad_label = QLabel("自动断句（VAD）")
+        vad_label.setObjectName("FieldLabel")
+        self.settings_layout.addWidget(vad_label)
+        vad_desc = QLabel(
+            "常驻收音时自动判断一句话说完了没有，说完就转写并发送。\n"
+            "Silero VAD 模型约 2 MB，冻结版也可直接下载。"
+        )
+        vad_desc.setObjectName("HelperText")
+        vad_desc.setWordWrap(True)
+        self.settings_layout.addWidget(vad_desc)
+
+        self.vad_btn = QPushButton("下载 VAD 模型")
+        self.vad_btn.setProperty("doesNotModifyConfig", True)
+        self.vad_btn.clicked.connect(self._install_vad)
+        self.settings_layout.addWidget(self.vad_btn)
+
+        self.vad_status = QLabel("")
+        self.vad_status.setWordWrap(True)
+        self.settings_layout.addWidget(self.vad_status)
+
         self.hint = QLabel("")
         self.hint.setWordWrap(True)
         self.hint.setProperty("status", "muted")
@@ -260,7 +334,9 @@ class VoiceInputPage(QFrame):
         layout.addStretch()
         self.precision_combo.currentIndexChanged.connect(self._check_deps)
         self._check_deps()
+        self._check_vad()
         self._install_worker = None
+        self._vad_worker = None
 
     def _on_enable_changed(self, enabled: bool):
         self.settings_frame.setVisible(enabled)
@@ -355,6 +431,39 @@ class VoiceInputPage(QFrame):
             self.install_btn.setEnabled(True)
             self.install_btn.setText("安装语音识别依赖与模型")
 
+    def _vad_model_ok(self) -> bool:
+        from meapet.paths import find_voice_vad_model
+
+        return find_voice_vad_model() is not None
+
+    def _check_vad(self) -> None:
+        if self._vad_model_ok():
+            set_status(self.vad_status, "success", "VAD 模型已就绪")
+            self.vad_btn.setEnabled(False)
+            self.vad_btn.setText("已就绪")
+        else:
+            set_status(self.vad_status, "muted", "VAD 模型未下载（不使用自动断句可不装）")
+            self.vad_btn.setEnabled(True)
+            self.vad_btn.setText("下载 VAD 模型")
+
+    def _install_vad(self) -> None:
+        self.vad_btn.setEnabled(False)
+        self.vad_btn.setText("下载中…")
+        set_status(self.vad_status, "info", "正在下载…")
+        self._vad_worker = _VadModelWorker(self)
+        self._vad_worker.progress.connect(lambda text: set_status(self.vad_status, "info", text))
+        self._vad_worker.finished.connect(self._on_vad_finished)
+        self._vad_worker.start()
+
+    def _on_vad_finished(self, success: bool, detail: str) -> None:
+        if success:
+            set_status(self.vad_status, "success", detail)
+            self._check_vad()
+        else:
+            set_status(self.vad_status, "error", detail)
+            self.vad_btn.setEnabled(True)
+            self.vad_btn.setText("重试下载")
+
     def _install_deps(self):
         if is_frozen():
             self._on_install_finished(
@@ -384,6 +493,19 @@ class VoiceInputPage(QFrame):
 
     def apply_config(self, voice_cfg: dict):
         voice_cfg = voice_cfg or {}
+        # P1-3 这几件本页不编辑，但 collect() 会把它们原样带回去——
+        # 不在这里接住，向导保存一次就把用户的 mode/ptt/vad/wake_word 抹成默认。
+        self._passthrough = {
+            key: copy.deepcopy(voice_cfg.get(key))
+            for key in (
+                "mode",
+                "ptt_hotkey",
+                "vad",
+                "wake_word",
+                "echo_gate_tail_ms",
+            )
+            if key in voice_cfg
+        }
         self.enable_cb.setChecked(bool(voice_cfg.get("enabled", False)))
 
         lang = str(voice_cfg.get("language", "zh")).strip().lower()
@@ -403,8 +525,10 @@ class VoiceInputPage(QFrame):
         self._sync_hint()
 
     def collect(self) -> dict:
-        return {
-            "voice_input": {
+        # 本页不编辑的 P1-3 键原样带回（见 apply_config）：向导只该改它认识的那几格。
+        payload = copy.deepcopy(getattr(self, "_passthrough", {}))
+        payload.update(
+            {
                 "enabled": self.enable_cb.isChecked(),
                 "language": self.lang_combo.currentData() or "zh",
                 "auto_send": self.auto_send_cb.isChecked(),
@@ -413,4 +537,5 @@ class VoiceInputPage(QFrame):
                     self.device_combo.currentData()
                 ),
             }
-        }
+        )
+        return {"voice_input": payload}

@@ -98,6 +98,15 @@ class PetConfigBridgeMixin:
         stop_voice = getattr(self, "_stop_voice_engine", None)
         if callable(stop_voice):
             stop_voice()
+        # P1-3：全局热键与常驻监听是**系统级**资源，重载配置时必须一起收，
+        # 否则 _init_voice 会再注册一次热键（第二次必然被占用失败）并在后台
+        # 叠一条没人持有引用的监听线程。
+        teardown_ptt = getattr(self, "_teardown_ptt", None)
+        if callable(teardown_ptt):
+            teardown_ptt()
+        stop_wake = getattr(self, "_stop_wake_listener", None)
+        if callable(stop_wake):
+            stop_wake()
 
         old_adapter = getattr(self, "agent_adapter", None)
         close = getattr(old_adapter, "close", None)

@@ -40,6 +40,9 @@ audio_cache/
 voice_cache/
 voice_asr/
 models/voice_asr/
+# P1-3：VAD / KWS 模型按档下载（与 voice_asr 同纪律：盘上文件不进版本控制）
+models/voice_vad/
+models/voice_kws/
 screenshots/
 wheels/
 OllamaSetup.exe

@@ -24,11 +24,14 @@ from typing import Dict, Optional, Tuple, Union
 
 from meapet.config.normalizers import (
     canonical_tts_language,
+    clamp_float,
+    clamp_int,
     normalize_click_feedback_weight,
     normalize_feedback_keywords,
     normalize_gsv_ref_language,
     normalize_input_device_index,
     normalize_poetry_sources,
+    normalize_voice_mode,
 )
 from meapet.config.defaults import (
     DEFAULT_AGENT_LINK_WS_URL,
@@ -1209,6 +1212,31 @@ def normalize_config(config: dict) -> dict:
     voice["precision"] = normalize_voice_asr_precision(voice.get("precision"))
     voice["input_device_index"] = normalize_input_device_index(
         voice.get("input_device_index")
+    )
+    # P1-3 全双工。模式默认点按切换（老行为）；唤醒词默认关闭——常驻监听必须
+    # 是用户单独的一次显式点头（隐私档位与 watcher 同档），不与 enabled 捆绑。
+    voice["mode"] = normalize_voice_mode(voice.get("mode"))
+    voice["ptt_hotkey"] = str(voice.get("ptt_hotkey") or "").strip()
+    vad_cfg = voice.get("vad") if isinstance(voice.get("vad"), dict) else {}
+    voice["vad"] = {
+        "threshold": clamp_float(vad_cfg.get("threshold"), 0.5, 0.0, 1.0),
+        "min_silence_duration": clamp_float(
+            vad_cfg.get("min_silence_duration"), 0.5, 0.05, 5.0
+        ),
+        "min_speech_duration": clamp_float(
+            vad_cfg.get("min_speech_duration"), 0.25, 0.05, 5.0
+        ),
+        "max_speech_duration": clamp_float(
+            vad_cfg.get("max_speech_duration"), 20.0, 1.0, 120.0
+        ),
+    }
+    wake = voice.get("wake_word") if isinstance(voice.get("wake_word"), dict) else {}
+    voice["wake_word"] = {
+        "enabled": bool(wake.get("enabled", False)),
+        "keywords_file": str(wake.get("keywords_file") or "").strip(),
+    }
+    voice["echo_gate_tail_ms"] = clamp_int(
+        voice.get("echo_gate_tail_ms"), 300, 0, 5000
     )
     cfg["voice_input"] = voice
 

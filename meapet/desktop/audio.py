@@ -48,6 +48,35 @@ def _qt_media_bundle():
     return bundle
 
 
+def hold_echo_gate(wav_path: str, config=None, duration_ms: int = 0) -> None:
+    """P1-3：告诉麦克风门控「接下来这段时间扬声器在说话」。
+
+    必须**在播放之前**推开：等播完再推，第一句就已经被录进去了。
+    时长优先用播放器给的（duration_ms），没有就按 wav 头预测。
+
+    这一段不碰 self：audio mixin 的单测只挂 _play_audio 一件，
+    门控不该因此要求测试去凑一整只桌宠窗口。
+    """
+    try:
+        from meapet.voice.gate import GLOBAL_ECHO_GATE, wav_duration_seconds
+
+        voice_cfg = (config or {}).get("voice_input") or {}
+        try:
+            tail_ms = int(voice_cfg.get("echo_gate_tail_ms", 300))
+        except (TypeError, ValueError):
+            tail_ms = 300
+        if duration_ms:
+            try:
+                seconds = max(0.0, float(duration_ms) / 1000.0)
+            except (TypeError, ValueError):
+                seconds = wav_duration_seconds(wav_path)
+        else:
+            seconds = wav_duration_seconds(wav_path)
+        GLOBAL_ECHO_GATE.hold(seconds, tail_ms=tail_ms)
+    except Exception as exc:  # noqa: BLE001 - 门控推不开是读数问题，不该阻断播放
+        safe_print(f"[audio] 回声门控推开失败: {type(exc).__name__}: {exc}")
+
+
 def bubble_duration_for_audio(
     audio_duration_ms: int,
     minimum_duration_ms: int,
@@ -81,12 +110,20 @@ class PetAudioMixin:
             pass
         return 0
 
+    def _hold_echo_gate(self, wav_path: str, duration_ms: int = 0) -> None:
+        """P1-3：告诉麦克风门控「接下来这段时间扬声器在说话」（实现见模块级同名函数）。"""
+        hold_echo_gate(wav_path, getattr(self, "config", None), duration_ms=duration_ms)
+
     def _play_audio(self, wav_path: str, audio_type: str = "sfx"):
         """播放 wav 音频，audio_type 为 'sfx' 或 'tts'，音量从配置读取"""
         if not os.path.exists(wav_path):
             safe_print(f"[audio] 文件不存在: {wav_path}")
             return
         abs_path = os.path.abspath(wav_path)
+        # TTS 会经麦克风回授；sfx 是本地提示音，同样进麦克风，但只闭一小格——
+        # 提示音短，按它的真实时长闭就够了。走模块级函数而不是 self 上的方法：
+        # 这个 mixin 的单测只挂 _play_audio 一件。
+        hold_echo_gate(abs_path, getattr(self, "config", None))
         size = 0
         try:
             size = os.path.getsize(abs_path)

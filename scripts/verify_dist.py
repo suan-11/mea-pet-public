@@ -51,6 +51,12 @@ REQUIRED_ASSETS = (
     ("_internal", "meapet", "tools", "vits_infer.py"),
 )
 
+# P1-3 语音输入运行时：sherpa-onnx 与 pyaudio 都是**原生扩展**，静态分析看不见，
+# 全靠 MeaPet.spec 里显式 collect_data_files 收编。2026-11-14 实测踩到过一次：
+# 构建环境恰缺 pyaudio 时包照样出得来，只是录音那一路整个没了——「构建成功、
+# 功能缺失」比构建失败更危险，所以这里像 Linux 的 numpy 那一格一样硬断言。
+VOICE_RUNTIME_DIRS = ("sherpa_onnx", "pyaudio")
+
 CORE_MAX_MB_DEFAULT = 360.0
 DOCTOR_TIMEOUT_DEFAULT = 180
 
@@ -181,6 +187,15 @@ def verify_dist(
             failures.append("包内缺 _internal/liblayer_shell_shim.so（穿透模式第一候选）")
         if not (dist / "_internal" / "numpy").is_dir():
             failures.append("包内缺 numpy 运行时（fidus_position.py 模块级依赖）")
+
+    # P1-3：语音运行时（两平台都要在——它是可选功能，但**打进去了就必须完整**；
+    # 故意不带语音的发行版请显式改 VOICE_RUNTIME_DIRS，别靠环境碰运气）。
+    for pkg in VOICE_RUNTIME_DIRS:
+        if not (dist / "_internal" / pkg).is_dir():
+            failures.append(
+                f"包内缺 {pkg} 运行时（P1-3 语音输入；构建环境装齐再打）"
+            )
+    checks["voice_runtime"] = list(VOICE_RUNTIME_DIRS)
 
     size_mb = dir_size_bytes(dist) / (1024 * 1024)
     checks["size_mb"] = round(size_mb, 1)

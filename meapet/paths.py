@@ -139,6 +139,99 @@ def find_voice_asr_model_dir(precision: object = None) -> Path | None:
     return None
 
 
+# --- P1-3：Silero VAD（自动断句）与 KWS（唤醒词）的模型定位 ----------------------
+# 与 voice_asr 同纪律：文件名是单一真值，下载侧（向导）与运行侧（vad.py/kws.py）
+# 读同一张表；目录分开放（voice_vad/、voice_kws/），各管各的取件与缺席判定。
+
+VOICE_VAD_MODEL_FILE = "silero_vad.onnx"
+#: sherpa-onnx 官方 Release 资产地址（下载侧用它；运行侧只认盘上的文件）。
+VOICE_VAD_MODEL_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+)
+
+
+def voice_vad_cache_dir() -> Path:
+    """Silero VAD 的缓存根（voice_vad/），与 voice_asr/ 同级。"""
+    return Path(data_path("voice_vad"))
+
+
+def find_voice_vad_model() -> Path | None:
+    """找盘上的 Silero VAD 模型，命中返回文件路径；只报在场/缺席，不验内容。
+
+    两处按优先级找（新缓存 → 工程内 models/voice_vad）；半成品子目录里的同名
+    文件也认——下载器可能把整包解到子目录，与 find_voice_asr_model_dir 同姿势。
+    """
+    for root in (
+        voice_vad_cache_dir(),
+        Path(project_path("models", "voice_vad")),
+    ):
+        if not root.is_dir():
+            continue
+        candidate = root / VOICE_VAD_MODEL_FILE
+        if candidate.is_file():
+            return candidate
+        try:
+            for marker in root.rglob(VOICE_VAD_MODEL_FILE):
+                if marker.is_file():
+                    return marker
+        except OSError:
+            continue
+    return None
+
+
+#: KWS 模型 zipformer（中英混合，~3.3M 参数）；文件名用前缀匹配——该模型的
+#: 版本号刻在文件名里，钉死全名会在模型换版时造成「下了却找不到」的假缺席。
+VOICE_KWS_MODEL_REPO = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile"
+VOICE_KWS_PREFIXES = {
+    "encoder": ("encoder-",),
+    "decoder": ("decoder-",),
+    "joiner": ("joiner-",),
+}
+
+
+def voice_kws_cache_dir() -> Path:
+    """KWS 模型的缓存根（voice_kws/）。"""
+    return Path(data_path("voice_kws"))
+
+
+def find_voice_kws_files() -> dict | None:
+    """找一套能跑 KWS 的模型文件，命中返回 {encoder, decoder, joiner, tokens[, keywords]}。
+
+    keywords 是用户词表（keywords.txt）：模型目录里没有就不塞进结果——词表缺席
+    由 kws.build_keyword_spotter 单独报「词表缺失」，和模型缺失分开处置。
+    """
+    for root in (
+        voice_kws_cache_dir(),
+        Path(project_path("models", "voice_kws")),
+    ):
+        if not root.is_dir():
+            continue
+        candidates = [root]
+        try:
+            candidates.extend(p for p in root.iterdir() if p.is_dir())
+        except OSError:
+            continue
+        for directory in candidates:
+            found: dict = {}
+            try:
+                entries = [p for p in directory.iterdir() if p.is_file()]
+            except OSError:
+                continue
+            for key, prefixes in VOICE_KWS_PREFIXES.items():
+                for entry in entries:
+                    if entry.suffix == ".onnx" and entry.name.startswith(prefixes):
+                        found[key] = str(entry)
+                        break
+            for entry in entries:
+                if entry.name == "tokens.txt":
+                    found["tokens"] = str(entry)
+                elif entry.name == "keywords.txt":
+                    found["keywords"] = str(entry)
+            if all(k in found for k in ("encoder", "decoder", "joiner", "tokens")):
+                return found
+    return None
+
+
 def migrate_legacy_home_data() -> list[str]:
     """Copy files from legacy ``~/.meapet`` into the portable data dir once.
 

@@ -177,7 +177,20 @@
     "language": "zh",
     "auto_send": false,
     "precision": "int8",
-    "input_device_index": null
+    "input_device_index": null,
+    "mode": "toggle",
+    "ptt_hotkey": "",
+    "vad": {
+      "threshold": 0.5,
+      "min_silence_duration": 0.5,
+      "min_speech_duration": 0.25,
+      "max_speech_duration": 20.0
+    },
+    "wake_word": {
+      "enabled": false,
+      "keywords_file": ""
+    },
+    "echo_gate_tail_ms": 300
   },
   "fidus": {
     "enabled": false,

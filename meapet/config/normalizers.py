@@ -57,6 +57,36 @@ def canonical_tts_language(value: object) -> str:
 
 #: 一格里最多留这么多关键词：点一次抽一个，几十条已经够抽样散开，再多只是把配置面撑长。
 FEEDBACK_KEYWORD_LIMIT = 64
+
+#: 收音模式档。toggle = 点按切换（老行为，默认）；hands_free = 常驻收音 + VAD 自动断句。
+#: PTT 是 toggle 的触发器（按下=开始、松开=停止），不是第三个档——录音语义一模一样。
+VOICE_INPUT_MODES = ("toggle", "hands_free")
+VOICE_INPUT_MODE_DEFAULT = "toggle"
+
+
+def normalize_voice_mode(mode: object) -> str:
+    """把配置里的收音模式收敛到已知档；未知一律按点按切换（老行为）。"""
+    key = str(mode or "").strip().lower()
+    return key if key in VOICE_INPUT_MODES else VOICE_INPUT_MODE_DEFAULT
+
+
+def clamp_float(value: object, default: float, low: float, high: float) -> float:
+    """把配置里的数值收敛进 [low, high]；读不了就用 default。"""
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return float(default)
+    return max(low, min(out, high))
+
+
+def clamp_int(value: object, default: int, low: int, high: int) -> int:
+    """整数版 clamp_float；配置面里的毫秒/计数都走它。"""
+    try:
+        out = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return int(default)
+    return max(low, min(out, high))
+
 #: 单个关键词的长度上限——超长的那条多半是把一整句话粘进来了，检索效果反而差。
 FEEDBACK_KEYWORD_MAX_CHARS = 64
 _FEEDBACK_KEYWORD_SEPARATORS = "，,、;；\n\r\t "
