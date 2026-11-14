@@ -56,8 +56,9 @@ class EnvCheckPage(QFrame):
         self._can_install = not is_frozen()
         desc = QLabel(
             (
-                "打包版只做只读检查：下面报的是随包内容，缺什么都装不了，"
-                "要补件得在构建环境装好后重新打包。"
+                "打包版只做只读检查：下面报的是随包内容。pip 组件缺了装不了"
+                "（需构建环境补好重新打包）；但语音模型 / 扩展包可在「语音设置」页"
+                "按需下载（ONNX 嗓音、VITS 离线语音包、语音输入模型）。"
             )
             if not self._can_install
             else "仅检测环境；组件默认不自动下载，需要时点「安装」按需获取"
@@ -280,7 +281,7 @@ class EnvCheckPage(QFrame):
             (
                 f"检测完成（{PLATFORM['os_label']}）— 缺失项可点“安装”按需获取"
                 if self._can_install
-                else f"检测完成（{PLATFORM['os_label']}）— 以上是随包内容，打包版不安装组件"
+                else f"检测完成（{PLATFORM['os_label']}）— 以上是随包内容；语音模型 / 扩展包可到「语音设置」按需下载"
             ),
         )
 

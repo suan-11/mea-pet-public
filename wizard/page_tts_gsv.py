@@ -271,14 +271,17 @@ class TtsPageGsvMixin:
         return (
             "GSV 模型权重可随项目分发；推理必须使用外部 GPT-SoVITS 环境里的 "
             + exe_hint
-            + "。若只想开箱说话，请改用 VITS（进程内）或 MiMo 云端语音。</p>"
+            + "。若只想开箱说话，请改用 ONNX 轻量离线（约 30 MB 模型）或 MiMo 云端语音；"
+            "角色原声也可用 VITS + 离线语音包。</p>"
         )
 
     def _show_gsv_guide(self):
         """大白话安装指南（GPT-SoVITS 整合包版）"""
         guide = (
-            "<h3>🎤 梅尔说话需要它</h3>"
-            "<p>语音功能需要装 <b>GPT-SoVITS</b> 官方整合包。</p>"
+            "<h3>🎤 GPT-SoVITS：角色原声 · 音质最好</h3>"
+            "<p>这个引擎需要 <b>GPT-SoVITS</b> 官方整合包（或自建环境），"
+            "支持音色克隆，推理较慢。<br>"
+            "只想开箱出声？ONNX 轻量离线（约 30 MB 模型）或 MiMo 云端更省事。</p>"
             "<hr>"
             "<h4>👇 跟着这几步做：</h4>"
             "<p><b>1. 下整合包</b><br>"

@@ -57,7 +57,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         self.enable_cb.setChecked(True)
         self.enable_cb.toggled.connect(self._toggle)
         layout.addWidget(self.enable_cb)
-        tts_hint = QLabel("想先开玩可暂时关闭；本地引擎需要额外模型，云端 TTS 只需 API Key。")
+        tts_hint = QLabel(
+            "想先开玩可暂时关闭。开箱出声：ONNX 轻量（模型约 30 MB）或 MiMo 云端（API Key）；\n"
+            "角色原声：VITS / GPT-SoVITS（需额外运行时，见各引擎说明）。"
+        )
         tts_hint.setObjectName("HelperText")
         tts_hint.setWordWrap(True)
         layout.addWidget(tts_hint)
@@ -92,8 +95,8 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         self.backend_combo.setAccessibleName("语音引擎")
         self.backend_combo.addItem("MiMo 云端 TTS（推荐：无需本地模型，用 API Key）", "mimo")
         self.backend_combo.addItem("ONNX 轻量离线（兜底嗓音·非角色原声，无需 torch）", "onnx")
-        self.backend_combo.addItem("VITS（轻量快速，无需整合包，效果勉强能用）", "vits")
-        self.backend_combo.addItem("GPT-SoVITS（效果超好，需要整合包，推理慢）", "gpt_sovits")
+        self.backend_combo.addItem("VITS（角色原声·日语；core 版需下载离线语音包）", "vits")
+        self.backend_combo.addItem("GPT-SoVITS（角色原声·音质最好·可克隆；需整合包，推理慢）", "gpt_sovits")
         self.backend_combo.currentIndexChanged.connect(self._toggle_backend)
         layout.addWidget(self.backend_combo)
 
@@ -261,6 +264,10 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         # VITS 环境安装按钮
         self.setup_vits_btn = QPushButton("自动配置 VITS 环境")
         self.setup_vits_btn.setAccessibleDescription("首次使用 VITS 时安装运行环境")
+        self.setup_vits_btn.setToolTip(
+            "源码版 / 本机 Python 用（pip 安装 torch 等，需确认）。\n"
+            "打包版请用下方「下载离线语音包」，无需 pip。"
+        )
         self.setup_vits_btn.clicked.connect(self._setup_vits_env)
         layout.addWidget(self.setup_vits_btn)
 
@@ -298,7 +305,7 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         vpack_layout.addWidget(self.vits_pack_status)
         layout.addWidget(self.vits_pack_frame)
 
-        # P1-4：轻量 ONNX 离线引擎段（无需 torch，模型约 20 MB）
+        # P1-4：轻量 ONNX 离线引擎段（无需 torch，模型约 33 MB）
         self._build_onnx_section(layout)
 
         # GSV 相关控件容器（GPT-SoVITS 模式显示）
@@ -394,8 +401,9 @@ class TTSPage(TtsPageGsvMixin, TtsPageMimoMixin, TtsPageVitsMixin, TtsPageOnnxMi
         layout.addWidget(self.gsv_container)
 
         packaged_hint = QLabel(
-            "打包版：VITS 可进程内合成（模型随包分发）；"
-            "GPT-SoVITS 仍需本机整合包 Python；也可用 MiMo 云端语音。"
+            "打包版默认 core 轻装档：ONNX 轻量可开箱出声（模型约 30 MB 可下载）；"
+            "VITS 需下载离线语音包（约 1 GB）；GPT-SoVITS 需本机整合包 Python；"
+            "MiMo 云端只需 API Key。"
         )
         packaged_hint.setObjectName("HelperText")
         packaged_hint.setWordWrap(True)
