@@ -80,23 +80,37 @@ if ($LASTEXITCODE -ne 0) {
     throw "Build environment is missing runtime dependencies (see above). Run: python -m pip install -e "".[all]"""
 }
 
-Write-Host "Running pyinstaller MeaPet.spec ..." -ForegroundColor Cyan
-python -m PyInstaller --noconfirm MeaPet.spec
+# ── P0-1 构建后置闸门：staging 构建 → 全量断言 → 原子替换 dist ──────────────
+# 半成品绝不污染 dist/：PyInstaller 先落 build/stage_dist，scripts/verify_dist.py
+# 全过（exe/旧CRT归零/关键资产/无开发者数据泄露/doctor JSON 冒烟/体积）才替换。
+# 档位：MEAPET_PROFILE=core|full（Windows 默认 core；=full 回整包对照；Linux 恒 full）。
+$Profile = if ($env:MEAPET_PROFILE) { $env:MEAPET_PROFILE } else { "core" }
+$Stage = Join-Path $Root "build\stage_dist"
+$Work = Join-Path $Root "build\stage_work"
+if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
+
+Write-Host "Running pyinstaller MeaPet.spec (staging=$Stage profile=$Profile) ..." -ForegroundColor Cyan
+python -m PyInstaller --noconfirm --distpath $Stage --workpath $Work MeaPet.spec
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
-$exe = Join-Path $Root "dist\MeaPet\MeaPet.exe"
-if (-not (Test-Path $exe)) { throw "MeaPet.exe missing after build" }
-
-$assetsFont = Join-Path $Root "dist\MeaPet\_internal\meapet\assets\fonts\LXGWWenKai-Regular.ttf"
-if (-not (Test-Path $assetsFont)) {
-    Write-Warning "Bundled font missing in dist — UI will fall back to system fonts"
+python scripts/verify_dist.py --dist (Join-Path $Stage "MeaPet") --platform windows --profile $Profile
+if ($LASTEXITCODE -ne 0) {
+    throw "构建后置闸门未通过——dist/MeaPet 保持原样（staging 留在 $Stage 供排查）"
 }
 
-$vitsScript = Join-Path $Root "dist\MeaPet\_internal\meapet\tools\vits_infer.py"
-if (-not (Test-Path $vitsScript)) {
-    Write-Warning "vits_infer.py not extracted as data (in-process VITS still OK if vits_core/models present)"
+# 原子替换：旧包先改名 .prev，新包移入；移入失败回滚旧包。.prev 随后清理。
+$Final = Join-Path $Root "dist\MeaPet"
+$Prev = Join-Path $Root "dist\MeaPet.prev"
+if (Test-Path $Prev) { Remove-Item -Recurse -Force $Prev }
+if (Test-Path $Final) { Move-Item -LiteralPath $Final -Destination $Prev }
+try {
+    Move-Item -LiteralPath (Join-Path $Stage "MeaPet") -Destination $Final
+} catch {
+    if (Test-Path $Prev) { Move-Item -LiteralPath $Prev -Destination $Final }
+    throw
 }
+if (Test-Path $Prev) { Remove-Item -Recurse -Force $Prev }
 
-Write-Host "Build OK: $exe" -ForegroundColor Green
+Write-Host "Build OK: $Final" -ForegroundColor Green
 Write-Host "Portable data root (runtime): dist\MeaPet\_internal"
 Write-Host "Do not commit dist/ or ship a developer config.json with API keys."

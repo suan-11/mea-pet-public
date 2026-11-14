@@ -89,23 +89,30 @@ if ! "$PY" -m meapet.bootstrap --check all; then
   fail "构建环境缺运行时依赖（见上）⇒ 先跑 \"$PY -m pip install -e '.[linux]'\"（VITS 面另加 .[vits]）"
 fi
 
-# ---- ④ 构建 ----
+# ---- ④ 构建（P0-1：staging，半成品不落 dist/）----
 "$PY" -c "import PyInstaller" 2>/dev/null ||
   fail "未装 PyInstaller：$PY -m pip install pyinstaller"
-echo ">>> $PY -m PyInstaller --noconfirm MeaPet.spec"
-"$PY" -m PyInstaller --noconfirm MeaPet.spec
+STAGE="build/stage_dist"
+WORK="build/stage_work"
+rm -rf "$STAGE"
+echo ">>> $PY -m PyInstaller --noconfirm --distpath $STAGE --workpath $WORK MeaPet.spec"
+"$PY" -m PyInstaller --noconfirm --distpath "$STAGE" --workpath "$WORK" MeaPet.spec
 
-# ---- ⑤ 产物断言 ----
+# ---- ⑤ 后置闸门（exe/关键资产/无泄露/shim/numpy/doctor JSON 冒烟/体积）----
+# Linux 恒 full 档（瘦身是 Windows 包的事，见 MeaPet.spec 注释）。
+"$PY" scripts/verify_dist.py --dist "$STAGE/MeaPet" --platform linux --profile full ||
+  fail "构建后置闸门未通过——dist/MeaPet 保持原样（staging 留在 $STAGE 供排查）"
+
+# ---- ⑥ 原子替换 dist/MeaPet ----
+mkdir -p dist
+[ ! -e dist/MeaPet.prev ] || rm -rf dist/MeaPet.prev
+if [ -e dist/MeaPet ]; then mv dist/MeaPet dist/MeaPet.prev; fi
+if ! mv "$STAGE/MeaPet" dist/MeaPet; then
+  [ ! -e dist/MeaPet.prev ] || mv dist/MeaPet.prev dist/MeaPet
+  fail "原子替换失败，已回滚旧产物"
+fi
+rm -rf dist/MeaPet.prev
 bin="dist/MeaPet/MeaPet"
-internal="dist/MeaPet/_internal"
-[ -x "$bin" ] || fail "构建后缺产物：$bin"
-[ -f "$internal/liblayer_shell_shim.so" ] ||
-  fail "包内缺 $internal/liblayer_shell_shim.so（wayland_layer.shim_candidates() 的第一条候选就是这里）"
-# 声明过不等于收进去了：numpy 是 fidus_position.py 的模块级 import，缺它一碰「启用 fidus」就炸。
-[ -d "$internal/numpy" ] || fail "包内缺 numpy 运行时（fidus_position.py 模块级依赖）"
-[ -f "$internal/meapet/assets/fonts/LXGWWenKai-Regular.ttf" ] ||
-  echo "[WARN] 包内没有内置字体 ⇒ UI 回退系统字体" >&2
-
 echo ">>> 构建 OK：$bin"
 cat <<'TXT'
 产物就绪。A 阶段那六项判据要在真机上逐条过（缺一条就不能说"Linux 过了"）：
